@@ -46,6 +46,14 @@
   ],
   "author": "OfferKuai <contact@offerkuai.com> (https://www.offerkuai.com)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yamingmou/dsh-log-contract.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yamingmou/dsh-log-contract/issues"
+  },
+  "homepage": "https://github.com/yamingmou/dsh-log-contract#readme",
   "engines": {
     "node": ">=22"
   },
