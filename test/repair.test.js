@@ -14,7 +14,7 @@ import path from 'node:path';
 import { zstdDecompressSync } from 'node:zlib';
 import { loadSessionLog } from '../lib/log-reader.js';
 import { validateSessionLog } from '../lib/validate.js';
-import { repairSession, strictScanText, removeMarkersText } from '../lib/repair.js';
+import { repairSession, strictScanText, removeMarkersText, dropFailedTurnsText, trimLastMessagesText } from '../lib/repair.js';
 import { assistantMessage, markerEvent, toolResultMessage, userMessage, writeSession } from './helpers.js';
 
 function ids(result) {
@@ -181,4 +181,57 @@ function zstdFrameEnd(buf) {
   }
   if ((descriptor & 4) !== 0) offset += 4;
   return offset;
+}
+
+describe('dropFailedTurnsText', () => {
+  it('删除带 error reason 的 turn/end 完整轮次并重编号', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      assistantMessage({ seq: 1 }),
+      { type: 'turn/end', seq: 2, time: 3, data: { turn: 0, reason: 'completed' } },
+      { type: 'turn/start', seq: 3, time: 4, data: { turn: 1 } },
+      userMessage({ seq: 4 }),
+      assistantMessage({ seq: 5 }),
+      { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'error', error: { message: 'INVALID_REQUEST' } } } },
+      userMessage({ seq: 7 }),
+    ];
+    const file = writeSession(events);
+    const text = fs.readFileSync(file, 'utf8');
+    const r = dropFailedTurnsText(text);
+    expect(r.failedTurns).toBe(1);
+    const scan = strictScanText(r.text);
+    expect(scan.failures).toEqual([]);
+    // 失败轮次（turn/start..turn/end 3..6）被删，剩余 seq 0,1,2,3(原7)
+    const kept = r.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    expect(kept.some((e) => e.type === 'turn/end' && e.data?.reason?.kind === 'error')).toBe(false);
+    expect(scan.count).toBe(4);
+  });
+});
+
+describe('trimLastMessagesText', () => {
+  it('裁剪到最近 N 条消息、移除 marker、重编号后严格连续', () => {
+    const events = [];
+    for (let i = 0; i < 6; i++) {
+      events.push(userMessage({ seq: i * 2 }));
+      events.push(assistantMessage({ seq: i * 2 + 1 }));
+    }
+    events.push(markerEvent({ seq: 12, start: 0, end: 3, shadowedSeqs: [0, 1, 2, 3] }));
+    const file = writeSession(events);
+    const text = fs.readFileSync(file, 'utf8');
+    const r = trimLastMessagesText(text, 4);
+    expect(r.kept).toBe(4);
+    const scan = strictScanText(r.text);
+    expect(scan.failures).toEqual([]);
+    const kept = r.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    expect(kept.some((e) => e.type === 'assistant/message' && e.surfaceOp?.op === 'replace')).toBe(false);
+    const result = validateSessionLog(loadSessionLog(writeTemp(r.text)));
+    expect(result.ok).toBe(true);
+  });
+});
+
+function writeTemp(text) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dlc-trim-'));
+  const file = path.join(dir, 's.jsonl');
+  fs.writeFileSync(file, text);
+  return file;
 }
