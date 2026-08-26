@@ -161,13 +161,16 @@ function cmdContracts() {
 function cmdFix(args) {
   const json = args.includes('--json');
   const removeMarkers = args.includes('--remove-markers');
+  const dropFailedTurns = args.includes('--drop-failed-turns');
+  const trimIdx = args.indexOf('--trim-last');
+  const trimLast = trimIdx >= 0 && args[trimIdx + 1] ? Number(args[trimIdx + 1]) : undefined;
   const apply = args.includes('--apply');
   const backupDirIdx = args.indexOf('--backup-dir');
   const backupDir = backupDirIdx >= 0 && args[backupDirIdx + 1] ? args[backupDirIdx + 1] : undefined;
   const file = args.find((a) => !a.startsWith('-'));
   if (!file) fail(USAGE);
 
-  const result = repairSession(file, { removeMarkers, apply, backupDir });
+  const result = repairSession(file, { removeMarkers, dropFailedTurns, trimLast, apply, backupDir });
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     process.exit(result.ok ? 0 : 1);
@@ -176,7 +179,7 @@ function cmdFix(args) {
   process.stdout.write(`\n🔧 dsh-log-contract fix —— ${file}\n`);
   process.stdout.write(`   诊断：${result.issues.length === 0 ? '无问题' : result.issues.map((i) => `[${i.kind}] ${i.detail}`).join('\n         ')}\n`);
   if (result.applied) {
-    process.stdout.write(`   已应用修复：移除 ${result.removed} 个 marker，重编号 ${result.renumbered} 行\n`);
+    process.stdout.write(`   已应用修复：移除 ${result.removed} 项，重编号 ${result.renumbered} 行\n`);
     process.stdout.write(`   备份：${result.backupPath}\n`);
     process.stdout.write(`   修复后体检：error ${result.check.summary?.bySeverity?.error ?? '?'} ｜ surface ${result.check.summary?.surfaceNodes ?? '?'} 节点\n`);
   } else if (apply && !result.ok) {
@@ -184,7 +187,7 @@ function cmdFix(args) {
   } else if (apply) {
     process.stdout.write('   （--apply 且无问题——无内容可修）\n');
   } else {
-    process.stdout.write(`   （干跑模式：${result.removed} 个 marker 可移除、${result.renumbered} 行待重编号；加 --apply 落盘，--remove-markers 启用于移除）\n`);
+    process.stdout.write(`   （干跑模式：${result.removed} 项可移除、${result.renumbered} 行待重编号；加 --apply 落盘，--remove-markers / --drop-failed-turns / --trim-last N 启用于对应修复）\n`);
   }
   process.stdout.write('\n');
   process.exit(result.ok ? 0 : 1);
