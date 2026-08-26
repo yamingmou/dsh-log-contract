@@ -66,6 +66,28 @@ dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json   # 机器可读
 
 退出码：0 = 通过（无 error 级违规）；1 = 存在 error 级违规。
 
+`check` 自 0.2.0 起新增 **W1/W2 wire 级检查**：按 surface 顺序展开模型请求消息流，
+捕获"悬空 tool 消息"（tool 结果没有前置 assistant tool_calls）与"user 文本插在
+tool_calls 与其结果之间"——这类问题 DeepSeek 曾容忍，但 MiMo 等严格端点会直接
+`INVALID_REQUEST`（2026-08-27 实锤）。
+
+### 1.5. ★ 修复（2026-08 事故固化方案）
+
+```bash
+# 干跑（只报告）：严格 seq 连续扫描 + 全契约体检（含 W1/W2）+ 可移除 marker 数
+dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers
+
+# 应用：备份后落盘（.zstd 走官方帧格式重建：帧1=header、帧2=其余、checksum、单个结尾换行）
+dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers --apply
+```
+
+- `--remove-markers`：移除 retrace/message-editor marker 并全量重编号
+  （seq/seq0/sourceEventSeqs/surfaceOp 同步）——用于大范围 marker 遮蔽历史、
+  marker 漏盖 tool/result 导致的悬空 tool。
+- 手术安全协议：改前备份、改后全量复检（strictScan + check + foldSurface）、
+  marker 只能遮蔽其之前的节点、marker 绝不能改成 append（M1 客户端崩溃）。
+- ⚠️ 若会话已被运行中的应用驻留内存，修复文件后需**重启应用**（强杀避免脏状态刷回）。
+
 ### 2. ★ 写前校验（本次事故的直接解药）
 
 `edit-file` 为 JSON，两种形状：
@@ -144,7 +166,7 @@ node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.z
 | 工具 | 象限 | 状态 |
 |---|---|---|
 | [workbuddy-session-fork](https://github.com/yamingmou/workbuddy-session-fork) | 会话分叉 · 状态管理 | ✅ 已发布 v1.2.0 |
-| **dsh-log-contract**（本仓库） | 日志契约 · 接口稳定性 | 🆕 Phase 1 CLI 离线体检 + 写前校验 |
+| **dsh-log-contract**（本仓库） | 日志契约 · 接口稳定性 | ✅ Phase 1（check/prewrite）+ Phase 1.5（fix）0.2.0 |
 | dsh-turn-guard（规划中） | 中断回合 · 异常韧性 | 待立项 |
 
 三者共享同一份 DSH 日志事件契约认知（59 条审计发现 = spec，aborted/corrupt/seqgap 化石 = 测试集）。dsh-retrace（回溯时间线）可把本工具的违规标记渲染到时间线上；本工具是 retrace 投影源健康度的**前置保险**。
@@ -153,8 +175,8 @@ node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.z
 
 ## Roadmap
 
-- [x] **Phase 1（本版 0.1.0）**：CLI 离线体检 + 写前校验 + 契约目录
-- [ ] Phase 1.5：违规报告的 `--fix` 建议（seq 缺口修复复用 `fix-seq-gap.mjs` 方法论）、CI 集成（`dsh-log-contract check` 作为 Harness 会话目录的定时守护）
+- [x] **Phase 1（0.1.0）**：CLI 离线体检 + 写前校验 + 契约目录
+- [x] **Phase 1.5（0.2.0）**：`fix` 子命令（严格 seq 扫描 + W1/W2 wire 检查 + 移除 marker 重编号 + 官方帧格式重建）；CI 集成（`dsh-log-contract check` 作为 Harness 会话目录的定时守护）
 - [ ] Phase 2：运行时守护（订阅 session append 事件流实时校验，断裂即标记 `dsh/contract-violation` 事件，策略可配 告警/拦截）——DSH 插件形态
 - [ ] Phase 3：与 dsh-turn-guard / dsh-retrace 时间线联动
 
