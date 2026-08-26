@@ -13,7 +13,7 @@
  *   contracts                     列出内置契约规则目录
  */
 import fs from 'node:fs';
-import { loadSessionLog, validateSessionLog, createPreWriter, CONTRACT_RULES, ruleById } from '../lib/index.js';
+import { loadSessionLog, validateSessionLog, createPreWriter, repairSession, CONTRACT_RULES, ruleById } from '../lib/index.js';
 
 const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log contract guard）
 
@@ -22,6 +22,16 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
       离线体检。session-log 支持 .jsonl 与 .jsonl.zstd。
       --json          输出机器可读 JSON 报告
       --max-details N 每条违规最多列 N 个缺失 seq（默认 8，--json 忽略）
+
+  dsh-log-contract fix <session-log> [--remove-markers] [--apply] [--backup-dir DIR] [--json]
+      诊断 + 修复（2026-08 事故固化方案）。先做严格 seq 连续扫描 + 契约体检
+      （含 W1/W2 wire 级悬空 tool 检查），再按需修复：
+      --remove-markers 移除 retrace/message-editor marker 并全量重编号
+                       （用于大范围遮蔽历史 / marker 漏盖 tool/result）
+      --apply          备份后落盘（.zstd 走官方帧格式重建：帧1=header、
+                       帧2=其余、带 checksum、单个结尾换行）
+      不传 --apply 为干跑（只报告）。
+      注意：若会话已被运行中的应用驻留，修复文件后需重启（强杀避免脏状态刷回）。
 
   dsh-log-contract prewrite <edit-file> --log <session-log> [--json]
       写前校验。edit-file 为 JSON，两种形状：
@@ -148,6 +158,38 @@ function cmdContracts() {
   }
 }
 
+function cmdFix(args) {
+  const json = args.includes('--json');
+  const removeMarkers = args.includes('--remove-markers');
+  const apply = args.includes('--apply');
+  const backupDirIdx = args.indexOf('--backup-dir');
+  const backupDir = backupDirIdx >= 0 && args[backupDirIdx + 1] ? args[backupDirIdx + 1] : undefined;
+  const file = args.find((a) => !a.startsWith('-'));
+  if (!file) fail(USAGE);
+
+  const result = repairSession(file, { removeMarkers, apply, backupDir });
+  if (json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    process.exit(result.ok ? 0 : 1);
+  }
+
+  process.stdout.write(`\n🔧 dsh-log-contract fix —— ${file}\n`);
+  process.stdout.write(`   诊断：${result.issues.length === 0 ? '无问题' : result.issues.map((i) => `[${i.kind}] ${i.detail}`).join('\n         ')}\n`);
+  if (result.applied) {
+    process.stdout.write(`   已应用修复：移除 ${result.removed} 个 marker，重编号 ${result.renumbered} 行\n`);
+    process.stdout.write(`   备份：${result.backupPath}\n`);
+    process.stdout.write(`   修复后体检：error ${result.check.summary?.bySeverity?.error ?? '?'} ｜ surface ${result.check.summary?.surfaceNodes ?? '?'} 节点\n`);
+  } else if (apply && !result.ok) {
+    process.stdout.write('   ❌ 存在 error 级问题，拒绝应用（改前基线必须绿；先修基线或检查输出）\n');
+  } else if (apply) {
+    process.stdout.write('   （--apply 且无问题——无内容可修）\n');
+  } else {
+    process.stdout.write(`   （干跑模式：${result.removed} 个 marker 可移除、${result.renumbered} 行待重编号；加 --apply 落盘，--remove-markers 启用于移除）\n`);
+  }
+  process.stdout.write('\n');
+  process.exit(result.ok ? 0 : 1);
+}
+
 const args = process.argv.slice(2);
 const cmd = args[0];
 if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') {
@@ -161,5 +203,6 @@ if (cmd === '--version' || cmd === '-v') {
 }
 if (cmd === 'check') cmdCheck(args.slice(1));
 else if (cmd === 'prewrite') cmdPrewrite(args.slice(1));
+else if (cmd === 'fix') cmdFix(args.slice(1));
 else if (cmd === 'contracts') cmdContracts();
 else fail(`未知子命令 "${cmd}"\n\n${USAGE}`);
