@@ -183,3 +183,20 @@ node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.z
 ## 许可
 
 MIT © OfferKuai Team
+
+
+## 🧭 会话考古（extract / audit-report）
+
+DSH 会话日志持久化了每次工具调用的完整输入输出——数据资产与审计资产。
+本工具提供只读考古能力：
+
+```sh
+# 按命令正则导出工具输出（保留原始文本）
+dsh-log-contract extract <session-log> --pattern "seed-scale" --min-size 50 --out ./found
+
+# 考古审计报告：调用数 / 配对率 / 孤儿数 / 命令分布
+dsh-log-contract audit-report <session-log>
+```
+
+契约规则 P3（tool/call↔tool/result 配对完整性）与 P4（输出结构可解析）
+守护"挖得动"：孤儿调用、text 字段异常在 check 中告警。
