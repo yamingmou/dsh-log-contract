@@ -13,7 +13,7 @@
  *   contracts                     列出内置契约规则目录
  */
 import fs from 'node:fs';
-import { loadSessionLog, validateSessionLog, createPreWriter, repairSession, CONTRACT_RULES, ruleById } from '../lib/index.js';
+import { loadSessionLog, validateSessionLog, createPreWriter, repairSession, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls } from '../lib/index.js';
 
 const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log contract guard）
 
@@ -38,6 +38,13 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
         { "append": { ...事件... } }            拟追加一个事件到日志尾部
         { "edit": [ ...事件列表... ] }          帧级手术后的完整事件列表
       判定通过/拒绝并列出全部违规（三层契约：持久化/引擎/插件）。
+
+  dsh-log-contract extract <session-log> --pattern <regex> [--out DIR] [--min-size N] [--json]
+      考古提取：按命令正则导出工具输出（只读）。--out 写到目录（保留原始文本），
+      否则打印前 3 条摘要。--min-size 过滤小输出（默认 50，任务书口径）。
+
+  dsh-log-contract audit-report <session-log> [--json]
+      考古审计报告：调用数 / 配对率 / 孤儿数 / 命令分布。
 
   dsh-log-contract contracts
       列出内置契约规则目录（含官方源码出处）。
@@ -195,6 +202,66 @@ function cmdFix(args) {
   process.exit(result.ok ? 0 : 1);
 }
 
+function cmdExtract(args) {
+  const json = args.includes('--json');
+  const outIdx = args.indexOf('--out');
+  const outDir = outIdx >= 0 && args[outIdx + 1] ? args[outIdx + 1] : undefined;
+  const minIdx = args.indexOf('--min-size');
+  const minSize = minIdx >= 0 && args[minIdx + 1] ? Number(args[minIdx + 1]) : 50;
+  const patternIdx = args.indexOf('--pattern');
+  const pattern = patternIdx >= 0 && args[patternIdx + 1] ? args[patternIdx + 1] : '';
+  const file = args.find((a) => !a.startsWith('-'));
+  if (!file || pattern === '') fail('extract 需要 <session-log> 与 --pattern <regex>');
+
+  const log = loadSessionLog(file);
+  const { pairs, total } = extractToolOutputs(log.events.map((e) => e.event), pattern, { minSize });
+  if (json) {
+    process.stdout.write(JSON.stringify({ file, pattern, matched: pairs.length, total, pairs: pairs.map((p) => ({ callId: p.callId, command: p.command, size: p.size })) }, null, 2) + '\n');
+    process.exit(0);
+  }
+  process.stdout.write(`\n🔍 dsh-log-contract extract —— ${file}\n`);
+  process.stdout.write(`   命令正则：/${pattern}/ ｜ 匹配 ${pairs.length} 个输出（共 ${total} 个工具调用，min-size ${minSize}）\n`);
+  if (outDir) {
+    fs.mkdirSync(outDir, { recursive: true });
+    let written = 0;
+    for (const p of pairs) {
+      const safe = p.callId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      fs.writeFileSync(`${outDir}/${safe}.txt`, p.text);
+      written += 1;
+    }
+    process.stdout.write(`   已导出 ${written} 个输出到 ${outDir}\n`);
+  } else {
+    for (const p of pairs.slice(0, 3)) {
+      process.stdout.write(`   - [${p.size}B] ${p.command.slice(0, 60)}… ${p.text.slice(0, 80).replace(/\n/g, ' ')}…\n`);
+    }
+    if (pairs.length > 3) process.stdout.write(`   … 其余 ${pairs.length - 3} 个（加 --out DIR 全部导出）\n`);
+  }
+  process.stdout.write('\n');
+  process.exit(0);
+}
+
+function cmdAuditReport(args) {
+  const json = args.includes('--json');
+  const file = args.find((a) => !a.startsWith('-'));
+  if (!file) fail(USAGE);
+  const log = loadSessionLog(file);
+  const report = auditToolCalls(log.events.map((e) => e.event));
+  if (json) {
+    process.stdout.write(JSON.stringify({ file, ...report }, null, 2) + '\n');
+    process.exit(0);
+  }
+  process.stdout.write(`\n📊 dsh-log-contract audit-report —— ${file}\n`);
+  process.stdout.write(`   工具调用 ${report.calls} ｜ 结果 ${report.results} ｜ 孤儿 ${report.orphans} ｜ 配对率 ${(report.pairingRate * 100).toFixed(1)}%\n`);
+  process.stdout.write(`   输出总字节 ${report.outputBytes}`);
+  if (report.largest) process.stdout.write(` ｜ 最大 ${report.largest.size}B（${(report.largest.command || '?').slice(0, 40)}）`);
+  process.stdout.write(`\n   命令分布（前 ${report.commands.top.length} 个去重）：\n`);
+  for (const { command, count } of report.commands.top.slice(0, 8)) {
+    process.stdout.write(`     ${String(count).padStart(4)}  ${(command || '(no-command)').slice(0, 70)}\n`);
+  }
+  process.stdout.write('\n');
+  process.exit(0);
+}
+
 const args = process.argv.slice(2);
 const cmd = args[0];
 if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') {
@@ -207,6 +274,8 @@ if (cmd === '--version' || cmd === '-v') {
   process.exit(0);
 }
 if (cmd === 'check') cmdCheck(args.slice(1));
+else if (cmd === 'extract') cmdExtract(args.slice(1));
+else if (cmd === 'audit-report') cmdAuditReport(args.slice(1));
 else if (cmd === 'prewrite') cmdPrewrite(args.slice(1));
 else if (cmd === 'fix') cmdFix(args.slice(1));
 else if (cmd === 'contracts') cmdContracts();
