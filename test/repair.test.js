@@ -235,3 +235,103 @@ function writeTemp(text) {
   fs.writeFileSync(file, text);
   return file;
 }
+
+describe('neutralizeMarkersText（2026-08-30 事故：turn-null marker 刷屏压垮 host）', () => {
+  function markerSessionEvents() {
+    return [
+      userMessage({ seq: 0, text: 'hi' }),
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+      assistantMessage({ seq: 2, turn: 1, step: 1 }),
+      { type: 'step/end', seq: 3, time: 4, data: { turn: 1, step: 1 } },
+      // turn-null retrace marker（编辑重发，step 已关闭）：token-meter 会在此抛错 → 刷屏
+      markerEvent({ seq: 4, start: 3, end: 3, shadowedSeqs: [3], id: 'retrace-edit-x' }),
+      userMessage({ seq: 5, text: 'after' }),
+    ];
+  }
+
+  it('中和 turn-null marker：type→retrace/marker + ignorable，删 surfaceOp，seq/行数不变', () => {
+    const { neutralizeMarkersText } = require('../lib/repair.js');
+    const events = markerSessionEvents();
+    const file = writeSession(events);
+    const text = fs.readFileSync(file, 'utf8');
+    const beforeLines = text.split('\n').filter(Boolean).length;
+    const r = neutralizeMarkersText(text);
+    expect(r.neutralized).toBe(1);
+    expect(r.seqs).toEqual([4]);
+    const afterLines = r.text.split('\n').filter(Boolean).length;
+    expect(afterLines).toBe(beforeLines); // 行数不变
+    const kept = r.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const marker = kept.find((e) => e.seq === 4);
+    expect(marker.type).toBe('retrace/marker');
+    expect(marker.ignorable).toBe(true);
+    expect(marker.surfaceOp).toBeUndefined();
+    expect(marker.sourceEventSeqs).toBeUndefined();
+    expect(marker.seq).toBe(4); // seq 不变
+    expect(marker.time).toBe(5); // 时间不变
+    expect(marker.data?.message?.id).toBe('retrace-edit-x'); // 内容保留
+  });
+
+  it('中和后 token-meter 折叠不再抛错（T1 0 违规）且 check 通过', () => {
+    const events = markerSessionEvents();
+    const file = writeSession(events);
+    const text = fs.readFileSync(file, 'utf8');
+    // 中和前：T1 违规（token-meter 会抛）
+    const before = validateSessionLog(loadSessionLog(file));
+    expect(ids(before)).toContain('T1');
+    // 中和后：T1 消失、foldSurface 可重放
+    const { neutralizeMarkersText } = require('../lib/repair.js');
+    const r = neutralizeMarkersText(text);
+    const tmp = path.join(tmpdir(), 's.jsonl');
+    fs.writeFileSync(tmp, r.text);
+    const after = validateSessionLog(loadSessionLog(tmp));
+    expect(after.violations.filter((v) => v.id === 'T1')).toHaveLength(0);
+    expect(after.ok).toBe(true);
+  });
+
+  it('非 turn-null 的 assistant/message 不受影响', () => {
+    const { neutralizeMarkersText } = require('../lib/repair.js');
+    const events = [
+      userMessage({ seq: 0 }),
+      assistantMessage({ seq: 1, turn: 1, step: 1 }), // 合法消息，不中和
+    ];
+    const file = writeSession(events);
+    const text = fs.readFileSync(file, 'utf8');
+    const r = neutralizeMarkersText(text);
+    expect(r.neutralized).toBe(0);
+    const kept = r.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    expect(kept.some((e) => e.type === 'retrace/marker')).toBe(false);
+  });
+
+  it('repairSession --neutralize 应用后 check 0 违规、seq 连续、备份存在', () => {
+    const events = markerSessionEvents();
+    const file = writeSession(events, { zstd: true });
+    const result = repairSession(file, { neutralize: true, apply: true, backupDir: tmpdir() });
+    expect(result.ok).toBe(true);
+    expect(result.neutralized).toBe(1);
+    expect(result.applied).toBe(true);
+    expect(result.backupPath).toBeTruthy();
+    const re = validateSessionLog(loadSessionLog(file));
+    expect(re.ok).toBe(true);
+    expect(re.violations.filter((v) => v.id === 'T1')).toHaveLength(0);
+  });
+
+  it('真实夹具：89b3cb30 的 turn-null marker 被中和（regression 锁死事故现场）', () => {
+    const { neutralizeMarkersText } = require('../lib/repair.js');
+    const backup = path.join(process.env.HOME, 'opena-archive-2026-08/backups/backup-session-89b3cb30-pre-markerfix-20260830-043631.jsonl.zstd');
+    if (!fs.existsSync(backup)) {
+      console.warn('skip: backup fixture not present');
+      return;
+    }
+    const { loadSessionLog } = require('../lib/log-reader.js');
+    const log = loadSessionLog(backup);
+    // 还原明文
+    const { decompressZstd } = require('../lib/log-reader.js');
+    const buf = decompressZstd(fs.readFileSync(backup));
+    const text = buf.toString('utf8');
+    const r = neutralizeMarkersText(text);
+    expect(r.neutralized).toBeGreaterThanOrEqual(1);
+    // 中和后的 seq 与备份中 turn-null marker 一致
+    const turnNull = log.events.filter((x) => x.event.type === 'assistant/message' && (x.event.data?.turn == null || x.event.data?.step == null)).map((x) => x.event.seq);
+    for (const s of turnNull) expect(r.seqs).toContain(s);
+  });
+});
