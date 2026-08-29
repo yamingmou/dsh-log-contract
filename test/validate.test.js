@@ -218,4 +218,55 @@ describe('逐条违规规则', () => {
     const result = validateSessionLog(loadSessionLog(file));
     expect(ids(result)).toContain('P2');
   });
+
+  // ── T1 · token-meter 配对（2026-08-28 事故根因 3）─────────────────────
+  it('T1：现代会话（step/start→assistant→step/end）零 T1 违规', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 0, step: 1 } },
+      assistantMessage({ seq: 2, turn: 0, step: 1 }),
+      { type: 'step/end', seq: 3, time: 4, data: { turn: 0, step: 1 } },
+      turnEnd({ seq: 4, turn: 0 }),
+    ];
+    const file = writeSession(events);
+    const result = validateSessionLog(loadSessionLog(file));
+    expect(result.violations.filter((v) => v.id === 'T1')).toHaveLength(0);
+    expect(result.ok).toBe(true);
+  });
+
+  it('T1：现代会话含 turn-null marker → error（/compact 会被拒）', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 0, step: 1 } },
+      assistantMessage({ seq: 2, turn: 0, step: 1 }),
+      { type: 'step/end', seq: 3, time: 4, data: { turn: 0, step: 1 } },
+      userMessage({ seq: 4 }),
+      markerEvent({ seq: 5, start: 0, end: 2, shadowedSeqs: [0, 2] }), // turn-null replace
+    ];
+    const file = writeSession(events);
+    const result = validateSessionLog(loadSessionLog(file));
+    const t1 = result.violations.filter((v) => v.id === 'T1');
+    expect(t1.length).toBeGreaterThan(0);
+    expect(t1[0].severity).toBe('error');
+    expect(result.ok).toBe(false);
+  });
+
+  it('T1：无 step/start 的简化日志不误报（远古/夹具结构）', () => {
+    const events = validSessionEvents(); // 夹具：无 step/start
+    const file = writeSession(events);
+    const result = validateSessionLog(loadSessionLog(file));
+    expect(result.violations.filter((v) => v.id === 'T1')).toHaveLength(0);
+  });
+
+  it('T1：step/end 无匹配 step/start → error', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 0, step: 1 } },
+      { type: 'step/end', seq: 2, time: 3, data: { turn: 9, step: 9 } }, // 不匹配
+    ];
+    const file = writeSession(events);
+    const result = validateSessionLog(loadSessionLog(file));
+    expect(ids(result)).toContain('T1');
+    expect(result.ok).toBe(false);
+  });
 });
