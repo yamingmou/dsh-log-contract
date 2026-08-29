@@ -1,7 +1,7 @@
 {
   "name": "dsh-log-contract",
   "description": "日志契约守护 — DSH session log contract guard: offline health check (CLI) + pre-write validation for DeepSeek Harness session logs",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "packageManager": "pnpm@11.7.0",
   "type": "module",
   "main": "lib/index.js",
