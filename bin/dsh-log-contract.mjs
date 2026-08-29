@@ -23,11 +23,12 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
       --json          输出机器可读 JSON 报告
       --max-details N 每条违规最多列 N 个缺失 seq（默认 8，--json 忽略）
 
-  dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--apply] [--backup-dir DIR] [--json]
+  dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--clip-crossstep] [--apply] [--backup-dir DIR] [--json]
       诊断 + 修复（2026-08 事故固化方案）。先做严格 seq 连续扫描 + 契约体检
       （含 W1/W2 wire 级悬空 tool 检查），再按需修复：
       --remove-markers 移除 retrace/message-editor marker 并全量重编号
                        （用于大范围遮蔽历史 / marker 漏盖 tool/result）
+      --clip-crossstep 裁剪 assistant/message 的跨 step sourceEventSeqs（token-meter 不再抛 belongs to another step）
       --neutralize     原地中和 turn-null marker（type→retrace/marker +
                        ignorable:true，删 surfaceOp/sourceEventSeqs，seq/行数不变）
                        —— token-meter 不再刷屏，会话驻留也安全（2026-08-30 事故）
@@ -172,6 +173,7 @@ function cmdFix(args) {
   const json = args.includes('--json');
   const removeMarkers = args.includes('--remove-markers');
   const neutralize = args.includes('--neutralize');
+  const clipCrossStep = args.includes('--clip-crossstep');
   const dropFailedTurns = args.includes('--drop-failed-turns');
   const trimIdx = args.indexOf('--trim-last');
   const trimLast = trimIdx >= 0 && args[trimIdx + 1] ? Number(args[trimIdx + 1]) : undefined;
@@ -183,7 +185,7 @@ function cmdFix(args) {
   const file = args.find((a) => !a.startsWith('-'));
   if (!file) fail(USAGE);
 
-  const result = repairSession(file, { removeMarkers, neutralize, dropFailedTurns, trimLast, compactLast, apply, backupDir });
+  const result = repairSession(file, { removeMarkers, neutralize, clipCrossStep, dropFailedTurns, trimLast, compactLast, apply, backupDir });
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     process.exit(result.ok ? 0 : 1);
@@ -192,7 +194,7 @@ function cmdFix(args) {
   process.stdout.write(`\n🔧 dsh-log-contract fix —— ${file}\n`);
   process.stdout.write(`   诊断：${result.issues.length === 0 ? '无问题' : result.issues.map((i) => `[${i.kind}] ${i.detail}`).join('\n         ')}\n`);
   if (result.applied) {
-    process.stdout.write(`   已应用修复：移除 ${result.removed} 项，重编号 ${result.renumbered} 行，中和 ${result.neutralized} 个 turn-null marker（seq ${(result.neutralizedSeqs ?? []).join(',')}）\n`);
+    process.stdout.write(`   已应用修复：移除 ${result.removed} 项，重编号 ${result.renumbered} 行，中和 ${result.neutralized} 个 turn-null marker，裁剪 ${result.clipped} 个跨 step 引用（seq ${(result.neutralizedSeqs ?? []).join(',')}）\n`);
     process.stdout.write(`   备份：${result.backupPath}\n`);
     process.stdout.write(`   修复后体检：error ${result.check.summary?.bySeverity?.error ?? '?'} ｜ surface ${result.check.summary?.surfaceNodes ?? '?'} 节点\n`);
   } else if (apply && !result.ok) {
@@ -200,7 +202,7 @@ function cmdFix(args) {
   } else if (apply) {
     process.stdout.write('   （--apply 且无问题——无内容可修）\n');
   } else {
-    process.stdout.write(`   （干跑模式：${result.removed} 项可移除、${result.renumbered} 行待重编号、${result.neutralized} 个 turn-null marker 可中和；加 --apply 落盘，--remove-markers / --neutralize / --drop-failed-turns / --trim-last N 启用于对应修复）\n`);
+    process.stdout.write(`   （干跑模式：${result.removed} 项可移除、${result.renumbered} 行待重编号、${result.neutralized} 个 turn-null marker 可中和、${result.clipped} 个跨 step 引用可裁剪；加 --apply 落盘，--remove-markers / --neutralize / --clip-crossstep / --drop-failed-turns / --trim-last N 启用于对应修复）\n`);
   }
   process.stdout.write('\n');
   process.exit(result.ok ? 0 : 1);

@@ -335,3 +335,59 @@ describe('neutralizeMarkersText（2026-08-30 事故：turn-null marker 刷屏压
     for (const s of turnNull) expect(r.seqs).toContain(s);
   });
 });
+
+describe('clipCrossStepSourcesText（2026-08-30 第二类事故：resend 跨 step 引用）', () => {
+  it('裁剪跨 step 的 sourceEventSeqs，保留同 step chunk', () => {
+    const { clipCrossStepSourcesText } = require('../lib/repair.js');
+    // step 7 的 chunk + step 9 的 chunk + assistant/message(step 9) 引用两者
+    const events = [
+      userMessage({ seq: 0, text: 'hi' }),
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 7 } },
+      // step 7 的 chunk 行（独立行，seq 7 是展开后的值）
+      { type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 7, chunk: { type: 'text-chunks', chunks: [{ type: 'text', text: 'old' }] } } },
+      { type: 'step/end', seq: 3, time: 4, data: { turn: 1, step: 7 } },
+      { type: 'step/start', seq: 4, time: 5, data: { turn: 1, step: 9 } },
+      { type: 'assistant/chunk', seq: 5, time: 6, data: { turn: 1, step: 9, chunk: { type: 'text-chunks', chunks: [{ type: 'text', text: 'new' }] } } },
+      // resend 消息：引用 step 7 + step 9 的 chunk（跨 step → 官方 token-meter 645 行抛错）
+      { type: 'assistant/message', seq: 6, time: 7, surfaceOp: 'append', sourceEventSeqs: [2, 5], data: { turn: 1, step: 9, message: { id: 'a-6', role: 'assistant', content: [{ type: 'text', text: 'new' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
+      { type: 'step/end', seq: 7, time: 8, data: { turn: 1, step: 9 } },
+    ];
+    const file = writeSession(events);
+    const text = fs.readFileSync(file, 'utf8');
+    const r = clipCrossStepSourcesText(text);
+    expect(r.clipped).toBe(1);
+    expect(r.seqs).toEqual([6]);
+    const kept = r.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const msg = kept.find((e) => e.seq === 6);
+    expect(msg.sourceEventSeqs).toEqual([5]); // 只保留 step 9 的 chunk
+    // 回读验证官方判定通过
+    const tmp = path.join(tmpdir(), 's.jsonl');
+    fs.writeFileSync(tmp, r.text);
+    const log = loadSessionLog(tmp);
+    const evs = log.events.map((x) => x.event);
+    let fail = false;
+    for (const e of evs) {
+      if (e.type !== 'assistant/message' || !e.sourceEventSeqs) continue;
+      const seen = new Set();
+      for (const s of e.sourceEventSeqs) {
+        if (s >= e.seq || seen.has(s)) continue;
+        seen.add(s);
+        const src = evs[s];
+        if (src?.type === 'assistant/chunk' && (src.data?.turn !== e.data?.turn || src.data?.step !== e.data?.step)) fail = true;
+      }
+    }
+    expect(fail).toBe(false);
+  });
+
+  it('无跨 step 引用的正常消息不受影响', () => {
+    const { clipCrossStepSourcesText } = require('../lib/repair.js');
+    const events = [
+      userMessage({ seq: 0 }),
+      assistantMessage({ seq: 1, turn: 1, step: 1 }),
+    ];
+    const file = writeSession(events);
+    const text = fs.readFileSync(file, 'utf8');
+    const r = clipCrossStepSourcesText(text);
+    expect(r.clipped).toBe(0);
+  });
+});
