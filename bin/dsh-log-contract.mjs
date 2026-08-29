@@ -164,13 +164,15 @@ function cmdFix(args) {
   const dropFailedTurns = args.includes('--drop-failed-turns');
   const trimIdx = args.indexOf('--trim-last');
   const trimLast = trimIdx >= 0 && args[trimIdx + 1] ? Number(args[trimIdx + 1]) : undefined;
+  const compactIdx = args.indexOf('--compact-last');
+  const compactLast = compactIdx >= 0 && args[compactIdx + 1] ? Number(args[compactIdx + 1]) : undefined;
   const apply = args.includes('--apply');
   const backupDirIdx = args.indexOf('--backup-dir');
   const backupDir = backupDirIdx >= 0 && args[backupDirIdx + 1] ? args[backupDirIdx + 1] : undefined;
   const file = args.find((a) => !a.startsWith('-'));
   if (!file) fail(USAGE);
 
-  const result = repairSession(file, { removeMarkers, dropFailedTurns, trimLast, apply, backupDir });
+  const result = repairSession(file, { removeMarkers, dropFailedTurns, trimLast, compactLast, apply, backupDir });
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     process.exit(result.ok ? 0 : 1);
