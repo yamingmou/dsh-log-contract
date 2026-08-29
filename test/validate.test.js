@@ -270,3 +270,38 @@ describe('逐条违规规则', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe('W1 wire 流（2026-08-29 重启回归：折叠必须与官方同位置语义）', () => {
+  // 官方 applySurfacePlan：splice(startIdx, endIdx-startIdx+1, markerSeq)——marker 插在遮蔽范围开头。
+  // 旧 wireViolations 折叠：splice 删除后 push 到末尾 → marker 位置漂移 → 后续 replace 的
+  // indexOf 范围错位 → 本应被遮蔽的 tool/result marker 逃逸 → 悬空 tool 误报。
+  it('W1：compaction replace 遮蔽 tool/result marker → 不误报（回归锁定）', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      assistantMessage({ seq: 1 }),
+      { type: 'tool/result', seq: 2, time: 3, surfaceOp: 'append', data: { turn: 0, step: 0, message: { id: 't-2', role: 'user', source: { kind: 'tool', callId: 'call-1' }, content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'ok' }] }] } } },
+      userMessage({ seq: 3, text: 'more' }),
+      // tool/result replace marker：遮蔽 seq2，data 与原文一致仅 text 变化（官方 assertToolResultRewrite 要求）
+      { type: 'tool/result', seq: 4, time: 5, surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2], data: { turn: 0, step: 0, message: { id: 't-2', role: 'user', source: { kind: 'tool', callId: 'call-1' }, content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'edited' }] }] } } },
+      // compaction 式 user/message replace：遮蔽 [0..3]（此刻 surface 为 [0,1,4,3]）
+      { type: 'user/message', seq: 5, time: 6, surfaceOp: { op: 'replace', start: 0, end: 3 }, sourceEventSeqs: [0, 1, 4, 3], data: { id: 'u-5', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'summary' }] } },
+    ];
+    const file = writeSession(events);
+    const result = validateSessionLog(loadSessionLog(file));
+    expect(result.violations.filter((v) => v.id === 'W1')).toHaveLength(0);
+    expect(result.ok).toBe(true);
+  });
+
+  it('W1：append 的 tool/result 前面没有 assistant tool-call → 仍报（检测不削弱）', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      { type: 'tool/result', seq: 1, time: 2, surfaceOp: 'append', data: { turn: 0, step: 0, message: { id: 't-1', role: 'user', source: { kind: 'tool', callId: 'call-x' }, content: [{ type: 'tool-result', toolCallId: 'call-x', content: [{ type: 'text', text: 'ok' }] }] } } },
+    ];
+    const file = writeSession(events);
+    const result = validateSessionLog(loadSessionLog(file));
+    const w1 = result.violations.filter((v) => v.id === 'W1');
+    expect(w1.length).toBeGreaterThan(0);
+    expect(w1[0].severity).toBe('error');
+    expect(result.ok).toBe(false);
+  });
+});
