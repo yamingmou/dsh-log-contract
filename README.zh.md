@@ -1,4 +1,21 @@
+<div align="center">
+
+# 🔒 dsh-log-contract
+
+**日志契约守护** —— DSH 会话日志的结构契约保险丝：离线体检 + 写前校验。业务层的**医生**。
+
+[![npm version](https://img.shields.io/npm/v/dsh-log-contract)](https://www.npmjs.com/package/dsh-log-contract)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-log-contract)](https://www.npmjs.com/package/dsh-log-contract)
+[![License: MIT](https://img.shields.io/npm/l/dsh-log-contract)](https://github.com/yamingmou/dsh-log-contract/blob/main/LICENSE)
+[![DSH plugin](https://img.shields.io/badge/DSH-plugin-4A90D9)](https://github.com/topics/dsh-plugin)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/yamingmou/dsh-log-contract/pulls)
+
+[English](./README.md) · **简体中文**
+
+</div>
+
 # dsh-log-contract · 日志契约守护
+
 
 > DSH（DeepSeek Harness）会话日志的**结构契约保险丝**：离线体检 + 写前校验。
 > 原名 `log-contract-validator`（候选二号），按 Offer快 三件套规划定名 **`dsh-log-contract`**。
@@ -234,7 +251,3 @@ node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.z
 ## 许可
 
 MIT © OfferKuai Team
-
----
-
-[English](./README.md) · **简体中文**
