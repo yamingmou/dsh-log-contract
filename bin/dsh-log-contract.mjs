@@ -13,17 +13,19 @@
  *   contracts                     列出内置契约规则目录
  */
 import fs from 'node:fs';
-import { loadSessionLog, validateSessionLog, createPreWriter, repairSession, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls } from '../lib/index.js';
+import { loadSessionLog, validateSessionLog, resumeVerdict, createPreWriter, repairSession, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls } from '../lib/index.js';
 
 const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log contract guard）
 
 用法：
-  dsh-log-contract check <session-log> [--json] [--max-details N]
+  dsh-log-contract check <session-log> [--json] [--max-details N] [--resume]
       离线体检。session-log 支持 .jsonl 与 .jsonl.zstd。
       --json          输出机器可读 JSON 报告
       --max-details N 每条违规最多列 N 个缺失 seq（默认 8，--json 忽略）
+      --resume        输出三档结论（L3）：可加载 / 可继续 / 可压缩——
+                      回答「这个会话还能不能用」；--json 时附带 verdict 字段
 
-  dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--clip-crossstep] [--apply] [--backup-dir DIR] [--json]
+  dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--clip-crossstep] [--drop-failed-turns] [--trim-last N] [--compact-last N] [--tail-renumber D] [--neutralize-orphan] [--extract-turn N] [--keep-ranges a-b,c-d] [--apply] [--backup-dir DIR] [--json]
       诊断 + 修复（2026-08 事故固化方案）。先做严格 seq 连续扫描 + 契约体检
       （含 W1/W2 wire 级悬空 tool 检查），再按需修复：
       --remove-markers 移除 retrace/message-editor marker 并全量重编号
@@ -32,6 +34,21 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
       --neutralize     原地中和 turn-null marker（type→retrace/marker +
                        ignorable:true，删 surfaceOp/sourceEventSeqs，seq/行数不变）
                        —— token-meter 不再刷屏，会话驻留也安全（2026-08-30 事故）
+      --drop-failed-turns 删除"本轮运行失败"的轮次（清失败报错气泡）
+      --trim-last N    裁剪到最近 N 条 append 消息（保留所在 turn 结构）
+      --trim-budget N  按 token 预算裁剪（L5）：自动选保留消息数使估算 ≤ N
+                       （中文 ≈ 字符数×0.94，不是 ÷4；下限至少保留 5 条消息）
+      --compact-last N 官方压缩：遮蔽旧 surface 节点，日志零删除（/compact 语义）
+      --tail-renumber D 尾部 seq 统一平移（delta 是减数：要加 N 传 −N）
+                       （修复多写入者/旧光标造成的尾部 seq 回归/间隙；从首个
+                       可平移 seq 起）
+      --neutralize-orphan 原地归零 fork 边界孤儿 inbox spliced（removedCount→0，
+                       seq/行数不变 → 不再重复排队）
+      --extract-turn N 双流交织恢复：只保留轮次 N + 无 turn 系统事件，其余
+                       删除并全量重编号（--extract-turn-to M 把第二个同名
+                       轮次改号为 M）
+      --keep-ranges a-b,c-d 只保留 1-based 行区间（含端点），其余删除 +
+                       全量重编号（header 行永远保留）
       --apply          备份后落盘（.zstd 走官方帧格式重建：帧1=header、
                        帧2=其余、带 checksum、单个结尾换行）
       不传 --apply 为干跑（只报告）。
@@ -79,6 +96,7 @@ function printViolations(violations, maxDetails = 8) {
 
 function cmdCheck(args) {
   const json = args.includes('--json');
+  const resume = args.includes('--resume');
   const maxDetailsIdx = args.indexOf('--max-details');
   const maxDetails = maxDetailsIdx >= 0 && args[maxDetailsIdx + 1] ? Number(args[maxDetailsIdx + 1]) : 8;
   const file = args.find((a) => !a.startsWith('-'));
@@ -94,7 +112,32 @@ function cmdCheck(args) {
   const { summary, violations, ok } = result;
 
   if (json) {
-    process.stdout.write(JSON.stringify({ file, ok, summary, violations }, null, 2) + '\n');
+    const payload = { file, ok, summary, violations };
+    if (resume) payload.resume = resumeVerdict(result);
+    process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+    process.exit(ok ? 0 : 1);
+  }
+
+  if (resume) {
+    const v = resumeVerdict(result);
+    const tier = v.verdict;
+    const icons = { loadable: '✅ 可加载', resumable: '✅ 可继续', compactable: '✅ 可压缩', broken: '❌ 不可用' };
+    process.stdout.write(`\n📋 dsh-log-contract check --resume —— ${file}\n`);
+    process.stdout.write(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / 1024).toFixed(1)}KiB → ${(summary.plaintextBytes / 1024).toFixed(1)}KiB）\n`);
+    process.stdout.write(`   违规 ${summary.total}（error ${summary.bySeverity.error} / warning ${summary.bySeverity.warning}）\n\n`);
+    process.stdout.write(`   三档结论：\n`);
+    const tiers = [
+      ['可加载 loadable', v.loadable, '会话能被 DSH 读入（结构规则 S1-S9/E/W 全绿）', v.blocking.loadable],
+      ['可继续 resumable', v.resumable, 'resume/followup 可用（结构 + I1 inbox 重放绿）', v.blocking.resumable],
+      ['可压缩 compactable', v.compactable, '/compact 与压力测量可用（前两档 + T1/T2 token-meter 配对绿）', v.blocking.compactable],
+    ];
+    for (const [name, pass, desc, blockers] of tiers) {
+      const mark = pass ? '✅' : '❌';
+      process.stdout.write(`     ${mark} ${name} — ${desc}\n`);
+      if (blockers.length > 0) process.stdout.write(`        阻断: ${[...new Set(blockers)].join(', ')}\n`);
+    }
+    process.stdout.write(`\n   结论: ${icons[tier]}${v.verdict === 'compactable' ? ' —— 可安全继续使用' : v.verdict === 'broken' ? ' —— 见上方违规明细（error 级 = 会话不可读/不可写）' : ' —— 部分能力受限'}\n\n`);
+    printViolations(violations, maxDetails);
     process.exit(ok ? 0 : 1);
   }
 
@@ -177,15 +220,27 @@ function cmdFix(args) {
   const dropFailedTurns = args.includes('--drop-failed-turns');
   const trimIdx = args.indexOf('--trim-last');
   const trimLast = trimIdx >= 0 && args[trimIdx + 1] ? Number(args[trimIdx + 1]) : undefined;
+  const budgetIdx = args.indexOf('--trim-budget');
+  const trimBudget = budgetIdx >= 0 && args[budgetIdx + 1] ? Number(args[budgetIdx + 1]) : undefined;
   const compactIdx = args.indexOf('--compact-last');
   const compactLast = compactIdx >= 0 && args[compactIdx + 1] ? Number(args[compactIdx + 1]) : undefined;
+  // L4 新原语（2026-08-30 任务书 §L4 收编 tools/）
+  const tailIdx = args.indexOf('--tail-renumber');
+  const tailRenumberDelta = tailIdx >= 0 && args[tailIdx + 1] ? Number(args[tailIdx + 1]) : undefined;
+  const neutralizeOrphan = args.includes('--neutralize-orphan');
+  const extractIdx = args.indexOf('--extract-turn');
+  const extractTurn = extractIdx >= 0 && args[extractIdx + 1] ? Number(args[extractIdx + 1]) : undefined;
+  const extractToIdx = args.indexOf('--extract-turn-to');
+  const extractTurnTo = extractToIdx >= 0 && args[extractToIdx + 1] ? Number(args[extractToIdx + 1]) : undefined;
+  const keepRangesIdx = args.indexOf('--keep-ranges');
+  const keepRanges = keepRangesIdx >= 0 && args[keepRangesIdx + 1] ? args[keepRangesIdx + 1] : undefined;
   const apply = args.includes('--apply');
   const backupDirIdx = args.indexOf('--backup-dir');
   const backupDir = backupDirIdx >= 0 && args[backupDirIdx + 1] ? args[backupDirIdx + 1] : undefined;
   const file = args.find((a) => !a.startsWith('-'));
   if (!file) fail(USAGE);
 
-  const result = repairSession(file, { removeMarkers, neutralize, clipCrossStep, dropFailedTurns, trimLast, compactLast, apply, backupDir });
+  const result = repairSession(file, { removeMarkers, neutralize, clipCrossStep, dropFailedTurns, trimLast, trimBudget, compactLast, tailRenumberDelta, neutralizeOrphan, extractTurn, extractTurnTo, keepRanges, apply, backupDir });
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     process.exit(result.ok ? 0 : 1);
@@ -202,7 +257,7 @@ function cmdFix(args) {
   } else if (apply) {
     process.stdout.write('   （--apply 且无问题——无内容可修）\n');
   } else {
-    process.stdout.write(`   （干跑模式：${result.removed} 项可移除、${result.renumbered} 行待重编号、${result.neutralized} 个 turn-null marker 可中和、${result.clipped} 个跨 step 引用可裁剪；加 --apply 落盘，--remove-markers / --neutralize / --clip-crossstep / --drop-failed-turns / --trim-last N 启用于对应修复）\n`);
+    process.stdout.write(`   （干跑模式：${result.removed} 项可移除、${result.renumbered} 行待重编号、${result.neutralized} 个 turn-null marker 可中和、${result.clipped} 个跨 step 引用可裁剪；加 --apply 落盘，--remove-markers / --neutralize / --clip-crossstep / --drop-failed-turns / --trim-last N / --trim-budget N / --tail-renumber D / --neutralize-orphan / --extract-turn N / --keep-ranges a-b,c-d 启用于对应修复）\n`);
   }
   process.stdout.write('\n');
   process.exit(result.ok ? 0 : 1);

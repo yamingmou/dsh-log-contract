@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { loadSessionLog } from '../lib/log-reader.js';
-import { validateSessionLog } from '../lib/validate.js';
+import { validateSessionLog, resumeVerdict } from '../lib/validate.js';
 import { tokenMeterSourceViolations } from '../lib/checks.js';
 import {
   assistantMessage,
@@ -504,5 +504,78 @@ describe('I1 inbox seed 相对重放（交接书 L1；fork 边界孤儿）', () 
     const v = inboxReplayViolations(log.events, log.header);
     expect(v.length).toBeGreaterThanOrEqual(1);
     expect(v[0].seq).toBe(347704);
+  });
+});
+
+describe('resumeVerdict（L3：check --resume 三档结论）', () => {
+  function sessionHeader(seedLength) {
+    return { type: 'session', version: 0, id: 't', createdAt: 1, seedLength };
+  }
+
+  it('合法会话三档全绿（可压缩 ⊂ 可继续 ⊂ 可加载）', () => {
+    const file = writeSession(validSessionEvents());
+    const result = validateSessionLog(loadSessionLog(file));
+    const v = resumeVerdict(result);
+    expect(v.loadable).toBe(true);
+    expect(v.resumable).toBe(true);
+    expect(v.compactable).toBe(true);
+    expect(v.verdict).toBe('compactable');
+  });
+
+  it('T1（turn-null marker）：可加载 ✅ / 可继续 ✅ / 可压缩 ❌', () => {
+    // 纯聚合测试：只有 T1 违规 → 阻断「可压缩」档，前两档绿
+    const result = {
+      ok: false,
+      violations: [
+        { id: 'T1', severity: 'error', seq: 5 },
+      ],
+    };
+    const v = resumeVerdict(result);
+    expect(v.loadable).toBe(true);
+    expect(v.resumable).toBe(true);
+    expect(v.compactable).toBe(false);
+    expect(v.verdict).toBe('resumable');
+    expect(v.blocking.compactable).toContain('T1');
+  });
+
+  it('I1（inbox spliced 孤儿）：可加载 ✅ / 可继续 ❌（inbox 重放失败）', () => {
+    // resumeVerdict 是纯聚合函数——直接喂构造的 violations（不受 E2 等
+    // 会话构造副作用干扰），验证 I1 阻断「可继续」档、不影响「可加载」档。
+    const result = {
+      ok: false,
+      violations: [
+        { id: 'I1', severity: 'error', seq: 10 },
+      ],
+    };
+    const v = resumeVerdict(result);
+    expect(v.loadable).toBe(true);
+    expect(v.resumable).toBe(false);
+    expect(v.compactable).toBe(false);
+    expect(v.verdict).toBe('loadable');
+    expect(v.blocking.resumable).toContain('I1');
+  });
+
+  it('结构违规（E2 seq 不连续）→ 可加载 ❌（会话不可读）', () => {
+    const result = {
+      ok: false,
+      violations: [
+        { id: 'E2', severity: 'error', seq: 3 },
+      ],
+    };
+    const v = resumeVerdict(result);
+    expect(v.loadable).toBe(false);
+    expect(v.verdict).toBe('broken');
+    expect(v.blocking.loadable).toContain('E2');
+  });
+
+  it('--json 三档布尔 + 违规数组可序列化', () => {
+    const file = writeSession(validSessionEvents());
+    const result = validateSessionLog(loadSessionLog(file));
+    const v = resumeVerdict(result);
+    const s = JSON.stringify(v);
+    const back = JSON.parse(s);
+    expect(back.verdict).toBe('compactable');
+    expect(Array.isArray(back.blocking.loadable)).toBe(true);
+    expect(Array.isArray(back.violationsByTier.structural)).toBe(true);
   });
 });

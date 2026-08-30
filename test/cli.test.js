@@ -69,6 +69,26 @@ describe('CLI', () => {
     expect(parsed.summary.events).toBe(3);
   });
 
+  it('check --resume 输出三档结论（合法会话全绿）', () => {
+    const file = writeSession(validSessionEvents());
+    const { code, out } = run(['check', file, '--resume']);
+    expect(code).toBe(0);
+    expect(out).toContain('可加载');
+    expect(out).toContain('可继续');
+    expect(out).toContain('可压缩');
+    expect(out).toContain('可安全继续使用');
+  });
+
+  it('check --resume --json 附带 verdict 字段', () => {
+    const file = writeSession(validSessionEvents());
+    const { code, out } = run(['check', file, '--resume', '--json']);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out);
+    expect(parsed.resume.verdict).toBe('compactable');
+    expect(parsed.resume.loadable).toBe(true);
+    expect(parsed.resume.compactable).toBe(true);
+  });
+
   it('prewrite append 合法 → 退出码 0', () => {
     const log = writeSession(validSessionEvents());
     const edit = writeEdit({
