@@ -15,9 +15,8 @@ offline health check + pre-write validation. The business layer's **doctor**.
 
 </div>
 
-The **structural contract fuse** for DeepSeek Harness session logs: offline health
-check + pre-write validation. Formerly `log-contract-validator` (candidate #2);
-named **`dsh-log-contract`** per the OfferKuai three-piece plan.
+Formerly `log-contract-validator` (candidate #2); named **`dsh-log-contract`**
+per the OfferKuai three-piece plan.
 
 A fuse for DSH session logs (`*.jsonl` / `*.jsonl.zstd`): format drift that humans
 cannot see but parsers crash on is caught and reported here. It does **not** judge
@@ -36,7 +35,6 @@ plugin marker semantics).
 
 ---
 
-## Where it sits in the business layer
 ## Where it sits in the business layer
 
 > **dsh-log-contract is the core capability component of
@@ -75,12 +73,12 @@ must flag, and a fixed session that it must pass.
 > 30+ rules across the layers below (`contracts` lists them all, each with its
 > official source reference).
 
-| Layer | Contract | Rules |
+| Layer | Rules | What it guards |
 |---|---|---|
-| **Persistence** | seq strictly contiguous; type in the known vocabulary; surface events carry a legal `surfaceOp`; a replace's `sourceEventSeqs` must **fully cover** the shadowed nodes; **file-physical seq monotonic** (S9, multi-writer interleave evidence); official `foldSurface` not throwing = pass | H/R/E/S (incl. S5) + **S9** |
-| **Client engine** | `assistant/message` with `turn/step = null` may only be carried as **replace** (plugin marker definition; append crashes the engine); **token-meter pairing** (T1, every `assistant/message` needs an open step); **cross-step source refs** (T2, referenced chunks must match turn/step); **inbox seed-relative replay** (I1, fork-boundary orphans) | M1 + **T1 / T2 / I1** |
-| **Wire message flow** | tool messages must follow an assistant with tool_calls (dangling tools are rejected by strict endpoints); user text must not sit between tool_calls and their results | **W1 / W2** |
-| **Plugin semantics** | marker id prefixes must be recognizable (legacy prefixes registered); a marker's own seq must not enter its own shadowed set | P1/P2 |
+| **Persistence** | H/R/E/S (incl. **S5**) + **S9** | seq contiguous, known types, legal `surfaceOp`, `sourceEventSeqs` fully covers shadowed nodes, file-physical seq monotonic, `foldSurface` not throwing |
+| **Client engine** | **M1** + **T1 / T2 / I1** | turn-null markers only as replace; token-meter pairing; cross-step source refs; inbox seed-relative replay |
+| **Wire message flow** | **W1 / W2** | tool messages follow an assistant with tool_calls; no user text between tool_calls and results |
+| **Plugin semantics** | P1/P2 | marker id prefixes recognizable; a marker's seq not in its own shadowed set |
 
 > Philosophy: first an incremental replay with official-equivalent semantics for
 > **per-event attribution** (pinpoint seq/line), then the official `foldSurface` as

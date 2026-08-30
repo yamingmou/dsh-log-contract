@@ -56,12 +56,12 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 
 > 30+ 条规则，覆盖以下三层（`contracts` 列出全部，每条附官方源码出处）。
 
-| 层 | 契约 | 本工具规则 |
+| 层 | 规则 | 守护什么 |
 |---|---|---|
-| **持久化层** | seq 严格连续；type 在已知词汇表内；surface 事件携带合法 `surfaceOp`；replace 的 `sourceEventSeqs` 必须**完整覆盖被替换节点**；**文件物理序 seq 单调**（S9，多写入者交织现场）；官方 `foldSurface` 不抛 = 通过 | H/R/E/S（含 S5 核心）+ **S9** |
-| **客户端引擎层** | `data.turn/step` 为 null 的 `assistant/message` 只能以 **replace** 承载（插件 marker 定义），append 会触发引擎崩溃；**token-meter 配对**（T1，assistant/message 必须有打开的 step）；**跨 step source 引用**（T2，sourceEventSeqs 引用的 chunk 必须同 turn/step）；**inbox seed 相对重放**（I1，fork 边界孤儿） | M1 + **T1 / T2 / I1** |
-| **wire 消息流** | tool 消息必须跟在带 tool-call 的 assistant 之后（悬空 tool 会被严格端点拒绝）；user 文本不得插在 tool_calls 与结果之间 | **W1 / W2** |
-| **插件语义层** | marker id 前缀必须可识别（改名登记遗留前缀）；marker 自身 seq 不得进入自身 shadowed 集 | P1/P2 |
+| **持久化层** | H/R/E/S（含 **S5**）+ **S9** | seq 连续、type 已知、surfaceOp 合法、`sourceEventSeqs` 完整覆盖被替换节点、文件物理序单调、`foldSurface` 不抛 |
+| **客户端引擎层** | **M1** + **T1 / T2 / I1** | turn-null marker 只能 replace；token-meter 配对；跨 step 源引用；inbox seed 相对重放 |
+| **wire 消息流** | **W1 / W2** | tool 消息跟在带 tool_calls 的 assistant 之后；user 文本不插在 tool_calls 与结果之间 |
+| **插件语义层** | P1/P2 | marker 前缀可识别；marker 自身 seq 不进自身 shadowed 集 |
 
 > 校验哲学：先用与官方同语义的增量重放做**逐事件归因**（定位到 seq/行号），再跑官方 `foldSurface` 做**终验**（不抛才算过）——两套都绿才过。
 
