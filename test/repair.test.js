@@ -349,7 +349,7 @@ describe('clipCrossStepSourcesText（2026-08-30 第二类事故：resend 跨 ste
       { type: 'step/start', seq: 4, time: 5, data: { turn: 1, step: 9 } },
       { type: 'assistant/chunk', seq: 5, time: 6, data: { turn: 1, step: 9, chunk: { type: 'text-chunks', chunks: [{ type: 'text', text: 'new' }] } } },
       // resend 消息：引用 step 7 + step 9 的 chunk（跨 step → 官方 token-meter 645 行抛错）
-      { type: 'assistant/message', seq: 6, time: 7, surfaceOp: 'append', sourceEventSeqs: [2, 5], data: { turn: 1, step: 9, message: { id: 'a-6', role: 'assistant', content: [{ type: 'text', text: 'new' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
+      { type: 'assistant/message', seq: 6, time: 7, surfaceOp: 'append', sourceEventSeqs: [2, 5], data: { turn: 1, step: 9, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, message: { id: 'a-6', role: 'assistant', content: [{ type: 'text', text: 'new' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
       { type: 'step/end', seq: 7, time: 8, data: { turn: 1, step: 9 } },
     ];
     const file = writeSession(events);
