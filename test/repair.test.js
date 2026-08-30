@@ -456,6 +456,34 @@ describe('L4 新原语（2026-08-30 任务书 §L4 收编 tools/）', () => {
     expect(turns[3].seq).toBe(2);
   });
 
+  it('extractTurnText：双流同 seq 碰撞时保留行不被误删（2026-08-31 独立审查复现）', () => {
+    // 双流交织：真实流 turn 2 的 turn/start 与重放流的 turn/end 共享 seq 2
+    const events = [
+      { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
+      { type: 'user/message', seq: 1, time: 11, data: { turn: 1, text: 'a' } },
+      { type: 'turn/end', seq: 2, time: 12, data: { turn: 1, reason: 'completed' } },
+      // 真实流 turn 2：turn/start 的 seq 也是 2（与上面 turn/end 同 seq）
+      { type: 'turn/start', seq: 2, time: 13, data: { turn: 2 } },
+      { type: 'user/message', seq: 3, time: 14, data: { turn: 2, text: 'b' } },
+      { type: 'assistant/message', seq: 4, time: 15, data: { turn: 2, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'B' }] } } },
+      { type: 'turn/end', seq: 5, time: 16, data: { turn: 2, reason: 'completed' } },
+      // 重放流 marker（turn-null，seq 6）——应被删除
+      { type: 'assistant/message', seq: 6, time: 17, data: { turn: null, step: null, message: { role: 'assistant', content: [] } } },
+    ];
+    const file = writeRawSession([JSON.stringify(sessionHeader(0)), ...events.map((e) => JSON.stringify(e))]);
+    const text = fs.readFileSync(file, 'utf8');
+    const r = extractTurnText(text, 2);
+    const out = r.text.split('\n').filter((l) => l.trim());
+    // header + turn 2 的 4 行 = 5 行
+    expect(out.length).toBe(5);
+    expect(out[0]).toContain('"type":"session"'); // header 保留
+    // 保留行全部在：turn/start(2)、user(b)、assistant(B)、turn/end
+    const body = out.slice(1).join('\n');
+    expect(body).toContain('"text":"b"');
+    expect(body).toContain('"text":"B"');
+    expect(body).not.toContain('"turn":null'); // 重放流 marker 被删
+  });
+
   it('keepRangesText：只保留指定行区间，其余删除重编号（header 恒保留）', () => {
     const events = [
       { type: 'user/message', seq: 0, time: 11, data: { turn: 0, text: 'a' } },
