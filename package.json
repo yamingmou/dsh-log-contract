@@ -25,7 +25,8 @@
     "bin/**/*.mjs",
     "docs/**/*.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "README.zh.md"
   ],
   "scripts": {
     "check": "node scripts/check-syntax.mjs",
