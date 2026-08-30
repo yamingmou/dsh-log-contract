@@ -1,83 +1,129 @@
-# dsh-log-contract · 日志契约守护
+# dsh-log-contract · Log Contract Guard
 
-> DSH（DeepSeek Harness）会话日志的**结构契约保险丝**：离线体检 + 写前校验。
-> 原名 `log-contract-validator`（候选二号），按 Offer快 三件套规划定名 **`dsh-log-contract`**。
+> The **structural contract fuse** for DeepSeek Harness session logs: offline
+> health check + pre-write validation. Formerly `log-contract-validator` (candidate
+> #2); named **`dsh-log-contract`** per the OfferKuai three-piece plan.
 
-给 DSH 会话日志（`*.jsonl` / `*.jsonl.zstd`）装一条保险丝：人眼看不出、程序解析会崩的日志格式漂移，在它这里被拦下并告警。它不判断日志**内容**对不对，只守护日志**结构**是否破坏了下游消费者（Harness 读路径、客户端引擎、插件 marker 语义）的预期。
+A fuse for DSH session logs (`*.jsonl` / `*.jsonl.zstd`): format drift that humans
+cannot see but parsers crash on is caught and reported here. It does **not** judge
+whether log *content* is right — only whether log *structure* breaks the
+expectations of downstream consumers (the Harness read path, the client engine,
+plugin marker semantics).
 
-- **`check <session-log>`** —— 离线体检：官方解码器全量解码 + 契约逐条校验 + foldSurface 终验，产出违规报告。
-- **`prewrite <edit-file> --log <session-log>`** —— ★ 写前校验：任何写入（追加 / 帧级手术）在落盘之前先过三层契约，违约即拦。
-- **`contracts`** —— 列出内置契约规则目录（每条附官方源码出处）。
+- **`check <session-log>`** — offline health check: official decoder full decode +
+  per-rule contract validation + foldSurface final verification, with a violation
+  report.
+- **`prewrite <edit-file> --log <session-log>`** — ★ pre-write validation: any
+  write (append / frame-level surgery) passes the three-layer contract before it
+  lands; violations are blocked.
+- **`contracts`** — list the built-in contract rule catalog (each with its
+  official source reference).
 
 ---
 
-## 它在业务层里的位置
+## Where it sits in the business layer
 
-> **dsh-log-contract 是 [dsh-retrace](https://github.com/yamingmou/dsh-retrace) 的核心能力组件**（业务层的「医生」模块）：负责会话日志的**体检与修复**——让每一次撤回/编辑/回退都落在合法日志上，让 /compact 永不失效。
+> **dsh-log-contract is the core capability component of
+> [dsh-retrace](https://github.com/yamingmou/dsh-retrace)** — the "doctor" module
+> of the business layer: session-log **check & repair**, so every recall/edit/rewind
+> lands on a legal log and `/compact` never breaks.
 
-| 层 | 是什么 | 组件 |
+| Layer | What it is | Components |
 |---|---|---|
-| **Agent 业务层（生产级保证）** | 抽象核心能力：会话卫生 / 可回溯 / 可审计 / 可恢复，与平台无关 | 四模块：治理 / 看 / 考古 / **医生** |
-| **dsh-retrace** | 业务层在 DeepSeek Harness 上的实现（生产级业务插件） | 撤回/编辑/版本/回退/看门狗 |
-| **dsh-log-contract** | dsh-retrace 的核心能力组件 = 业务层的**医生**（体检/修复） | check / prewrite / fix / extract / audit |
+| **Agent business layer (production-grade)** | Framework-agnostic core: session hygiene / retraceability / auditability / recoverability | Four modules: governance / retrospect / archaeology / **doctor** |
+| **dsh-retrace** | The business layer's DeepSeek Harness implementation | recall/edit/version/rollback/watchdog |
+| **dsh-log-contract** | dsh-retrace's core component = the business layer's **doctor** (check & repair) | check / prewrite / fix / extract / audit |
 
-**含义**：dsh-log-contract 独立发布（供单独使用或二次开发），但它首先是
-dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构成
-**Agent 业务层（生产级保证）** 在 DSH 上的落地（详见 [dsh-retrace 路线图](https://github.com/yamingmou/dsh-retrace/blob/main/docs/ROADMAP.md)）。
-
----
-
-## 为什么需要它
-
-**#3632「one log, two consumers, two verdicts」**：一条日志同时被人类与自动化程序消费，人眼容忍格式微调，程序解析依赖严格契约；格式一旦漂移，人看不出问题，程序直接崩溃或误报。
-
-**2026-08-25 会话修复事故（真实回归用例）**：一次"恢复被隐藏内容"的修复，第 1 轮清空 marker 的 `sourceEventSeqs` 直接写盘 → 会话加载抛 `SessionPersistenceCorruptionError`；第 2 轮把 marker 改成 `append` → 客户端引擎崩溃。两次都是**违约写入没被拦**。如果有写前校验，会话根本不会被改坏。本工具把这次事故沉淀为两条核心规则（S5、M1）与回归测试。
+**Meaning**: dsh-log-contract is published standalone (for direct use or
+re-implementation), but it is first the "check & repair" capability of dsh-retrace —
+together they form the **Agent business layer (production-grade guarantees)** on
+DSH (see the [dsh-retrace roadmap](https://github.com/yamingmou/dsh-retrace/blob/main/docs/ROADMAP.md)).
 
 ---
 
-## 三层契约（判定模型）
+## Why it exists
 
-> 30+ 条规则，覆盖以下三层（`contracts` 列出全部，每条附官方源码出处）。
+**#3632 "one log, two consumers, two verdicts"**: one log is consumed by both
+humans and automated programs. Humans tolerate format drift; programs depend on
+strict contracts. Once the format drifts, humans see nothing wrong while programs
+crash or misreport.
 
-| 层 | 契约 | 本工具规则 |
+**Real incidents shaped every rule here** — see the [Incident log](#-incident-log)
+below. Each incident is a regression fixture: a corrupted session that this tool
+must flag, and a fixed session that it must pass.
+
+---
+
+## Three-layer contract (the model)
+
+> 30+ rules across the layers below (`contracts` lists them all, each with its
+> official source reference).
+
+| Layer | Contract | Rules |
 |---|---|---|
-| **持久化层** | seq 严格连续；type 在已知词汇表内；surface 事件携带合法 `surfaceOp`；replace 的 `sourceEventSeqs` 必须**完整覆盖被替换节点**；**文件物理序 seq 单调**（S9，多写入者交织现场）；官方 `foldSurface` 不抛 = 通过 | H/R/E/S（含 S5 核心）+ **S9** |
-| **客户端引擎层** | `data.turn/step` 为 null 的 `assistant/message` 只能以 **replace** 承载（插件 marker 定义），append 会触发引擎崩溃；**token-meter 配对**（T1，assistant/message 必须有打开的 step）；**跨 step source 引用**（T2，sourceEventSeqs 引用的 chunk 必须同 turn/step）；**inbox seed 相对重放**（I1，fork 边界孤儿） | M1 + **T1 / T2 / I1** |
-| **wire 消息流** | tool 消息必须跟在带 tool-call 的 assistant 之后（悬空 tool 会被严格端点拒绝）；user 文本不得插在 tool_calls 与结果之间 | **W1 / W2** |
-| **插件语义层** | marker id 前缀必须可识别（改名登记遗留前缀）；marker 自身 seq 不得进入自身 shadowed 集 | P1/P2 |
+| **Persistence** | seq strictly contiguous; type in the known vocabulary; surface events carry a legal `surfaceOp`; a replace's `sourceEventSeqs` must **fully cover** the shadowed nodes; **file-physical seq monotonic** (S9, multi-writer interleave evidence); official `foldSurface` not throwing = pass | H/R/E/S (incl. S5) + **S9** |
+| **Client engine** | `assistant/message` with `turn/step = null` may only be carried as **replace** (plugin marker definition; append crashes the engine); **token-meter pairing** (T1, every `assistant/message` needs an open step); **cross-step source refs** (T2, referenced chunks must match turn/step); **inbox seed-relative replay** (I1, fork-boundary orphans) | M1 + **T1 / T2 / I1** |
+| **Wire message flow** | tool messages must follow an assistant with tool_calls (dangling tools are rejected by strict endpoints); user text must not sit between tool_calls and their results | **W1 / W2** |
+| **Plugin semantics** | marker id prefixes must be recognizable (legacy prefixes registered); a marker's own seq must not enter its own shadowed set | P1/P2 |
 
-> 校验哲学：先用与官方同语义的增量重放做**逐事件归因**（定位到 seq/行号），再跑官方 `foldSurface` 做**终验**（不抛才算过）——两套都绿才过。
+> Philosophy: first an incremental replay with official-equivalent semantics for
+> **per-event attribution** (pinpoint seq/line), then the official `foldSurface` as
+> the **final verdict** (not throwing = pass) — both green to pass.
 
 ---
 
-## 安装
+## ⚡ Incident log — why "production-grade" is not a slogan
+
+Every rule below was born from a **real incident** in our workspace. These are the
+sessions that made us build this tool. Dates and shapes are real; session ids are
+omitted for privacy.
+
+| # | Date | What happened | The rule / fix it produced |
+|---|---|---|---|
+| 1 | 2026-08-25 | A "restore hidden content" repair wrote a replace marker with **emptied `sourceEventSeqs`** → the session refused to load (`SessionPersistenceCorruptionError`); a second attempt changed the marker to **append** → the client engine crashed. Both were **violating writes that nothing caught**. | **S5** (sourceEventSeqs must cover shadowed nodes), **M1** (turn-null assistant/message can only be replace), pre-write validation |
+| 2 | 2026-08-27~28 | Interrupted/restarted turns replayed with a **stale in-memory cursor**, re-appending old seqs to the file tail (tail regression, duplicate batches); two writers interleaved → **file-physical order non-monotonic** (`734056 → 733539 → 735470`). Sessions failed to load with `seq gap`. | **S9** (physical-order monotonic), fix `--tail-renumber` |
+| 3 | 2026-08-27~28 | **Fork-boundary orphan splice**: the fork's "remove parent's pending prompt" splice assumed the parent's inbox; the child's seed-relative replay has an empty inbox → `resume failed: invalid persisted inbox splice`. | **I1** (inbox seed-relative replay), fix `--neutralize-orphan` |
+| 4 | 2026-08-28 | An oversized session (**1,052,557 tokens** vs the 1M window) could neither continue nor `/compact`; the trim budget estimator underpriced CJK by ~3.7×. | T1 (token-meter pairing) for compactability, `fix --trim` budget guidance |
+| 5 | 2026-08-29 | **W1/W2 wire violations**: markers shadowed an assistant with tool_calls but left the tool results dangling → strict endpoints (`INVALID_REQUEST`) reject the session's request stream. | **W1 / W2** (wire message flow) |
+| 6 | 2026-08-30 | A single **turn-null marker** made the token-meter listener throw on **every** appended event (`consumedEvents` never advanced → full-prefix re-fold per event) → **30s / 10,008 log lines**, host event loop crushed, all sessions locked. Same session also had a **cross-step sourceEventSeqs** (steps 7/8/9 mixed in one assistant message) — offline checks were green, the live meter crashed. | **T1** (turn/step pairing), **T2** (cross-step source refs), `fix --neutralize`, `fix --clip-crossstep` |
+
+> **Takeaway**: every rule in this tool is a scar from a real session — validated
+> against the actual corrupted-session fixtures, not synthetic theory. That is what
+> "production-grade" means here.
+
+---
+
+## Installation
 
 ```bash
-pnpm add -D dsh-log-contract   # 或 npm install
+pnpm add -D dsh-log-contract   # or npm install
 pnpm dlx dsh-log-contract --help
 ```
 
-> **你是 dsh-retrace 用户？** 无需单独安装——`dsh-retrace` 已把 `dsh-log-contract`
-> 声明为依赖，装 retrace 时自动带好契约守护（体检/写前校验/修复原语全部随插件生效）。
-> 本包独立发布，供愿意单独使用或二次开发的用户直接引入。
+> **Using dsh-retrace?** No separate install needed — `dsh-retrace` declares
+> `dsh-log-contract` as a dependency, so the contract guard (check / pre-write /
+> repair primitives) comes with the plugin automatically. This package is published
+> standalone for direct use or re-implementation.
 >
-> **从 GitHub 下载了 ZIP？** 解压后 `cd dsh-log-contract && npm install && npm run build`，
-> 然后 `node bin/dsh-log-contract.mjs check <session-log>` 即可使用（无需全局安装）。
+> **Downloaded the repo as a ZIP?** `cd dsh-log-contract && npm install && npm run build`,
+> then `node bin/dsh-log-contract.mjs check <session-log>` — no global install needed.
 
-依赖：Node ≥ 22（`node:zlib` 内置 zstd）、`@deepseek-ai/dsh-session`（peer，校验/解码复用官方实现，保证与 Harness 读路径同源）。
+Dependencies: Node ≥ 22 (`node:zlib` has built-in zstd), `@deepseek-ai/dsh-session`
+(peer; validation/decode reuse the official implementation, so it stays in sync
+with the Harness read path).
 
 ---
 
-## CLI 用法
+## CLI
 
-### 1. 离线体检
+### 1. Offline health check
 
 ```bash
 dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd
-dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json   # 机器可读
+dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json   # machine-readable
 ```
 
-输出示例：
+Sample output (the CLI reports in Chinese — it is the tool's UI language):
 
 ```
 📋 dsh-log-contract check —— backup-session-xxxx.jsonl.zstd
@@ -90,129 +136,157 @@ dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json   # 机器可读
 ❌ 未通过：见上方违规明细（error 级 = 会话不可读/不可写）
 ```
 
-退出码：0 = 通过（无 error 级违规）；1 = 存在 error 级违规。
+Exit code: 0 = pass (no error-level violations); 1 = error-level violations exist.
 
-`check` 自 0.2.0 起新增 **W1/W2 wire 级检查**：按 surface 顺序展开模型请求消息流，
-捕获"悬空 tool 消息"（tool 结果没有前置 assistant tool_calls）与"user 文本插在
-tool_calls 与其结果之间"——这类问题 DeepSeek 曾容忍，但 MiMo 等严格端点会直接
-`INVALID_REQUEST`（2026-08-27 实锤）。
+`check` adds **W1/W2 wire-level checks** since 0.2.0: expand the model request
+stream in surface order and catch "dangling tool messages" (a tool result with no
+preceding assistant tool_calls) and "user text between tool_calls and their
+results" — tolerated by some endpoints, `INVALID_REQUEST` on strict ones
+(MiMo, verified 2026-08-27).
 
-### 1.5. ★ 修复（2026-08 事故固化方案）
+### 2. Repair (`fix`)
 
 ```bash
-# 干跑（只报告）：严格 seq 连续扫描 + 全契约体检（含 W1/W2）+ 可移除 marker 数
+# Dry run (report only): strict seq scan + full contract check + removable-marker count
 dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers
 
-# 应用：备份后落盘（.zstd 走官方帧格式重建：帧1=header、帧2=其余、checksum、单个结尾换行）
+# Apply: backup first, then write (.zstd rebuilt in official frame format: frame1=header,
+# frame2=rest, checksum, single trailing newline)
 dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers --apply
 ```
 
-- `--remove-markers`：移除 retrace/message-editor marker 并全量重编号
-  （seq/seq0/sourceEventSeqs/surfaceOp 同步）——用于大范围 marker 遮蔽历史、
-  marker 漏盖 tool/result 导致的悬空 tool。
-- 手术安全协议：改前备份、改后全量复检（strictScan + check + foldSurface）、
-  marker 只能遮蔽其之前的节点、marker 绝不能改成 append（M1 客户端崩溃）。
-- ⚠️ 若会话已被运行中的应用驻留内存，修复文件后需**重启应用**（强杀避免脏状态刷回）。
+- `--remove-markers`: remove retrace/message-editor markers and renumber everything
+  (seq/seq0/sourceEventSeqs/surfaceOp in sync) — for large marker-shadowed history
+  or markers that left dangling tools.
+- `--neutralize`: in-place neutralization of turn-null markers (incident #6) —
+  type → `retrace/marker` + `ignorable:true`, drops surfaceOp/sourceEventSeqs,
+  seq/line count unchanged (safe while the session is resident).
+- `--clip-crossstep`: trim cross-step sourceEventSeqs (incident #6) — keep only
+  same-turn/step chunk references.
+- Surgery safety protocol: back up first, re-verify after (strictScan + check +
+  foldSurface); markers may only shadow earlier nodes; a marker must never become
+  append (M1 crashes the client engine).
+- ⚠️ If the session is resident in a running app, **restart the app** after fixing
+  the file (hard-kill to avoid dirty state flushing back).
 
-### 2. ★ 写前校验（本次事故的直接解药）
+### 3. Pre-write validation (`prewrite`)
 
-`edit-file` 为 JSON，两种形状：
+`edit-file` is JSON with two shapes:
 
 ```jsonc
-// 拟追加一个事件到日志尾部（seq 缺省 = 自动按 nextSeq 赋值）
+// Append one event to the log tail (seq omitted = auto-assigned as nextSeq)
 { "append": { "type": "assistant/message", "surfaceOp": { "op": "replace", "start": 121774, "end": 156421 }, "sourceEventSeqs": [121774, 121779, "…"], "data": { "turn": null, "step": null, "message": { "…": "…" }, "editor": { "targetSeq": 156430, "text": "…" } } } }
 
-// 帧级手术后的完整事件列表（改后确认，与改前基线双绿才允许落盘）
-{ "edit": [ "…完整事件列表…" ] }
+// Frame-level surgery: the complete event list after the edit (both baseline and
+// result must be green before it may land)
+{ "edit": [ "…full event list…" ] }
 ```
 
 ```bash
 dsh-log-contract prewrite marker-write.json --log ~/.dsh/sessions/<id>.jsonl.zstd
 ```
 
-- 基线本身有 error 级违规时直接拒绝校验（安全修复协议第 2 步：**改前基线必须绿**）。
-- 判定通过才允许落盘——**validate first, commit later**（与官方 `SurfaceManager.validateNext` 同思路）。
+- A baseline with error-level violations is rejected outright (safety protocol
+  step 2: **the pre-surgery baseline must be green**).
+- Only a pass may land — **validate first, commit later** (same idea as the
+  official `SurfaceManager.validateNext`).
 
-### 3. 契约目录
+### 4. Contract catalog
 
 ```bash
 dsh-log-contract contracts
 ```
 
-完整契约清单见 [docs/CONTRACTS.md](docs/CONTRACTS.md)。
+Full catalog in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 
----
+### 5. Session archaeology (`extract` / `audit-report`)
 
-## 🧭 会话考古（extract / audit-report）
-
-DSH 会话日志持久化了每次工具调用的完整输入输出——数据资产与审计资产。
-本工具提供只读考古能力：
+Every tool call's full input/output is persisted in the session log — a data and
+audit asset. Read-only archaeology:
 
 ```sh
-# 按命令正则导出工具输出（保留原始文本）
+# Export tool outputs matching a command regex (original text preserved)
 dsh-log-contract extract <session-log> --pattern "seed-scale" --min-size 50 --out ./found
 
-# 考古审计报告：调用数 / 配对率 / 孤儿数 / 命令分布
+# Archaeology audit report: call count / pairing rate / orphans / command distribution
 dsh-log-contract audit-report <session-log>
 ```
 
-契约规则 P3（tool/call↔tool/result 配对完整性）与 P4（输出结构可解析）
-守护"挖得动"：孤儿调用、text 字段异常在 check 中告警。
+Contract rules P3 (tool/call↔tool/result pairing integrity) and P4 (output
+structure parseable) keep the dig working: orphan calls and abnormal `text` fields
+are flagged in `check`.
 
 ---
 
-## Node API（写前校验嵌入你的脚本）
+## Node API (embed pre-write validation in your script)
 
 ```js
 import { loadSessionLog, validateSessionLog, createPreWriter } from 'dsh-log-contract';
 
-// ① 基线体检（改前基线必须绿）
+// ① Baseline check (the pre-surgery baseline must be green)
 const log = loadSessionLog('session.jsonl.zstd');
 const baseline = validateSessionLog(log);
-if (!baseline.ok) throw new Error('基线已坏，先修基线');
+if (!baseline.ok) throw new Error('baseline is broken; repair it first');
 
-// ② 写前校验：拟写入一个 marker replace
+// ② Pre-write validation: about to write a marker replace
 const prewriter = createPreWriter({ events: log.events.map((e) => e.event) });
 const verdict = prewriter.validateAppend({
   type: 'assistant/message',
   surfaceOp: { op: 'replace', start: 121774, end: 156421 },
-  sourceEventSeqs: [121774, 121779 /* …必须完整覆盖被替换节点… */],
+  sourceEventSeqs: [121774, 121779 /* …must fully cover shadowed nodes… */],
   data: { turn: null, step: null, message: { /* … */ } },
 });
 if (!verdict.ok) {
   for (const v of verdict.violations) console.error(v.id, v.message);
-  process.exit(1); // 不落盘
+  process.exit(1); // do not land
 }
-// ③ 通过后才写
+// ③ Only a pass writes
 ```
 
 ---
 
-## 测试
+## Tests
 
 ```bash
-pnpm check && pnpm test    # 语法检查 + 79 个单测（含事故回归用例）
+pnpm check && pnpm test    # syntax check + 79 unit tests (incl. incident regressions)
 ```
 
-- **合成夹具**（入库）：合法会话 / seq 缺口 / 空 sourceEventSeqs / turn=null append / 未知 type / 坏 chunk 行 / 撕裂尾帧 / 未知 marker 前缀 / 自指 shadowed 等。
-- **真实化石**（不入库，含用户隐私）：本地跑
+- **Synthetic fixtures** (in-repo): legal session / seq gap / empty sourceEventSeqs
+  / turn-null append / unknown type / bad chunk row / torn tail frame / unknown
+  marker prefix / self-shadowing etc.
+- **Real fossils** (not in-repo, contain user data): run locally
 
 ```bash
-node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.zstd
+node scripts/check-local-fossils.mjs   # scans ../ for backup-session-*.jsonl.zstd
 ```
 
-已知真值表：事故修复后会话 PASS；`seqgap`/`corrupt`/`rewritten-230542` FAIL；`spliced-orphan` PASS（持久化层合法——#3632 的"消费路径判不可读"属于另一类契约，本工具只守护持久化契约层，见 [docs/CONTRACTS.md](docs/CONTRACTS.md) 边界说明）。
+Known truth table: incident-repaired sessions PASS; `seqgap`/`corrupt`/
+`rewritten-230542` FAIL; `spliced-orphan` PASS (legal for the persistence layer —
+#3632's "consumer path deems it unreadable" is a different contract; this tool only
+guards the persistence contract layer, see the boundary note in
+[docs/CONTRACTS.md](docs/CONTRACTS.md)).
 
 ---
 
 ## Roadmap
 
-- [x] **Phase 1（0.1.0）**：CLI 离线体检 + 写前校验 + 契约目录
-- [x] **Phase 1.5（0.2.0）**：`fix` 子命令（严格 seq 扫描 + W1/W2 wire 检查 + 移除 marker 重编号 + 官方帧格式重建）；CI 集成（`dsh-log-contract check` 作为 Harness 会话目录的定时守护）
-- [x] **0.3.x（2026-08-30 事故固化）**：T1 token-meter 配对 → 0.3.1 W1/W2 折叠位置修复 → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize`（turn-null marker 原地中和）→ 0.3.4 `fix --clip-crossstep`（跨 step 引用裁剪）→ 0.3.5 **T2/S9/I1 规则**（跨 step 源引用 / 物理序单调 / inbox 重放）
-- [ ] Phase 2：运行时守护（订阅 session append 事件流实时校验，断裂即标记 `dsh/contract-violation` 事件，策略可配 告警/拦截）——DSH 插件形态
-- [ ] Phase 3：与 dsh-turn-guard / dsh-retrace 时间线联动
+- [x] **Phase 1 (0.1.0)**: CLI offline check + pre-write validation + contract catalog
+- [x] **Phase 1.5 (0.2.0)**: `fix` subcommand (strict seq scan + W1/W2 wire checks +
+  marker removal with renumbering + official frame rebuild); CI integration
+  (`dsh-log-contract check` as a scheduled guard over the Harness session dir)
+- [x] **0.3.x (2026-08-30 incident hardening)**: T1 token-meter pairing → 0.3.1 W1/W2
+  fold-position fix → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize` (in-place
+  turn-null neutralization) → 0.3.4 `fix --clip-crossstep` (cross-step clipping) →
+  0.3.5 **T2/S9/I1 rules** (cross-step source refs / physical order / inbox replay)
+- [ ] Phase 2: runtime guard (subscribe to the session append stream, validate live,
+  mark violations as `dsh/contract-violation`, policy configurable alert/block) —
+  DSH plugin form
+- [ ] Phase 3: link with dsh-turn-guard / dsh-retrace timeline
 
-## 许可
+## License
 
 MIT © OfferKuai Team
+
+---
+
+**English** · [简体中文](./README.zh.md)
