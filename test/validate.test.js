@@ -304,7 +304,7 @@ describe('T2 token-meter 源引用（2026-08-30 跨 step 刷屏事故固化）',
       { type: 'step/start', seq: 4, time: 5, data: { turn: 1, step: 9 } },
       chunkRow(5, 1, 9, 'new'),
       // resend 消息：sourceEventSeqs 混入 step 7 + step 9 的 chunk（跨 step → 官方 645 行抛错）
-      { type: 'assistant/message', seq: 6, time: 7, surfaceOp: 'append', sourceEventSeqs: [2, 5], data: { turn: 1, step: 9, message: { id: 'a6', role: 'assistant', content: [{ type: 'text', text: 'new' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
+      { type: 'assistant/message', seq: 6, time: 7, surfaceOp: 'append', sourceEventSeqs: [2, 5], data: { turn: 1, step: 9, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, message: { id: 'a6', role: 'assistant', content: [{ type: 'text', text: 'new' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
       { type: 'step/end', seq: 7, time: 8, data: { turn: 1, step: 9 } },
     ];
     const file = writeSession(events);
@@ -334,6 +334,44 @@ describe('T2 token-meter 源引用（2026-08-30 跨 step 刷屏事故固化）',
     const t2 = tokenMeterSourceViolations(log.events);
     expect(t2.length).toBeGreaterThanOrEqual(1);
     expect(t2[0].seq).toBe(936047);
+  });
+
+  it('非 chunk 引用 → T2 error（官方 :644 直接 throw，2026-08-30 19:23 实机事故固化）', () => {
+    // resend 消息 sourceEventSeqs 混入 assistant/message、tool/call 等非 chunk 引用
+    // （官方 _estimateProviderAssistant :644 对非 chunk 直接 throw "is not assistant/chunk"）。
+    // 此前 T2 规则 `continue` 跳过 → check 全绿但实机刷屏压垮 host → 必须报 error。
+    const events = [
+      userMessage({ seq: 0 }),
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 9 } },
+      chunkRow(2, 1, 9, 'new'),
+      { type: 'assistant/message', seq: 3, time: 4, surfaceOp: 'append', data: { turn: 1, step: 8, message: { id: 'a3', role: 'assistant', content: [{ type: 'text', text: 'old' }] } } },
+      { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 9 } },
+      // resend 消息：sourceEventSeqs = [chunk(2), assistant/message(3)] —— 3 是非 chunk → 官方 :644 throw
+      { type: 'assistant/message', seq: 5, time: 6, surfaceOp: 'append', sourceEventSeqs: [2, 3], data: { turn: 1, step: 9, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, message: { id: 'a5', role: 'assistant', content: [{ type: 'text', text: 'new' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
+    ];
+    const file = writeSession(events);
+    const result = validateSessionLog(loadSessionLog(file));
+    const t2 = result.violations.filter((v) => v.id === 'T2');
+    expect(t2).toHaveLength(1); // 每事件只报首条（官方抛一次即停）
+    expect(t2[0].seq).toBe(5);
+    expect(t2[0].message).toContain('is not assistant/chunk');
+    expect(result.ok).toBe(false);
+  });
+
+  it('replace marker（无 usage）的非 chunk sourceEventSeqs 不报 T2（S5 遮蔽语义合法）', () => {
+    // retrace 编辑 marker：surfaceOp replace + 无 usage（空内容）→ 官方 :592 前提不满足，
+    // 不走 _estimateProviderAssistant → 非 chunk 引用（遮蔽的旧消息节点）不检查、不报错。
+    const events = [
+      userMessage({ seq: 0 }),
+      assistantMessage({ seq: 1, turn: 1, step: 1 }),
+      { type: 'step/start', seq: 2, time: 3, data: { turn: 2, step: 1 } },
+      { type: 'assistant/message', seq: 3, time: 4, surfaceOp: { op: 'replace', start: 0, end: 1 }, sourceEventSeqs: [0, 1], data: { turn: 2, step: 1, message: { id: 'm', role: 'assistant', content: [] } } },
+      { type: 'step/end', seq: 4, time: 5, data: { turn: 2, step: 1 } },
+    ];
+    const file = writeSession(events);
+    const result = validateSessionLog(loadSessionLog(file));
+    const t2 = result.violations.filter((v) => v.id === 'T2');
+    expect(t2).toHaveLength(0); // 无 usage → 不检查 source 类型
   });
 });
 
