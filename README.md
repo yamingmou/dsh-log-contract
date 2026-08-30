@@ -1,8 +1,23 @@
-# dsh-log-contract · Log Contract Guard
+<div align="center">
 
-> The **structural contract fuse** for DeepSeek Harness session logs: offline
-> health check + pre-write validation. Formerly `log-contract-validator` (candidate
-> #2); named **`dsh-log-contract`** per the OfferKuai three-piece plan.
+# 🔒 dsh-log-contract
+
+**Log Contract Guard** — the structural fuse for DeepSeek Harness session logs:
+offline health check + pre-write validation. The business layer's **doctor**.
+
+[![npm version](https://img.shields.io/npm/v/dsh-log-contract)](https://www.npmjs.com/package/dsh-log-contract)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-log-contract)](https://www.npmjs.com/package/dsh-log-contract)
+[![License: MIT](https://img.shields.io/npm/l/dsh-log-contract)](https://github.com/yamingmou/dsh-log-contract/blob/main/LICENSE)
+[![DSH plugin](https://img.shields.io/badge/DSH-plugin-4A90D9)](https://github.com/topics/dsh-plugin)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/yamingmou/dsh-log-contract/pulls)
+
+**English** · [简体中文](./README.zh.md)
+
+</div>
+
+The **structural contract fuse** for DeepSeek Harness session logs: offline health
+check + pre-write validation. Formerly `log-contract-validator` (candidate #2);
+named **`dsh-log-contract`** per the OfferKuai three-piece plan.
 
 A fuse for DSH session logs (`*.jsonl` / `*.jsonl.zstd`): format drift that humans
 cannot see but parsers crash on is caught and reported here. It does **not** judge
@@ -21,6 +36,7 @@ plugin marker semantics).
 
 ---
 
+## Where it sits in the business layer
 ## Where it sits in the business layer
 
 > **dsh-log-contract is the core capability component of
@@ -286,7 +302,3 @@ guards the persistence contract layer, see the boundary note in
 ## License
 
 MIT © OfferKuai Team
-
----
-
-**English** · [简体中文](./README.zh.md)
