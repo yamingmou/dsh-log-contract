@@ -143,6 +143,24 @@ dsh-log-contract contracts
 
 ---
 
+## 🧭 会话考古（extract / audit-report）
+
+DSH 会话日志持久化了每次工具调用的完整输入输出——数据资产与审计资产。
+本工具提供只读考古能力：
+
+```sh
+# 按命令正则导出工具输出（保留原始文本）
+dsh-log-contract extract <session-log> --pattern "seed-scale" --min-size 50 --out ./found
+
+# 考古审计报告：调用数 / 配对率 / 孤儿数 / 命令分布
+dsh-log-contract audit-report <session-log>
+```
+
+契约规则 P3（tool/call↔tool/result 配对完整性）与 P4（输出结构可解析）
+守护"挖得动"：孤儿调用、text 字段异常在 check 中告警。
+
+---
+
 ## Node API（写前校验嵌入你的脚本）
 
 ```js
@@ -187,20 +205,6 @@ node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.z
 
 ---
 
-## 与业务层/三件套的关系
-
-| 层 | 工具 | 象限 | 状态 |
-|---|---|---|---|
-| **Agent 业务层（生产级保证）** | — | 抽象核心能力：卫生/可回溯/可审计/可恢复 | 见 [dsh-retrace 路线图](https://github.com/yamingmou/dsh-retrace/blob/main/docs/ROADMAP.md) |
-| **DSH 实现** | [dsh-retrace](https://github.com/yamingmou/dsh-retrace) | 生产级业务插件（撤回/编辑/版本/回退/看门狗） | ✅ 0.4.x |
-| **本仓库** | **dsh-log-contract** | 业务层「医生」= 日志契约·体检与修复 | ✅ **0.3.5**（check/prewrite/fix/extract/audit） |
-| 技能 | [workbuddy-session-fork](https://github.com/yamingmou/workbuddy-session-fork) | 会话分叉 · 状态管理 | ✅ 已发布 |
-| 规划 | dsh-turn-guard | 中断回合 · 异常韧性 | 待立项（ensureIdle/watchdog 已在 dsh-retrace 内实现） |
-
-三者共享同一份 DSH 日志事件契约认知（59 条审计发现 = spec，aborted/corrupt/seqgap 化石 = 测试集）。dsh-retrace（回溯时间线）可把本工具的违规标记渲染到时间线上；本工具是 retrace 投影源健康度的**前置保险**。
-
----
-
 ## Roadmap
 
 - [x] **Phase 1（0.1.0）**：CLI 离线体检 + 写前校验 + 契约目录
@@ -212,20 +216,3 @@ node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.z
 ## 许可
 
 MIT © OfferKuai Team
-
-
-## 🧭 会话考古（extract / audit-report）
-
-DSH 会话日志持久化了每次工具调用的完整输入输出——数据资产与审计资产。
-本工具提供只读考古能力：
-
-```sh
-# 按命令正则导出工具输出（保留原始文本）
-dsh-log-contract extract <session-log> --pattern "seed-scale" --min-size 50 --out ./found
-
-# 考古审计报告：调用数 / 配对率 / 孤儿数 / 命令分布
-dsh-log-contract audit-report <session-log>
-```
-
-契约规则 P3（tool/call↔tool/result 配对完整性）与 P4（输出结构可解析）
-守护"挖得动"：孤儿调用、text 字段异常在 check 中告警。
