@@ -38,6 +38,13 @@ pnpm add -D dsh-log-contract   # 或 npm install
 pnpm dlx dsh-log-contract --help
 ```
 
+> **你是 dsh-retrace 用户？** 无需单独安装——`dsh-retrace` 已把 `dsh-log-contract`
+> 声明为依赖，装 retrace 时自动带好契约守护（体检/写前校验/修复原语全部随插件生效）。
+> 本包独立发布，供愿意单独使用或二次开发的用户直接引入。
+>
+> **从 GitHub 下载了 ZIP？** 解压后 `cd dsh-log-contract && npm install && npm run build`，
+> 然后 `node bin/dsh-log-contract.mjs check <session-log>` 即可使用（无需全局安装）。
+
 依赖：Node ≥ 22（`node:zlib` 内置 zstd）、`@deepseek-ai/dsh-session`（peer，校验/解码复用官方实现，保证与 Harness 读路径同源）。
 
 ---
