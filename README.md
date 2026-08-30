@@ -11,6 +11,22 @@
 
 ---
 
+## 它在业务层里的位置
+
+> **dsh-log-contract 是 [dsh-retrace](https://github.com/yamingmou/dsh-retrace) 的核心能力组件**（业务层的「医生」模块）：负责会话日志的**体检与修复**——让每一次撤回/编辑/回退都落在合法日志上，让 /compact 永不失效。
+
+| 层 | 是什么 | 组件 |
+|---|---|---|
+| **Agent 业务层（生产级保证）** | 抽象核心能力：会话卫生 / 可回溯 / 可审计 / 可恢复，与平台无关 | 四模块：治理 / 看 / 考古 / **医生** |
+| **dsh-retrace** | 业务层在 DeepSeek Harness 上的实现（生产级业务插件） | 撤回/编辑/版本/回退/看门狗 |
+| **dsh-log-contract** | dsh-retrace 的核心能力组件 = 业务层的**医生**（体检/修复） | check / prewrite / fix / extract / audit |
+
+**含义**：dsh-log-contract 独立发布（供单独使用或二次开发），但它首先是
+dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构成
+**Agent 业务层（生产级保证）** 在 DSH 上的落地（详见 [dsh-retrace 路线图](https://github.com/yamingmou/dsh-retrace/blob/main/docs/ROADMAP.md)）。
+
+---
+
 ## 为什么需要它
 
 **#3632「one log, two consumers, two verdicts」**：一条日志同时被人类与自动化程序消费，人眼容忍格式微调，程序解析依赖严格契约；格式一旦漂移，人看不出问题，程序直接崩溃或误报。
@@ -21,11 +37,14 @@
 
 ## 三层契约（判定模型）
 
-| 层 | 契约 | 本工具 |
+> 30+ 条规则，覆盖以下三层（`contracts` 列出全部，每条附官方源码出处）。
+
+| 层 | 契约 | 本工具规则 |
 |---|---|---|
-| **持久化层** | seq 严格连续；type 在已知词汇表内；surface 事件携带合法 `surfaceOp`；replace 的 `sourceEventSeqs` 必须**完整覆盖被替换节点**；官方 `foldSurface` 不抛 = 通过 | 规则 H/R/E/S（含 S5 核心） |
-| **客户端引擎层** | `data.turn/step` 为 null 的 `assistant/message` 只能以 **replace** 承载（插件 marker 定义），append 会触发引擎崩溃 | 规则 M1 |
-| **插件语义层** | marker id 前缀必须可识别（改名登记遗留前缀）；marker 自身 seq 不得进入自身 shadowed 集 | 规则 P1/P2 |
+| **持久化层** | seq 严格连续；type 在已知词汇表内；surface 事件携带合法 `surfaceOp`；replace 的 `sourceEventSeqs` 必须**完整覆盖被替换节点**；**文件物理序 seq 单调**（S9，多写入者交织现场）；官方 `foldSurface` 不抛 = 通过 | H/R/E/S（含 S5 核心）+ **S9** |
+| **客户端引擎层** | `data.turn/step` 为 null 的 `assistant/message` 只能以 **replace** 承载（插件 marker 定义），append 会触发引擎崩溃；**token-meter 配对**（T1，assistant/message 必须有打开的 step）；**跨 step source 引用**（T2，sourceEventSeqs 引用的 chunk 必须同 turn/step）；**inbox seed 相对重放**（I1，fork 边界孤儿） | M1 + **T1 / T2 / I1** |
+| **wire 消息流** | tool 消息必须跟在带 tool-call 的 assistant 之后（悬空 tool 会被严格端点拒绝）；user 文本不得插在 tool_calls 与结果之间 | **W1 / W2** |
+| **插件语义层** | marker id 前缀必须可识别（改名登记遗留前缀）；marker 自身 seq 不得进入自身 shadowed 集 | P1/P2 |
 
 > 校验哲学：先用与官方同语义的增量重放做**逐事件归因**（定位到 seq/行号），再跑官方 `foldSurface` 做**终验**（不抛才算过）——两套都绿才过。
 
@@ -154,7 +173,7 @@ if (!verdict.ok) {
 ## 测试
 
 ```bash
-pnpm check && pnpm test    # 语法检查 + 40 个单测（含事故回归用例）
+pnpm check && pnpm test    # 语法检查 + 79 个单测（含事故回归用例）
 ```
 
 - **合成夹具**（入库）：合法会话 / seq 缺口 / 空 sourceEventSeqs / turn=null append / 未知 type / 坏 chunk 行 / 撕裂尾帧 / 未知 marker 前缀 / 自指 shadowed 等。
@@ -168,13 +187,15 @@ node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.z
 
 ---
 
-## 与三件套的关系
+## 与业务层/三件套的关系
 
-| 工具 | 象限 | 状态 |
-|---|---|---|
-| [workbuddy-session-fork](https://github.com/yamingmou/workbuddy-session-fork) | 会话分叉 · 状态管理 | ✅ 已发布 v1.2.0 |
-| **dsh-log-contract**（本仓库） | 日志契约 · 接口稳定性 | ✅ Phase 1（check/prewrite）+ Phase 1.5（fix）0.2.0 |
-| dsh-turn-guard（规划中） | 中断回合 · 异常韧性 | 待立项 |
+| 层 | 工具 | 象限 | 状态 |
+|---|---|---|---|
+| **Agent 业务层（生产级保证）** | — | 抽象核心能力：卫生/可回溯/可审计/可恢复 | 见 [dsh-retrace 路线图](https://github.com/yamingmou/dsh-retrace/blob/main/docs/ROADMAP.md) |
+| **DSH 实现** | [dsh-retrace](https://github.com/yamingmou/dsh-retrace) | 生产级业务插件（撤回/编辑/版本/回退/看门狗） | ✅ 0.4.x |
+| **本仓库** | **dsh-log-contract** | 业务层「医生」= 日志契约·体检与修复 | ✅ **0.3.5**（check/prewrite/fix/extract/audit） |
+| 技能 | [workbuddy-session-fork](https://github.com/yamingmou/workbuddy-session-fork) | 会话分叉 · 状态管理 | ✅ 已发布 |
+| 规划 | dsh-turn-guard | 中断回合 · 异常韧性 | 待立项（ensureIdle/watchdog 已在 dsh-retrace 内实现） |
 
 三者共享同一份 DSH 日志事件契约认知（59 条审计发现 = spec，aborted/corrupt/seqgap 化石 = 测试集）。dsh-retrace（回溯时间线）可把本工具的违规标记渲染到时间线上；本工具是 retrace 投影源健康度的**前置保险**。
 
@@ -184,6 +205,7 @@ node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.z
 
 - [x] **Phase 1（0.1.0）**：CLI 离线体检 + 写前校验 + 契约目录
 - [x] **Phase 1.5（0.2.0）**：`fix` 子命令（严格 seq 扫描 + W1/W2 wire 检查 + 移除 marker 重编号 + 官方帧格式重建）；CI 集成（`dsh-log-contract check` 作为 Harness 会话目录的定时守护）
+- [x] **0.3.x（2026-08-30 事故固化）**：T1 token-meter 配对 → 0.3.1 W1/W2 折叠位置修复 → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize`（turn-null marker 原地中和）→ 0.3.4 `fix --clip-crossstep`（跨 step 引用裁剪）→ 0.3.5 **T2/S9/I1 规则**（跨 step 源引用 / 物理序单调 / inbox 重放）
 - [ ] Phase 2：运行时守护（订阅 session append 事件流实时校验，断裂即标记 `dsh/contract-violation` 事件，策略可配 告警/拦截）——DSH 插件形态
 - [ ] Phase 3：与 dsh-turn-guard / dsh-retrace 时间线联动
 
