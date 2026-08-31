@@ -236,7 +236,19 @@ pnpm check && pnpm test    # 语法检查 + 79 个单测（含事故回归用例
 node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.zstd
 ```
 
-已知真值表：事故修复后会话 PASS；`seqgap`/`corrupt`/`rewritten-230542` FAIL；`spliced-orphan` PASS（持久化层合法——#3632 的"消费路径判不可读"属于另一类契约，本工具只守护持久化契约层，见 [docs/CONTRACTS.md](docs/CONTRACTS.md) 边界说明）。
+已知真值表（2026-08-31 实测更新——0.3.5 加 I1 后，`spliced-orphan` 已可报错，旧表 PASS 过时）：
+
+| 化石 | 判定 | 违规 |
+|---|---|---|
+| `2c3f87d4-corrupt` | FAIL | S8/C1/T1/E2（seq 缺口 → 加载被拒） |
+| `b7713ea1-seqgap` / `recorrupt` | FAIL | S8/C1/T1/E2/S9（seq 缺口/倒退） |
+| `2c3f87d4-rewritten-230542` | FAIL | S8/C1/T1/E2/I1（重写引入缺口） |
+| `2c3f87d4-spliced-orphan` | **FAIL（0.3.5+）** | T1/I1（inbox splice 无效 + turn-null）——旧表 PASS 已过时 |
+| `e61d70da-pre-markerfix-20260825` | FAIL | T1×5（修复前样本：turn-null marker 残留，非「修复后」） |
+| `c2d05ce9-pre-cleansession-20260831` | **PASS** | error 0（3256 跨度 replace marker 数据合规，官方 foldSurface 重放通过——见插件任务台账） |
+
+> 说明：真值表随规则演进更新（0.3.5 新增 I1 后 spliced-orphan 从 PASS 变 FAIL）；
+> 「修复后会话 PASS」需用重建/修复后的样本验证，pre- 前缀备份多为修复前坏样本。
 
 ---
 

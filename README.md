@@ -274,10 +274,16 @@ pnpm check && pnpm test    # syntax check + 79 unit tests (incl. incident regres
 node scripts/check-local-fossils.mjs   # scans ../ for backup-session-*.jsonl.zstd
 ```
 
-Known truth table: incident-repaired sessions PASS; `seqgap`/`corrupt`/
-`rewritten-230542` FAIL; `spliced-orphan` PASS (legal for the persistence layer —
-#3632's "consumer path deems it unreadable" is a different contract; this tool only
-guards the persistence contract layer, see the boundary note in
+Known truth table (updated 2026-08-31 — after 0.3.5 added I1, `spliced-orphan`
+now FAILs; the old PASS row was stale):
+- `2c3f87d4-corrupt` / `b7713ea1-seqgap` / `rewritten-230542` → FAIL (seq gaps)
+- `2c3f87d4-spliced-orphan` → **FAIL (0.3.5+)** (T1/I1: invalid inbox splice + turn-null)
+- `e61d70da-pre-markerfix-20260825` → FAIL (pre-fix sample: turn-null markers remain)
+- `c2d05ce9-pre-cleansession-20260831` → PASS (3256-span replace marker is data-legal;
+  official foldSurface replays cleanly — see the plugin ledger)
+The truth table tracks rule evolution (0.3.5's I1 flipped spliced-orphan PASS→FAIL);
+"repaired sessions PASS" must be verified on rebuilt samples — `pre-` backups are
+usually pre-fix bad samples. See the boundary note in
 [docs/CONTRACTS.md](docs/CONTRACTS.md)).
 
 ---

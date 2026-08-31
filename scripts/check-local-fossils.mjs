@@ -8,12 +8,12 @@
  * 用法：node scripts/check-local-fossils.mjs [目录或文件…]
  * 默认扫描 ../ 下的 backup-session-*.jsonl.zstd。
  *
- * 预期判定（真值表）：
- *   - e61d70da-pre-markerfix-20260825-002906  → PASS（事故修复后会话，官方 foldSurface 可重放）
- *   - b7713ea1-seqgap / 2c3f87d4-corrupt      → FAIL（seq 缺口 / 倒退 → 加载被拒）
- *   - 2c3f87d4-spliced-orphan                 → PASS（持久化层合法；#3632 是消费路径判定差异，
- *                                                 本工具只负责持久化契约层，见 docs/CONTRACTS.md）
+ * 预期判定（真值表，2026-08-31 实测更新——0.3.5 加 I1 后 spliced-orphan 从 PASS 变 FAIL）：
+ *   - b7713ea1-seqgap / 2c3f87d4-corrupt / recorrupt → FAIL（seq 缺口/倒退 → 加载被拒）
  *   - 2c3f87d4-rewritten-230542               → FAIL（那次重写引入了 seq 缺口）
+ *   - 2c3f87d4-spliced-orphan                 → FAIL（0.3.5+：T1/I1——inbox splice 无效 + turn-null）
+ *   - e61d70da-pre-markerfix-20260825-002906  → FAIL（修复前样本：turn-null marker 残留 5 处）
+ *   - c2d05ce9-pre-cleansession-20260831      → PASS（3256 跨度 replace marker 数据合规）
  */
 import fs from 'node:fs';
 import path from 'node:path';
