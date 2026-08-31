@@ -1,3 +1,25 @@
+## 0.3.7 — 2026-08-31 · L3/L4/L5 + 独立审查 5 项修复 + health-scan 巡检
+
+### 新增
+
+- **L3 `check --resume` 三档结论**：loadable / resumable / compactable——体检不只报违规，
+  还能判定会话能否加载/续跑/压缩（`bin/dsh-log-contract.mjs check <file> --resume`）；
+- **L4 fix 原语收编**：neutralize / clip-crossstep / drop-turnnull / trim 等收进统一命令；
+- **L5 `--trim-budget`**：按 token 预算裁剪（中文字符密度实测校准）；
+- **health-scan.mjs 定期巡检**（`scripts/health-scan.mjs`）：全量扫描会话 → 分级
+  （🟢健康/🟡可自修/🔴损坏）→ 报告归档 `健康巡检报告-*.md`——生产级运行时的
+  「定期巡检」层（工程-生产级运行时/自检机制）。
+
+### 修复（独立审查 5 项）
+
+- neutralize-orphan 误伤健康文件（孤立判定过宽）；
+- extract-turn 同 seq 丢内容（同 seq 多事件只取最后一个）；
+- tail-renumber 崩溃（尾部非数字/空文件）；
+- keep-ranges 静默输出错误 header（header 被当普通行）；
+- 工具 exit 码不统一（成功/失败无法脚本判断）。
+
+---
+
 ## 0.3.6 — 2026-08-30 · T2 规则盲区修复（非 chunk 引用 + usage 前提）
 
 ### 事故（2026-08-30 第二层根因）
