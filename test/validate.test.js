@@ -632,3 +632,48 @@ describe('T5 turn/end reason.kind（2026-09-02 1f4d986e malformed turn/end 固�
     }
   })
 })
+
+describe('readSessionHeader（2026-09-02 · 轻量 header 读取，短码推导用）', () => {
+  it('zstd 会话文件读 header（帧1）', async () => {
+    const { readSessionHeader } = await import('../lib/log-reader.js')
+    const { writeFileSync, mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { rebuildZstdText } = await import('../lib/repair.js')
+    const dir = mkdtempSync(join(tmpdir(), 'lc-hdr-'))
+    try {
+      const header = { type: 'session', version: 0, id: 'session-test-1', createdAt: 123456, cwd: '/tmp', parentSession: 'session-parent-1' }
+      const lines = [JSON.stringify(header), JSON.stringify({ type: 'user/message', seq: 0, time: 1, data: {} })]
+      const file = join(dir, 'session.jsonl.zstd')
+      writeFileSync(file, rebuildZstdText(lines.join('\n') + '\n'))
+      const h = readSessionHeader(file)
+      expect(h).not.toBeNull()
+      expect(h.id).toBe('session-test-1')
+      expect(h.createdAt).toBe(123456)
+      expect(h.parentSession).toBe('session-parent-1')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('明文文件读 header', async () => {
+    const { readSessionHeader } = await import('../lib/log-reader.js')
+    const { writeFileSync, mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'lc-hdr-'))
+    try {
+      const file = join(dir, 'session.jsonl')
+      writeFileSync(file, JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 1 }) + '\n{bad}\n')
+      const h = readSessionHeader(file)
+      expect(h?.id).toBe('s1')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('不存在/损坏文件返回 null', async () => {
+    const { readSessionHeader } = await import('../lib/log-reader.js')
+    expect(readSessionHeader('/nonexistent/x.jsonl.zstd')).toBeNull()
+  })
+})

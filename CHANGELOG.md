@@ -1,3 +1,12 @@
+## 0.3.10 — 2026-09-02 · readSessionHeader（轻量 header 读取，短码推导基础）
+
+### 新增
+
+- **`readSessionHeader(path)`**：只读会话文件帧 1（header 单行），不读全文件帧——
+  全量 ~110 会话扫描 ≈ 30ms（zstd 文件读前缀 64KiB 解帧 1；明文直接取首行）。
+  用途：会话短码推导（工作区 createdAt 序号）只需要 header；失败返回 null。
+- 105 测试绿。
+
 ## 0.3.9 — 2026-09-02 · T5 turn/end reason.kind（1f4d986e malformed 固化）
 
 ### 新增（2026-09-02 · T5 turn/end 必须带 data.reason.kind）
