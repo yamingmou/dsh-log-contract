@@ -41,7 +41,7 @@ export function turnEnd({ seq, turn = 0, reason = 'completed' } = {}) {
 }
 
 /** 插件 marker（retrace 式）：assistant/message replace，data.turn/step 为 null。 */
-export function markerEvent({ seq, start, end, shadowedSeqs, id = 'retrace-edit-x', text = 'edited' } = {}) {
+export function markerEvent({ seq, start, end, shadowedSeqs, id = 'retrace-edit-x', text = 'edited', turn = 1, step = 1 } = {}) {
   return {
     type: 'assistant/message',
     seq,
@@ -49,8 +49,8 @@ export function markerEvent({ seq, start, end, shadowedSeqs, id = 'retrace-edit-
     surfaceOp: { op: 'replace', start, end },
     sourceEventSeqs: shadowedSeqs,
     data: {
-      turn: null,
-      step: null,
+      turn,
+      step,
       message: { id, role: 'assistant', source: { kind: 'model', provider: 'deepseek', model: 'test' }, content: [{ type: 'text', text }] },
       editor: { targetSeq: start, text },
     },
