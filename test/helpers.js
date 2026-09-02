@@ -36,7 +36,7 @@ export function assistantMessage({ seq, turn = 0, step = 1, text = 'yo', id = `a
   };
 }
 
-export function turnEnd({ seq, turn = 0, reason = 'completed' } = {}) {
+export function turnEnd({ seq, turn = 0, reason = { kind: 'completed' } } = {}) {
   return { type: 'turn/end', seq, time: seq + 1, data: { turn, reason } };
 }
 
