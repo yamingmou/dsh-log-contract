@@ -1,3 +1,18 @@
+## Unreleased
+
+### 新增（2026-09-02 · 渲染层规则 T3/T4 —— 1e99e1ff 白屏复盘固化）
+
+- **T3 step 节点 key 唯一**（`stepKeyViolations`）：同 turn 内两个 step/start 的
+  step 号重复 = error（客户端 React 节点 key 冲突 → 渲染死循环白屏，1e99e1ff
+  事故；6924781d/97786207/4b149a4a 同型已由修复线整块重编号修复）；
+- **T4 step/消息本体 turn 缺失**（`nullTurnStepViolations`）：step/start|step/end|
+  assistant/message 的 data.turn 为 null/undefined = error（客户端渲染状态机
+  无法归属 → 死循环白屏，D8 1e99e1ff；user/message 天然无 turn 不查、chunk 不查）；
+- 两条规则进 `check` 全量体检 + `--resume` 三档（计入可加载/可压缩阻断）+ prewrite
+  写前校验（拟写事件引入 T3/T4 → error 拒绝，防再犯：任何写 turn:null 或 step
+  冲突的 marker 写入前被拦）；
+- 契约注册 T3/T4；98 测试绿。
+
 ## 0.3.7 — 2026-08-31 · L3/L4/L5 + 独立审查 5 项修复 + health-scan 巡检
 
 ### 新增
