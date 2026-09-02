@@ -244,7 +244,7 @@ describe('neutralizeMarkersText（2026-08-30 事故：turn-null marker 刷屏压
       assistantMessage({ seq: 2, turn: 1, step: 1 }),
       { type: 'step/end', seq: 3, time: 4, data: { turn: 1, step: 1 } },
       // turn-null retrace marker（编辑重发，step 已关闭）：token-meter 会在此抛错 → 刷屏
-      markerEvent({ seq: 4, start: 3, end: 3, shadowedSeqs: [3], id: 'retrace-edit-x' }),
+      markerEvent({ seq: 4, start: 3, end: 3, shadowedSeqs: [3], id: 'retrace-edit-x', turn: null, step: null }),
       userMessage({ seq: 5, text: 'after' }),
     ];
   }
