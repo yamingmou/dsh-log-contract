@@ -53,7 +53,7 @@ describe('W1 wire 悬空 tool', () => {
       assistantWithToolCall({ seq: 1 }),
       toolResultMessage({ seq: 2, callId: 'call-1' }),
       markerEvent({ seq: 3, start: 1, end: 1, shadowedSeqs: [1] }),
-      { type: 'turn/end', seq: 4, time: 5, data: { turn: 0, reason: 'completed' } },
+      { type: 'turn/end', seq: 4, time: 5, data: { turn: 0, reason: { kind: 'completed' } } },
     ];
     const file = writeSession(events);
     const result = validateSessionLog(loadSessionLog(file));
@@ -66,7 +66,7 @@ describe('W1 wire 悬空 tool', () => {
       userMessage({ seq: 0 }),
       assistantWithToolCall({ seq: 1 }),
       toolResultMessage({ seq: 2, callId: 'call-1' }),
-      { type: 'turn/end', seq: 3, time: 4, data: { turn: 0, reason: 'completed' } },
+      { type: 'turn/end', seq: 3, time: 4, data: { turn: 0, reason: { kind: 'completed' } } },
     ];
     const file = writeSession(events);
     const result = validateSessionLog(loadSessionLog(file));
@@ -188,7 +188,7 @@ describe('dropFailedTurnsText', () => {
     const events = [
       userMessage({ seq: 0 }),
       assistantMessage({ seq: 1 }),
-      { type: 'turn/end', seq: 2, time: 3, data: { turn: 0, reason: 'completed' } },
+      { type: 'turn/end', seq: 2, time: 3, data: { turn: 0, reason: { kind: 'completed' } } },
       { type: 'turn/start', seq: 3, time: 4, data: { turn: 1 } },
       userMessage({ seq: 4 }),
       assistantMessage({ seq: 5 }),
@@ -401,7 +401,7 @@ describe('L4 新原语（2026-08-30 任务书 §L4 收编 tools/）', () => {
     const events = [
       { type: 'user/message', seq: 0, time: 11, data: { turn: 0, text: 'hi' } },
       { type: 'assistant/message', seq: 1, time: 12, data: { turn: 0, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'yo' }] } } },
-      { type: 'turn/end', seq: 2, time: 13, data: { turn: 0, reason: 'completed' } },
+      { type: 'turn/end', seq: 2, time: 13, data: { turn: 0, reason: { kind: 'completed' } } },
     ];
     const file = writeRawSession([JSON.stringify(sessionHeader(0)), ...events.map((e) => JSON.stringify(e))]);
     const text = fs.readFileSync(file, 'utf8');

@@ -1,3 +1,14 @@
+## 0.3.9 — 2026-09-02 · T5 turn/end reason.kind（1f4d986e malformed 固化）
+
+### 新增（2026-09-02 · T5 turn/end 必须带 data.reason.kind）
+
+- **T5**（`turnEndReasonViolations`）：turn/end 的 `data.reason?.kind` 缺失/非字符串
+  = error——官方 validation 强制（镜像 dsh-agent-loop:620），缺失 = malformed →
+  会话加载失败（1f4d986e：retrace 情形③信封 turn/end 漏 reason，已修 0.4.18）；
+- 进 `check` 全量体检 + `--resume`（计入可加载/可压缩阻断）+ prewrite 写前校验；
+- 契约注册 T5；测试 fixture 修正（turnEnd helper 的 reason 从字符串改为
+  `{ kind: 'completed' }` 对象——真实 DSH 契约）；102 测试绿。
+
 ## 0.3.8 — 2026-09-02 · 渲染层规则 T3/T4（1e99e1ff 白屏复盘固化）
 
 ### 新增（2026-09-02 · 渲染层规则 T3/T4 —— 1e99e1ff 白屏复盘固化）

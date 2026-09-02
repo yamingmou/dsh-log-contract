@@ -579,3 +579,56 @@ describe('resumeVerdict（L3：check --resume 三档结论）', () => {
     expect(Array.isArray(back.violationsByTier.structural)).toBe(true);
   });
 });
+
+
+describe('T5 turn/end reason.kind（2026-09-02 1f4d986e malformed turn/end 固化）', () => {
+  it('turn/end 带 reason.kind → 0 违规', async () => {
+    const { turnEndReasonViolations } = await import('../lib/checks.js')
+    const events = [
+      { event: { type: 'turn/end', seq: 0, data: { turn: 1, reason: { kind: 'completed' } } }, lineNo: 0 },
+      { event: { type: 'turn/end', seq: 1, data: { turn: 2, reason: { kind: 'aborted' } } }, lineNo: 1 },
+    ]
+    expect(turnEndReasonViolations(events)).toHaveLength(0)
+  })
+
+  it('turn/end 缺 reason.kind → T5 error', async () => {
+    const { turnEndReasonViolations } = await import('../lib/checks.js')
+    const out = turnEndReasonViolations([{ event: { type: 'turn/end', seq: 0, data: { turn: 1 } }, lineNo: 0 }])
+    expect(out).toHaveLength(1)
+    expect(out[0].id).toBe('T5')
+    expect(out[0].severity).toBe('error')
+  })
+
+  it('非 turn/end 事件不报', async () => {
+    const { turnEndReasonViolations } = await import('../lib/checks.js')
+    const events = [{ event: { type: 'turn/start', seq: 0, data: { turn: 1 } }, lineNo: 0 }]
+    expect(turnEndReasonViolations(events)).toHaveLength(0)
+  })
+
+  it('validateSessionLog 全量接入：malformed turn/end → ok=false + T5', async () => {
+    const { validateSessionLog } = await import('../lib/validate.js')
+    const { loadSessionLog } = await import('../lib/log-reader.js')
+    const { writeFileSync, mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'lc-t5-'))
+    try {
+      const lines = [
+        { type: 'session', version: 0, id: 's1', createdAt: 1, cwd: '/tmp' },
+        { type: 'request/header', seq: 0, time: 1, data: { header: { config: { provider: 'p', model: 'm' } } } },
+        { type: 'user/message', seq: 1, time: 2, data: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+        { type: 'assistant/message', seq: 2, time: 3, data: { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'yo' }], source: { kind: 'model', provider: 'p', model: 'm' } } }, surfaceOp: 'append' },
+        { type: 'step/start', seq: 3, time: 4, data: { turn: 1, step: 1 } },
+        { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
+        { type: 'turn/end', seq: 5, time: 6, data: { turn: 1 } }, // ← 缺 reason.kind
+      ]
+      const file = join(dir, 'session.jsonl')
+      writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+      const res = validateSessionLog(loadSessionLog(file))
+      expect(res.ok).toBe(false)
+      expect(res.violations.some((v) => v.id === 'T5')).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
