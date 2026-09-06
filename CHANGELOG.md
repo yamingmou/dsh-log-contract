@@ -1,4 +1,25 @@
-## 0.3.10 — 2026-09-02 · readSessionHeader（轻量 header 读取，短码推导基础）
+## [Unreleased] — 待办/风险跟踪
+
+### 风险跟踪（2026-09-06 · 外部 AI 审计引出）：官方 session 格式 v1→v2
+
+- 官方 deepseek-harness 9/4 release **0.1.3-alpha.1** + worktree
+  `session-format-05-v1-v2-chunk-migration`（9/2-9/4 活跃）——session 格式 v1→v2 迁移；
+- 本包解码路径依赖官方：peerDep `@deepseek-ai/dsh-session ^0.1.0-rc.7`，
+  `decodeStorageRecord`（log-reader）+ `foldSurface`/`KNOWN_SESSION_EVENT_TYPES`（checks）；
+- **现状兼容**：DSH Desktop 2.0.3 捆绑 0.1.1-rc.2（v1），本包服务 v1 会话不受影响；
+- **策略**：v2 未冻结不追（追移动靶）；**冻结（进 rc/正式 + DSH 升级）时评估**：
+  ① 格式 diff（chunk 迁移改什么）② 解码路径要动的点（理想 = decode 层单点替换，
+  log-reader 与规则层边界清晰则只动 decode）③ v1 老会话在 v2 读路径的兼容性（修复线战场）；
+- 讨论：comm/msgs/2026-09-06-plugin-004（to engineer 调研）。
+
+### 工具（2026-09-06 · 外部审计教训固化）
+
+- `scripts/gen-contracts-doc.mjs`：从 `lib/contracts.js` CONTRACT_RULES 自动生成
+  `docs/CONTRACTS.md`（36 条全覆盖）——规则文档禁止手工维护（曾滞后 15+ 条被外部审计指出）；
+- `scripts/check-pkg-meta.mjs`：发布前校验 repository/homepage/bugs 指向 yamingmou
+  （曾残留旧账号 azmavethy → 404 永久失效），接入 prepublishOnly。
+
+
 
 ### 新增
 

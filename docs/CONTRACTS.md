@@ -1,15 +1,20 @@
 # 契约规则目录（CONTRACTS）
 
+> **自动生成**（2026-09-06 起）：本文件由 `node scripts/gen-contracts-doc.mjs`
+> 从 `lib/contracts.js` 的 `CONTRACT_RULES` 注册表生成——**勿手改**，规则只增不减，
+> 新增规则后跑一次生成即同步（此前手工维护滞后 15+ 条，外部审计指出）。
+>
 > DSH 会话日志契约的**可执行 spec**。每条规则在 `lib/checks.js`（逐事件判定）
 > 与 `lib/prewrite.js`（写前校验）中有对应实现；离线体检（`lib/validate.js`）
 > 逐条执行并在最后用官方 `foldSurface` 终验（S8）。
 >
 > 规则来源：`dsh-scale-audit-疑点记录.md`（59 条审计发现）+ `复盘-会话修复事故-20260825.md`
-> （三层契约）+ `@deepseek-ai/dsh-session@0.1.0-rc.7` 官方源码逐行核对。
+> （三层契约）+ `@deepseek-ai/dsh-session@0.1.0-rc.7` 官方源码逐行核对
+> （后续规则随官方版本演进追加：T3/T4 渲染层 = 1e99e1ff 复盘，T5 = 1f4d986e malformed）。
 >
 > 严重度：**error** = 违反即会话不可加载/写入被拒（fail-loud）；**warning** = 合法但可疑。
 
-## 规则索引
+## 规则索引（共 36 条）
 
 | id | 严重度 | 层级 | 规则 |
 |---|---|---|---|
@@ -20,6 +25,8 @@
 | R3 | error | persistence | chunk 行展开后成员 seq/time 安全 |
 | E1 | error | persistence | 每个事件携带非负安全整数 seq |
 | E2 | error | persistence | seq 严格连续（单写入者假设） |
+| S9 | error | persistence | 文件物理序 seq 单调（多写入者交织现场特征） |
+| I1 | error | engine | inbox seed 相对重放（fork 边界孤儿 spliced） |
 | E3 | error | persistence | type 必须在已知词汇表内（或带 ignorable 标记） |
 | E4 | error | persistence | data 与 surface 元数据必须 JSON 无损 |
 | E5 | error | persistence | 禁用遗留词汇 |
@@ -28,16 +35,25 @@
 | S2 | error | persistence | 非 surface 类型不得携带 surface 元数据 |
 | S3 | error | persistence | append 的 sourceEventSeqs 契约 |
 | S4 | error | persistence | replace 操作数与范围合法性 |
-| S5 | error | persistence | ★ replace 的 sourceEventSeqs 必须完整覆盖被替换节点 |
+| S5 | error | persistence | replace 的 sourceEventSeqs 必须完整覆盖被替换节点 |
 | S6 | error | persistence | sourceEventSeqs 自身约束 |
 | S7 | error | persistence | tool/result 替换仅允许单节点内容改写 |
-| S8 | error | persistence | 整日志 foldSurface 可重放（终验） |
+| S8 | error | persistence | 整日志 foldSurface 可重放 |
+| T1 | error | engine | token-meter 配对：assistant/message 与 step/end 必须匹配当前打开的 step/start |
+| T2 | error | engine | token-meter 源引用：assistant/message 的 sourceEventSeqs 引用的 chunk 必须同 turn/step |
+| T3 | error | engine | step 节点 key 唯一（同 turn 内 step/start 的 step 号不得复用） |
+| T4 | error | engine | step/消息本体 turn 缺失（null/undefined）→ 渲染死循环 |
+| T5 | error | engine | turn/end 必须带 data.reason.kind |
+| P3 | warning | plugin | tool/call ↔ tool/result 配对完整性（考古 B1） |
+| P4 | warning | plugin | tool/result 输出结构可解析（考古 B2） |
 | M1 | error | engine | turn/step 为 null 的 assistant/message 只能 replace，不能 append |
 | P1 | warning | plugin | marker id 前缀必须被识别 |
 | P2 | error | plugin | marker 自身 seq 不得出现在自身 shadowed 集 |
 | C1 | warning | concurrency | seq 缺口/倒退提示多写入者 |
 | Z1 | warning | framing | zstd 尾帧撕裂 |
 | Z2 | error | framing | zstd 帧解码失败 = 单帧全损 |
+| W1 | error | engine | wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后 |
+| W2 | error | engine | wire 流：user 文本不得插在 tool_calls 与其 tool 结果之间 |
 
 ## 详细规则
 
@@ -82,6 +98,18 @@
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session lib/index.js:398 (planSurfaceEvent "not contiguous")；审计 S2/N6
 - **契约**: seq 必须从 0（或窗口 baseSeq）严格连续递增。缺口/倒退 = 违反单写入者假设（多实例共享存储并发写的痕迹），加载时直接 throw。
+
+### S9 — 文件物理序 seq 单调（多写入者交织现场特征）
+
+- **层级**: persistence ｜ **严重度**: error
+- **出处**: 2026-08-28 实锤：526f1835 文件物理序 734056→733539→735470；单进程 appendCore 断言 seq==cursor+i 且按 id 串行化不可能写出
+- **契约**: 按文件物理行序要求展开后事件 seq 严格单调递增。E2 在排序后检查（loadSessionLog 会 sort），物理序倒退被掩盖；S9 在排序前按行序检查，非单调 = 多写入者/旧光标回放交织的直接现场证据，加载会被拒。
+
+### I1 — inbox seed 相对重放（fork 边界孤儿 spliced）
+
+- **层级**: engine ｜ **严重度**: error
+- **出处**: @deepseek-ai/dsh-agent lib/types/inbox.js:155-178 (apply/validate)；2026-08-28 实锤：62c5b531/73ed35d8 fork 边界 removedCount=1 孤儿
+- **契约**: 从 header.seedLength 起重放 agent/inbox/spliced，next-turn/next-step 双队列；start+removedCount 不得超过队列长、不得产生重复 pending id。fork 时"移除父待处理提示词"的 splice 假设父会话 inbox，子会话 seed 相对空 inbox 上非法 → resume 被拒（invalid persisted inbox splice）。
 
 ### E3 — type 必须在已知词汇表内（或带 ignorable 标记）
 
@@ -155,6 +183,48 @@
 - **出处**: @deepseek-ai/dsh-session lib/index.js:444-455 (foldSurface)；复盘"官方 foldSurface 不抛 = 通过"
 - **契约**: 终验：把全部事件按序喂给官方 foldSurface，不抛 = 持久化层通过。S1–S7 任何一条违反都会在此暴露。
 
+### T1 — token-meter 配对：assistant/message 与 step/end 必须匹配当前打开的 step/start
+
+- **层级**: engine ｜ **严重度**: error
+- **出处**: @deepseek-ai/dsh-token-meter lib/index.js:566-625 (_foldEvent)
+- **契约**: token meter 折叠要求 assistant/message 与 step/end 与打开的 step/start（turn/step 完全一致）匹配；违反即 /compact 与压力测量永久失败。retrace 的 turn-null 编辑/撤回 marker（空 assistant/message replace）命中此条——foldSurface 认可其合法性但 token meter 崩溃（M1 只约束 append 形态的盲区），压缩前需清理。
+
+### T2 — token-meter 源引用：assistant/message 的 sourceEventSeqs 引用的 chunk 必须同 turn/step
+
+- **层级**: engine ｜ **严重度**: error
+- **出处**: @deepseek-ai/dsh-token-meter lib/index.js:634-650 (_estimateProviderAssistant，:645 belongs to another step)
+- **契约**: token meter 重建 provider 输出时，逐条检查 assistant/message 的 sourceEventSeqs：指向 assistant/chunk 的引用必须与消息同 turn/step，且 seq 更早、不重复；跨 step 引用 → 官方抛 belongs to another step → 每次事件追加都重抛（consumedEvents 不前进）→ 刷屏压垮 host（2026-08-30 实测 526f1835 seq 936047 跨 step 7/8/9）。T1 只查 step 配对不查源引用，此条补盲区；修复用 fix --clip-crossstep。
+
+### T3 — step 节点 key 唯一（同 turn 内 step/start 的 step 号不得复用）
+
+- **层级**: engine ｜ **严重度**: error
+- **出处**: 复盘 2026-09-02 1e99e1ff 白屏（修复线 session-3f9e4f12）：客户端渲染节点 key = turn:step，冲突 → React 渲染死循环；工具 tools/check-step-keys.mjs
+- **契约**: 客户端渲染消息列表从事件流构建节点，节点 key = data.turn:data.step。同 turn 内两个 step/start 的 step 号相同 → key 冲突 → React 渲染死循环 → 白屏/不展示（1e99e1ff：580034 step 95/1 vs 580037 编辑块 step 95/1；6924781d/97786207/4b149a4a 同型）。修复：同 turn 内 step 递增、整块重编号（含块内 chunk/tool/assistant）。
+
+### T4 — step/消息本体 turn 缺失（null/undefined）→ 渲染死循环
+
+- **层级**: engine ｜ **严重度**: error
+- **出处**: 复盘 D8 1e99e1ff（2026-09-01）：retrace 0.4.17 编辑块 turn:null；修复线 tools/check-null-turn.mjs 判致命
+- **契约**: 客户端渲染状态机对 turn=null 的 step/start|step/end|assistant/message 无法归属任何 turn → 渲染死循环 → 白屏「载入历史」（1e99e1ff seq 580037-580039）。user/message 天然无 turn 不查；chunk 坐标可缺失不查。step/消息本体必须带真实 turn 号。
+
+### T5 — turn/end 必须带 data.reason.kind
+
+- **层级**: engine ｜ **严重度**: error
+- **出处**: 官方 dsh-agent-loop lib/index.js:620（turn/end = {turn, reason:{kind}}）；1f4d986e malformed turn/end 事故（2026-09-02，修复线 check-turn-end-reason.mjs）
+- **契约**: 官方 validation 强制 turn/end 的 data.reason.kind 存在（kind ∈ completed|max-tokens|blocked|aborted|error|interrupted）。缺失 = malformed → 官方 SessionPersistenceCorruptionError → 会话加载失败。1f4d986e：retrace 情形③信封 turn/end 漏 reason → 每次编辑后加载失败（已修 0.4.18）。
+
+### P3 — tool/call ↔ tool/result 配对完整性（考古 B1）
+
+- **层级**: plugin ｜ **严重度**: warning
+- **出处**: dsh-会话日志考古-插件任务与方法.md §2/§4.2（callId 配对，不可用"上一个 call"推断）
+- **契约**: 每个 tool/call 的 data.callId 必须能在 tool/result 的 data.message.source.callId 中找到配对；孤儿 call（无 result）告警——中断/失败轮次可能产生孤儿（合法但要审计），考古提取将缺该输出。
+
+### P4 — tool/result 输出结构可解析（考古 B2）
+
+- **层级**: plugin ｜ **严重度**: warning
+- **出处**: dsh-会话日志考古-插件任务与方法.md §2/§4.2（content 递归 text 结构）
+- **契约**: tool/result 的 data.message.content 必须可递归解析（list[dict{type:text,text}] 或等价）；不可解析片段 = 考古提取将漏数据。空 content（失败/无输出）合法。
+
 ### M1 — turn/step 为 null 的 assistant/message 只能 replace，不能 append
 
 - **层级**: engine ｜ **严重度**: error
@@ -191,19 +261,15 @@
 - **出处**: 审计 N5：多帧单帧全损 → 整会话不可读
 - **契约**: 任一帧解码失败（磁盘 bitrot / 传输截断 / 并发写撕裂）即整会话不可读；帧越多，单帧损坏下丢失概率线性上升。
 
----
+### W1 — wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后
 
-## 边界说明（诚实声明）
+- **层级**: engine ｜ **严重度**: error
+- **出处**: 2026-08-27 实锤：MiMo 等严格端点对悬空 tool 直接 INVALID_REQUEST（Messages with role "tool" must be a response to a preceding message with "tool_calls"）；marker 遮蔽 assistant(tool_calls) 而未盖住 tool/result、或中断回合重放重复 tool/result 写在 marker 之后都会产生
+- **契约**: 按 surface 折叠顺序展开 wire 消息流：每个 role=tool 消息必须消费一个仍未满足的 assistant tool-call；不足 = 悬空（provider 拒绝）。常见来源：marker 范围漏盖 tool/result、重放重复事件。
 
-1. **本工具守护"持久化契约层"**。`#3632` 的"one log, two consumers, two verdicts"中，
-   `agent/inbox/spliced` 孤儿在持久化层**是合法的**（官方 `foldSurface` 可通过）——
-   违规发生在**消费路径**（`sessionQuery`/UI 判不可读）。本工具的 `check` 会如实报 PASS，
-   不冒充能判消费路径契约；该层契约属另一类问题（可配合 dsh-retrace / 上游修复）。
-2. **M1 是引擎层启发式规则**：`data.turn/step` 为 null 的 `assistant/message` 以 append 进入
-   surface 会触发客户端引擎崩溃（rt.js:6816）——依据是 2026-08-25 事故第 2 轮实证。
-   离线场景无法渲染客户端，故以 error 级保守拦截，避免事故重演。
-3. **写前校验以"官方 foldSurface 不抛"为最终权威**：逐事件归因（S1–S7）负责定位，
-   官方重放（S8）负责背书；两套都绿才算通过。若官方实现更新导致判定漂移，
-   以官方为准并更新本 spec（本工具自己就是契约漂移的哨兵）。
-4. **seq 严格连续是单写入者假设**（N6）：离线 `check` 只能看到缺口/倒退的结果，
-   无法观测竞态本身；`C1` 给出解释性告警而非臆断。
+### W2 — wire 流：user 文本不得插在 tool_calls 与其 tool 结果之间
+
+- **层级**: engine ｜ **严重度**: error
+- **出处**: OpenAI 兼容端点对 tool 消息顺序的严格校验；DSH 序列化器将混合 user 消息展开为 text 在前、tool-result 在后
+- **契约**: 当仍有未满足的 assistant tool-call 时出现 user 文本消息，会产生 [assistant(tool_calls), user(text), tool] 序列，严格端点同样拒绝。
+
