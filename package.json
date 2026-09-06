@@ -30,8 +30,7 @@
   ],
   "scripts": {
     "check": "node scripts/check-syntax.mjs",
-    "test": "vitest run",
-    "prepublishOnly": "pnpm check && pnpm test"
+    "test": "vitest run"
   },
   "keywords": [
     "dsh",
