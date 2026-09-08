@@ -14,7 +14,7 @@
 >
 > 严重度：**error** = 违反即会话不可加载/写入被拒（fail-loud）；**warning** = 合法但可疑。
 
-## 规则索引（共 36 条）
+## 规则索引（共 38 条）
 
 | id | 严重度 | 层级 | 规则 |
 |---|---|---|---|
@@ -44,6 +44,8 @@
 | T3 | error | engine | step 节点 key 唯一（同 turn 内 step/start 的 step 号不得复用） |
 | T4 | error | engine | step/消息本体 turn 缺失（null/undefined）→ 渲染死循环 |
 | T5 | error | engine | turn/end 必须带 data.reason.kind |
+| E7 | warning | persistence | ignorable 未知 type 合法性（带被忽略标记的未知事件须有消费者） |
+| Z3 | warning | framing | 空会话文件（有 header 无事件）显式报出 |
 | P3 | warning | plugin | tool/call ↔ tool/result 配对完整性（考古 B1） |
 | P4 | warning | plugin | tool/result 输出结构可解析（考古 B2） |
 | M1 | error | engine | turn/step 为 null 的 assistant/message 只能 replace，不能 append |
@@ -212,6 +214,18 @@
 - **层级**: engine ｜ **严重度**: error
 - **出处**: 官方 dsh-agent-loop lib/index.js:620（turn/end = {turn, reason:{kind}}）；1f4d986e malformed turn/end 事故（2026-09-02，修复线 check-turn-end-reason.mjs）
 - **契约**: 官方 validation 强制 turn/end 的 data.reason.kind 存在（kind ∈ completed|max-tokens|blocked|aborted|error|interrupted）。缺失 = malformed → 官方 SessionPersistenceCorruptionError → 会话加载失败。1f4d986e：retrace 情形③信封 turn/end 漏 reason → 每次编辑后加载失败（已修 0.4.18）。
+
+### E7 — ignorable 未知 type 合法性（带被忽略标记的未知事件须有消费者）
+
+- **层级**: persistence ｜ **严重度**: warning
+- **出处**: 反向挑刺 2026-09-09 T2（E3 ignorable 无合法性校验 = 后门）
+- **契约**: 未知 type + ignorable:true 被读路径接纳但无人消费 = 静默垃圾。排除已知消费者白名单（retrace/marker、retrace/goal-marker、message-editor/ 前缀等 retrace 客户端消费的插件 marker）后，其余 ignorable 未知事件报 warning。
+
+### Z3 — 空会话文件（有 header 无事件）显式报出
+
+- **层级**: framing ｜ **严重度**: warning
+- **出处**: 反向挑刺 2026-09-09 T3（36 条规则全来自有内容事故,空态无覆盖）
+- **契约**: 有 header 但零事件 = 异常空会话（新建即空或写入未落盘）。空态不在任何有内容规则的覆盖下,显式 warning 供人判断。
 
 ### P3 — tool/call ↔ tool/result 配对完整性（考古 B1）
 

@@ -677,3 +677,58 @@ describe('readSessionHeader（2026-09-02 · 轻量 header 读取，短码推导�
     expect(readSessionHeader('/nonexistent/x.jsonl.zstd')).toBeNull()
   })
 })
+
+describe('反向挑刺 2026-09-09 规则增量（T1 双向孤儿 result / T2 ignorable 合法性 / T3 空文件）', () => {
+  it('T1:tool/result 无对应 tool/call → P3 warning（双向，精确指认 callId）', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      assistantMessage({ seq: 1 }),
+      // result 引用一个从未出现的 call
+      toolResultMessage({ seq: 2, callId: 'call-orphan-result' }),
+    ];
+    const result = validateSessionLog(loadSessionLog(writeSession(events)));
+    // 注:纯孤儿 result 的 wire 流会被 W1/W2(error)拦——那是另一规则;本测试只验 P3 双向告警
+    const p3 = result.violations.filter((v) => v.id === 'P3' && String(v.message).includes('call-orphan-result'));
+    expect(p3.length).toBeGreaterThan(0);
+    expect(p3[0].message).toContain('没有配对的 tool/call');
+  })
+
+  it('T1:正常配对(result 有 call)→ 无孤儿告警', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      assistantMessage({ seq: 1 }),
+      { type: 'tool/call', seq: 2, data: { callId: 'call-ok', arguments: '{}' } },
+      toolResultMessage({ seq: 3, callId: 'call-ok' }),
+    ];
+    const result = validateSessionLog(loadSessionLog(writeSession(events)));
+    const p3 = result.violations.filter((v) => v.id === 'P3');
+    expect(p3).toHaveLength(0);
+  })
+
+  it('T2:未知 type + ignorable + 无已知消费者 → E7 warning', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      assistantMessage({ seq: 1 }),
+      { type: 'mystery/event', seq: 2, ignorable: true, data: {} },
+    ];
+    const result = validateSessionLog(loadSessionLog(writeSession(events)));
+    expect(ids(result)).toContain('E7');
+    const e7 = result.violations.find((v) => v.id === 'E7');
+    expect(e7.message).toContain('mystery/event');
+  })
+
+  it('T2:已知消费者 retrace/marker(ignorable)→ 不报 E7', () => {
+    const events = [
+      userMessage({ seq: 0 }),
+      assistantMessage({ seq: 1 }),
+      { type: 'retrace/marker', seq: 2, ignorable: true, data: { message: { id: 'x', role: 'assistant', content: [] } } },
+    ];
+    const result = validateSessionLog(loadSessionLog(writeSession(events)));
+    expect(ids(result)).not.toContain('E7');
+  })
+
+  it('T3:有 header 无事件 → Z3 warning（空会话显式报）', () => {
+    const result = validateSessionLog(loadSessionLog(writeSession([])));
+    expect(ids(result)).toContain('Z3');
+  })
+})

@@ -1,4 +1,19 @@
-## [Unreleased] — 待办/风险跟踪
+## [Unreleased] — 0.3.11（反向挑刺规则增量 T1-T3,38 条规则）
+
+### 新增（2026-09-09 · 工程师任务清单 插件任务-反向挑刺提取-20260909.md）
+
+- **T1 → P3 双向**：tool/result 无对应 tool/call（孤儿 result）也告警,精确指认 callId
+  （原只查孤儿 call;折叠后 wire 流无主 tool 消息 = provider 拒绝风险,W1/W2 同族不同层）;
+- **T2 → E7（新规则）**：ignorable 未知 type 合法性——未知 type + ignorable + 无已知
+  消费者（retrace/marker、retrace/goal-marker、message-editor/ 白名单外）= warning
+  "静默垃圾"（ignorable 后门补校验）;全量 138 会话 0 误报（白名单覆盖 neutralize 产物）;
+- **T3 → Z3（新规则）**：空会话文件（有 header 无事件）显式 warning（36 条规则全来自
+  有内容事故,空态无覆盖——补盲区）;
+- 测试 +5（110 全绿）;docs/CONTRACTS.md 自动生成 38 条;
+- 观察项:T4 重复投递检测语义边界待澄清（内容重复难判:用户重复提问合法）;
+  C2 超时专项记 backlog;C4 自查通过（check 纯读不落盘,保持）。
+
+
 
 ### 风险跟踪（2026-09-06 · 外部 AI 审计引出）：官方 session 格式 v1→v2
 
