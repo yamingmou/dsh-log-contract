@@ -113,3 +113,32 @@ describe('validateEdit —— 帧级手术校验（改后确认）', () => {
     expect(prewriter.validateEdit(broken).ok).toBe(false);
   });
 });
+
+describe('V3 回归：写前拦悬空 tool（2026-09-09 补）', () => {
+  // 会话：user → assistant(带 tool-call) → tool/result → turn/end
+  const toolCallSession = () => [
+    userMessage({ seq: 0 }),
+    {
+      type: 'assistant/message', seq: 1, time: 2, surfaceOp: 'append',
+      data: { turn: 0, step: 1, message: { id: 'a-1', role: 'assistant', source: { kind: 'model', provider: 'deepseek', model: 'test' }, content: [{ type: 'text', text: 'check' }, { type: 'tool-call', callId: 'call-1', name: 'bash', arguments: '{}' }] } },
+    },
+    { type: 'tool/result', seq: 2, time: 3, surfaceOp: 'append', data: { turn: 0, step: 1, message: { id: 't-2', role: 'user', source: { kind: 'tool', callId: 'call-1' }, content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'ok' }] }] } } },
+    turnEnd({ seq: 3, turn: 0 }),
+  ];
+
+  it('★ marker 遮蔽 assistant(tool-call) 但漏 tool/result → W1 拦截（悬空 tool）', () => {
+    const prewriter = createPreWriter({ events: toolCallSession() });
+    // marker replace [1..1]（只盖 assistant，漏 tool/result seq2）；turn 对齐会话
+    const badMarker = markerEvent({ seq: 4, start: 1, end: 1, shadowedSeqs: [1], turn: 0, step: 2 });
+    const r = prewriter.validateAppend(badMarker);
+    expect(r.ok).toBe(false);
+    expect(ids(r)).toContain('W1');
+  });
+
+  it('marker 完整遮蔽 assistant+tool/result → 通过（不误伤）', () => {
+    const prewriter = createPreWriter({ events: toolCallSession() });
+    const fullMarker = markerEvent({ seq: 4, start: 1, end: 2, shadowedSeqs: [1, 2], turn: 0, step: 2 });
+    const r = prewriter.validateAppend(fullMarker);
+    expect(r.ok).toBe(true);
+  });
+});
