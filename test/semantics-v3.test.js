@@ -32,6 +32,8 @@ import { V0_EVENT_TYPES, V2_EVENT_TYPES, inferFormatVersion, LEGACY_FORMAT_MAX_V
 import { isJsonValue, decodeSeqRanges, decodeStorageRecord } from '../lib/compat.js';
 import { finalFold, wireViolations, normalizeReplaceOp } from '../lib/checks.js';
 import { HEADER, validSessionEvents, markerEvent, userMessage, assistantMessage, turnEnd } from './helpers.js';
+import * as helpersForRc from './helpers.js';
+import { neutralizeMarkersText as neutralizeLegacy } from '../lib/repair.js';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CLI = path.join(ROOT, 'bin', 'dsh-log-contract.mjs');
@@ -57,7 +59,9 @@ function systemMessage({ seq, turn = 0, step = 0, text = 'sys' } = {}) {
     data: {
       turn,
       step,
-      message: { id: `s-${seq}`, role: 'system', source: { kind: 'system' }, content: [{ type: 'text', text }] },
+      // R-G/E9：宿主要求 system/message 的 source.kind==='plugin' 且 plugin 非空
+      // （dsh-session@0.1.5-rc.1 lib/index.js:942-944）——夹具按宿主契约写,否则会被 E9 判红。
+      message: { id: `s-${seq}`, role: 'system', source: { kind: 'plugin', plugin: 'test-plugin' }, content: [{ type: 'text', text }] },
     },
   };
 }
@@ -770,5 +774,113 @@ describe('F4 · CLI --json 大报告必须是合法 JSON', () => {
     const payload = JSON.parse(stdout);                          // 截断则此处抛 "Unterminated string"
     expect(payload.ok).toBe(false);
     expect(payload.violations.length).toBeGreaterThanOrEqual(3000);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R-G · 独立复核确证的 3 例漏检（2026-09-14）——补成候选规则并钉住
+// 依据：`@deepseek-ai/dsh-session@0.1.5-rc.1` 真源码（行号见各条 source）。
+// 每条的对照实验：宿主**拒**、旧契约 0 违规（复核报告 §2.3 变异 03/05/12）。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('R-G · v3 形状/字段层漏检（候选规则 E8/E9/E10）', () => {
+  const checkEvents = (events, header = HEADER_V3) => validateSessionLog({
+    header, headerLine: 0, rows: [], events: events.map((event) => ({ event })), frameInfo: { frames: 0, torn: false },
+  });
+  const baseV3 = () => [
+    { type: 'user/message', seq: 0, time: 1, surfaceOp: 'append', data: { id: 'u0', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] } },
+  ];
+
+  itV3('E8：信封多余键 `extra` → error（宿主 assertSessionEventEnvelope 只认 7 键）', () => {
+    const result = checkEvents([...baseV3(), { type: 'user/message', seq: 1, time: 2, surfaceOp: 'append', extra: 1, data: { id: 'u1', role: 'user', source: { kind: 'user' }, content: [] } }]);
+    expect(result.violations.map((v) => v.id)).toContain('E8');
+    // 对照：无多余键 → 不报 E8
+    const clean = checkEvents([...baseV3(), { type: 'user/message', seq: 1, time: 2, surfaceOp: 'append', data: { id: 'u1', role: 'user', source: { kind: 'user' }, content: [] } }]);
+    expect(clean.violations.map((v) => v.id)).not.toContain('E8');
+  });
+
+  itV3('E9：system/message 的 source 不是 plugin → error（宿主 :942-944）', () => {
+    const bad = systemMessage({ seq: 1 });
+    bad.data.message.source = { kind: 'user' };   // 变异 03 的形态
+    const result = checkEvents([...baseV3(), bad]);
+    expect(result.violations.map((v) => v.id)).toContain('E9');
+    // 对照：plugin source + 非空 plugin → 不报
+    const good = systemMessage({ seq: 1 });
+    good.data.message.source = { kind: 'plugin', plugin: 'dsh-retrace' };
+    const clean = checkEvents([...baseV3(), good]);
+    expect(clean.violations.map((v) => v.id)).not.toContain('E9');
+  });
+
+  itV3('E10：request/header 带 header.system → error（宿主 :237）', () => {
+    const bad = { type: 'request/header', seq: 1, time: 2, surfaceOp: 'append', data: { header: { system: 'you are…', tools: [] } } };
+    const result = checkEvents([...baseV3(), bad]);
+    const ids = result.violations.map((v) => v.id);
+    expect(ids).toContain('E10');
+    expect(ids.filter((id) => id === 'E10').length).toBeGreaterThanOrEqual(2); // system 与空 tools 两条
+    // 对照：不带 system/空 tools → 不报 E10
+    const good = { type: 'request/header', seq: 1, time: 2, surfaceOp: 'append', data: { header: { tools: [{ name: 't' }] } } };
+    const clean = checkEvents([...baseV3(), good]);
+    expect(clean.violations.map((v) => v.id)).not.toContain('E10');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R-C · 历史 marker 白名单收窄 + 版本门 + 一次性根治（2026-09-14 独立复核 §3）
+// 复核判定：旧判据"任意 data.editor"是"设计粗糙的豁口"（第三方同形状也能领豁免）。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('R-C · 历史 marker 白名单（收窄 + ≤v2 版本门 + 可见降级 + 一次性根治）', () => {
+  const { markerEvent: mkMarker, validSessionEvents: validEvents, userMessage: mkUser, HEADER: H0 } = helpersForRc;
+
+  it('可识别历史载体 + 写入通过 → legacyMarkerDebt 可见（kind/id/targetSeq/seq/formatVersion）', () => {
+    const r = createPreWriter({ events: validEvents(), header: H0 })
+      .validateAppend(mkMarker({ seq: 3, start: 0, end: 1, shadowedSeqs: [0, 1] }));
+    expect(r.ok).toBe(true);
+    expect(r.legacyMarkerDebt).toMatchObject({ kind: 'retrace', id: 'retrace-edit-x', targetSeq: 0, seq: 3, formatVersion: 0 });
+  });
+
+  it('第三方同形状（id 无 retrace 前缀）→ 不认（debt=null；旧判据会放行）', () => {
+    const r = createPreWriter({ events: validEvents(), header: H0 })
+      .validateAppend(mkMarker({ seq: 3, start: 0, end: 1, shadowedSeqs: [0, 1], id: 'third-party-edit' }));
+    expect(r.legacyMarkerDebt).toBe(null);
+  });
+
+  it('形状不符（editor.targetSeq ≠ op.start）→ 不认（debt=null）', () => {
+    const ev = mkMarker({ seq: 3, start: 0, end: 1, shadowedSeqs: [0, 1] });
+    ev.data.editor.targetSeq = 99;
+    const r = createPreWriter({ events: validEvents(), header: H0 }).validateAppend(ev);
+    expect(r.legacyMarkerDebt).toBe(null);
+  });
+
+  itV3('版本门：v3 文件上同一历史载体 → 不降级（debt=null；v3 上降级救不回任何写入）', () => {
+    const r = createPreWriter({ events: validEvents(), header: { ...H0, version: 3 } })
+      .validateAppend(mkMarker({ seq: 3, start: 0, end: 1, shadowedSeqs: [0, 1] }));
+    expect(r.legacyMarkerDebt).toBe(null);
+  });
+
+  it('T1 降级真的生效且**只对可识别载体**：同样形状、只差 id 前缀 → warning vs error', () => {
+    // 基座含 step/start（T1 才会做配对检查）+ 关闭的 step；marker 的 turn/step 与打开的不符 ⇒ T1 命中拟写事件自身
+    const base = [
+      mkUser({ seq: 0 }),
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 0, step: 1 } },
+      { type: 'step/end', seq: 2, time: 3, data: { turn: 0, step: 1 } },
+    ];
+    const carrier = { seq: 3, start: 0, end: 2, shadowedSeqs: [0, 1, 2], turn: 7, step: 7 };
+    const withRetraceId = createPreWriter({ events: base, header: H0 }).validateAppend(mkMarker(carrier));
+    expect(withRetraceId.violations.filter((v) => v.id === 'T1').map((v) => v.severity)).toEqual(['warning']);
+    const withThirdPartyId = createPreWriter({ events: base, header: H0 }).validateAppend(mkMarker({ ...carrier, id: 'third-party-edit' }));
+    expect(withThirdPartyId.violations.filter((v) => v.id === 'T1').map((v) => v.severity)).toEqual(['error']);
+  });
+
+  it('一次性根治 `neutralizeMarkersText({onlyLegacy:true})`：只中和历史载体，新载体不动', () => {
+    // 历史债的形态 = turn-null 的载体 marker（`neutralizeMarkersText` 的口径:turn/step 为 null）
+    const legacy = JSON.stringify(mkMarker({ seq: 3, start: 0, end: 1, shadowedSeqs: [0, 1], turn: null, step: null }));
+    const modernCarrier = JSON.stringify({ type: 'user/message', seq: 4, time: 5, surfaceOp: 'replace', sourceEventSeqs: [0, 1, 3], data: { id: 'retrace-marker-xyz', role: 'user', source: { kind: 'user' }, content: [] } });
+    const text = [JSON.stringify(mkUser({ seq: 0 })), JSON.stringify(mkUser({ seq: 1 })), legacy, modernCarrier, ''].join('\n');
+    const r = neutralizeLegacy(text);
+    expect(r.neutralized).toBe(1);
+    const lines = r.text.split('\n');
+    expect(JSON.parse(lines[2]).type).toBe('retrace/marker');
+    expect(JSON.parse(lines[2]).ignorable).toBe(true);
+    expect(JSON.parse(lines[2]).surfaceOp).toBeUndefined();
+    expect(JSON.parse(lines[3]).type).toBe('user/message');   // 新载体原样保留
   });
 });
