@@ -318,9 +318,10 @@ MIT © OfferKuai Team
 - `4` = **migration pre-check blocked**: the tool judges that the official upgrade chain will refuse the file.
 - ⚠️ **Pipelines that treated `exit 0` as "fine" will now fail.** The old behaviour returned `0` even for files
   the tool itself reported as refused by the official chain — a false negative where the exit code contradicted
-  the verdict. `--fail-on-migration` is an **explicit alias of the (now default) behaviour**, not a toggle, and
-  there is **no opt-out**; for the old behaviour read `assessmentScope` / `migration.ready` from `--json` and
-  apply your own threshold.
+  the verdict. `--fail-on-migration` is an **explicit alias of the (now default) behaviour**; the **real opt-out
+  is `--no-fail-on-migration`**, which restores the 0.3.11 behaviour (structural green ⇒ `exit 0`). When both
+  flags are given, the opt-out wins. You can also ignore the exit code and read `assessmentScope` /
+  `migration.ready` from `--json` with your own threshold.
 
 **2. `--json` gains `assessmentScope` (three values).**
 

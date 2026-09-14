@@ -39,7 +39,7 @@ const errOut = (text) => writeAllSync(2, text);
 const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log contract guard）
 
 用法：
-  dsh-log-contract check <session-log> [--json] [--max-details N] [--resume] [--fail-on-migration]
+  dsh-log-contract check <session-log> [--json] [--max-details N] [--resume] [--fail-on-migration] [--no-fail-on-migration]
       离线体检 + **迁移预检**（两个**独立维度**，互不蕴含）。session-log 支持 .jsonl 与 .jsonl.zstd。
       ⚠️ 口径边界：本工具只判定它实现的规则集。「ok」/「可加载」/「可继续」/「可压缩」
       **不代表**会话"可用"，**不代表**可安全编辑，也**不代表**官方升级路径会接受
@@ -48,15 +48,21 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
       --max-details N 每条违规最多列 N 个缺失 seq（默认 8，--json 忽略）
       --resume        输出分层结论：可加载 / 可继续 / 可压缩（本工具规则集内）
                       + 迁移预检（官方 v0/v1/v2→当前格式会不会拒）；--json 时附带。
-      --fail-on-migration  migration.ready===false（工具判"官方升级会拒"）时退出码 4。
-                      **注意：现行默认行为已经是"ready===false ⇒ 退出码 4"**；本开关是显式别名，
-                      便于 CI 把意图写进命令行（也与将来若放宽默认值时保留 opt-in 口径）。
-      评估范围 assessmentScope（顶层字段）：'partial' = 待迁移文件（迁移维度只覆盖 2 条规则，
-      另有 6 类未覆盖）⇒ **不构成"官方升级会接受"**；'full' = 无需迁移（已是当前格式）；
-      'none' = 本宿主能力不足以评估。机器应判 assessmentScope == "full" 才可把绿读作完整评估。
+      --fail-on-migration     migration.ready===false（工具判"官方升级会拒"）时退出码 4。
+                      **注意：默认已经是这个行为**（第四轮把"报告与退出码不一致"的假阴性修掉了）；
+                      本开关是**显式别名**，便于 CI 把意图写进命令行。
+      --no-fail-on-migration  **真 opt-out**：恢复 0.3.11 的行为——迁移 blocked 不再改退出码
+                      （结构绿即 exit 0）。两者同时给时 **opt-out 优先**。若你的流水线依赖旧退出码，
+                      用本开关；也可改读 --json 的 assessmentScope / migration.ready 自定门槛。
+      评估范围 assessmentScope（顶层字段，与 migration.assessmentScope 同值）：
+      'full' = 被检文件**已是当前官方格式（version=3）、无需迁移** ⇒ 工具规则集对该文件是完整的；
+      'partial' = **需要迁移**（version<3）：迁移维度只覆盖 2 条规则，另有 6 类未覆盖 ⇒
+      **不构成"官方升级会接受"**；'none' = 本宿主能力不足以评估（文件版本 > 宿主上限）。
+      机器应判 assessmentScope == "full" 才可把绿读作完整评估（partial/none 都不该）。
       退出码：0 本工具认为可加载且无迁移阻断；1 有 error 级违规；3 不可在本宿主评估
               （被检文件版本 > 宿主支持上限，如 rc.7 宿主的 v3 文件——**不是** broken）；
-              4 迁移预检 blocked（assessmentScope=partial 且 migration.ready=false）。
+              4 迁移预检 blocked（assessmentScope=partial 且 migration.ready=false；可用
+              --no-fail-on-migration 退出该档）。
 
   dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--clip-crossstep] [--drop-failed-turns] [--trim-last N] [--compact-last N] [--tail-renumber D] [--neutralize-orphan] [--extract-turn N] [--keep-ranges a-b,c-d] [--apply] [--backup-dir DIR] [--json]
       诊断 + 修复（2026-08 事故固化方案）。先做严格 seq 连续扫描 + 契约体检
@@ -169,9 +175,11 @@ function migrationLine(mig, partial = false) {
 function cmdCheck(args) {
   const json = args.includes('--json');
   const resume = args.includes('--resume');
-  // 第四轮（最终复核 §六-2）：显式开关。现行默认行为已是"ready===false ⇒ exit 4"，
-  // 本开关是显式别名，便于 CI 把意图写进命令行。
+  // 第四轮/第五轮：`--fail-on-migration` 是**默认已生效行为**的显式别名；
+  // `--no-fail-on-migration` 是**真 opt-out**（恢复旧行为：迁移 blocked 不再改退出码）。
+  // 两者同时给 ⇒ opt-out 优先（help/README 写明）。
   const failOnMigration = args.includes('--fail-on-migration');
+  const noFailOnMigration = args.includes('--no-fail-on-migration');
   const maxDetailsIdx = args.indexOf('--max-details');
   const maxDetails = maxDetailsIdx >= 0 && args[maxDetailsIdx + 1] ? Number(args[maxDetailsIdx + 1]) : 8;
   const file = args.find((a) => !a.startsWith('-'));
@@ -191,8 +199,9 @@ function cmdCheck(args) {
   const scope = result.assessmentScope ?? assessmentScope(result);
   const partial = scope === 'partial';
   const migBlocked = migration?.applies === true && migration.ready === false;
-  // `--fail-on-migration` 与默认同效（显式别名）：`ready===false` ⇒ 非 0。
-  const migGate = migBlocked || (failOnMigration && migration?.ready === false);
+  // 默认：`ready===false` ⇒ 非 0（第四轮修复的假阴性）。
+  // `--fail-on-migration` = 显式别名（同默认）；`--no-fail-on-migration` = 真 opt-out（恢复旧行为）。
+  const migGate = !noFailOnMigration && (migBlocked || (failOnMigration && migration?.ready === false));
   // 退出码：3 不可评估 > 1 结构 error > 4 迁移 blocked > 0。
   const exitCode = notAssessable ? 3 : (!ok ? 1 : (migGate ? 4 : 0));
 
