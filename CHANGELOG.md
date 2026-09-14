@@ -77,8 +77,8 @@ turn/start 状态机规则（G4）原型在 281 个真实 v0 上 **0 误报**、
 - **现状兼容**：DSH Desktop 2.0.3 捆绑 0.1.1-rc.2（v1），本包服务 v1 会话不受影响；
 - **策略**：v2 未冻结不追（追移动靶）；**冻结（进 rc/正式 + DSH 升级）时评估**：
   ① 格式 diff（chunk 迁移改什么）② 解码路径要动的点（理想 = decode 层单点替换，
-  log-reader 与规则层边界清晰则只动 decode）③ v1 老会话在 v2 读路径的兼容性（维护线战场）；
-- 讨论：comm/msgs/2026-09-06-plugin-004（to engineer 调研）。
+  log-reader 与规则层边界清晰则只动 decode）③ v1 老会话在 v2 读路径的兼容性（主要战场）；
+- 讨论：内部调研（评审记录）。
 
 ### 工具（2026-09-06 · 外部审计教训固化）
 
@@ -96,27 +96,27 @@ turn/start 状态机规则（G4）原型在 281 个真实 v0 上 **0 误报**、
   用途：会话短码推导（工作区 createdAt 序号）只需要 header；失败返回 null。
 - 105 测试绿。
 
-## 0.3.9 — 2026-09-02 · T5 turn/end reason.kind（5e551005 malformed 固化）
+## 0.3.9 — 2026-09-02 · T5 turn/end reason.kind（malformed turn/end 固化）
 
 ### 新增（2026-09-02 · T5 turn/end 必须带 data.reason.kind）
 
 - **T5**（`turnEndReasonViolations`）：turn/end 的 `data.reason?.kind` 缺失/非字符串
   = error——官方 validation 强制（镜像 dsh-agent-loop:620），缺失 = malformed →
-  会话加载失败（5e551005：retrace 情形③信封 turn/end 漏 reason，已修 0.4.18）；
+  会话加载失败（实测：retrace 情形③信封 turn/end 漏 reason，已修 0.4.18）；
 - 进 `check` 全量体检 + `--resume`（计入可加载/可压缩阻断）+ prewrite 写前校验；
 - 契约注册 T5；测试 fixture 修正（turnEnd helper 的 reason 从字符串改为
   `{ kind: 'completed' }` 对象——真实 DSH 契约）；102 测试绿。
 
-## 0.3.8 — 2026-09-02 · 渲染层规则 T3/T4（5e551001 白屏复盘固化）
+## 0.3.8 — 2026-09-02 · 渲染层规则 T3/T4（渲染层白屏复盘固化）
 
-### 新增（2026-09-02 · 渲染层规则 T3/T4 —— 5e551001 白屏复盘固化）
+### 新增（2026-09-02 · 渲染层规则 T3/T4 —— 渲染层白屏复盘固化）
 
 - **T3 step 节点 key 唯一**（`stepKeyViolations`）：同 turn 内两个 step/start 的
-  step 号重复 = error（客户端 React 节点 key 冲突 → 渲染死循环白屏，5e551001
-  事故；5e551002/5e551003/5e551004 同型已由维护线整块重编号修复）；
+  step 号重复 = error（客户端 React 节点 key 冲突 → 渲染死循环白屏事故；
+  同类会话已由修复工具整块重编号修复）；
 - **T4 step/消息本体 turn 缺失**（`nullTurnStepViolations`）：step/start|step/end|
   assistant/message 的 data.turn 为 null/undefined = error（客户端渲染状态机
-  无法归属 → 死循环白屏，D8 5e551001；user/message 天然无 turn 不查、chunk 不查）；
+  无法归属 → 死循环白屏（D8 事故）；user/message 天然无 turn 不查、chunk 不查）；
 - 两条规则进 `check` 全量体检 + `--resume` 三档（计入可加载/可压缩阻断）+ prewrite
   写前校验（拟写事件引入 T3/T4 → error 拒绝，防再犯：任何写 turn:null 或 step
   冲突的 marker 写入前被拦）；
@@ -148,8 +148,8 @@ turn/start 状态机规则（G4）原型在 281 个真实 v0 上 **0 误报**、
 
 ### 事故（2026-08-30 第二层根因）
 
-- 5e551007 neutralize 后仍报错：6 个 error 级 T2 跨 step 引用（seq 7000004 等）。
-- 精查 7000004：sourceEventSeqs 2011 个引用 = 2001 同 step chunk + **10 个非 chunk**
+- 某真实会话 neutralize 后仍报错：6 个 error 级 T2 跨 step 引用。
+- 精查该会话：sourceEventSeqs 2011 个引用 = 2001 同 step chunk + **10 个非 chunk**
   （assistant/message、tool/call、tool/result、step/end、step/start 各 2）——DSH resend
   在 step 未关时把旧 step 整段引用进新消息。
 - **官方 `dsh-token-meter/lib/index.js:644`：非 chunk 引用直接 throw `is not assistant/chunk`**
@@ -165,7 +165,7 @@ turn/start 状态机规则（G4）原型在 281 个真实 v0 上 **0 误报**、
   sourceEventSeqs 是 S5 遮蔽语义、合法且必需，**不可裁剪**；只有带 usage 的
   append 消息才检查/裁剪。
 - T2 规则 + clip-crossstep 都加 usage 前提；非 chunk 引用改报 error（原 continue）。
-- 5e551007 修复：只裁剪 7000004 一条（2011→2001，去掉 10 个非 chunk），
+- 某真实会话修复：只裁剪一条跨 step 引用（2011→2001，去掉 10 个非 chunk），
   5 条 replace marker 不动；复检 0 违规。
 - 测试 +2（非 chunk → T2 error / replace marker 无 usage 不报），**81 全绿**。
 
@@ -177,5 +177,5 @@ turn/start 状态机规则（G4）原型在 281 个真实 v0 上 **0 误报**、
 ## 0.3.6 发版清查台账（2026-08-30）
 
 - 全量历史会话清查（~/.dsh/sessions 85 会话）：**error 级违规 0**（T1/T2/I1/S9 全清）。
-- 5e551007 遗留 6 个 0.4.6 时代 turn-null marker（seq 1091709/1101061/1113626/1114597/1129716/1144037）已在前序 neutralize 中处理；跨 step 引用 7000004 已 clip（2011→2001）。
+- 该会话遗留 6 个 0.4.6 时代 turn-null marker（seq 约 1.09M–1.14M）已在前序 neutralize 中处理；跨 step 引用已 clip（2011→2001）。
 - 说明：0.3.6 的 T2 usage 前提修复后复扫，replace marker（无 usage）的 sourceEventSeqs 不再误报——S5 遮蔽语义合法引用保留。
