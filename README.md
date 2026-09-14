@@ -134,34 +134,6 @@ Both the human-readable `check` output and the `--json` `support` field carry th
 version support: host @deepseek-ai/dsh-session@0.1.5-rc.1 (baseline 0.1.5-rc.1) | file format v3 (header, baseline)
 ```
 
-## Version support (host / session format)
-
-**Tested baseline (the versions this rule set was verified against)**:
-
-| Item | Baseline | Note |
-|---|---|---|
-| Host package | `@deepseek-ai/dsh-session@0.1.5-rc.1` | version used on the dev box and in CI; the four `prepublishOnly` steps are green on it |
-| Session format | **v3** (`SESSION_FORMAT_VERSION = 3`) | v3 uses the runtime vocabulary + official `foldSurface` final check |
-| Declared range | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1` | installable — a declared range is **not** a per-version verification |
-| Known formats | 0 / 1 / 2 / 3 | 0–2 are supported by this package's **vendored** vocabulary + local equivalent fold (`legacyFoldSurface`), independent of the host |
-
-**What happens on unverified versions (detected and reported at runtime — never silently judged by stale rules)**:
-
-| Case | Behaviour |
-|---|---|
-| Host **newer than the baseline** | explicit **warning** (`host … is newer than the tested baseline …`); the verdict is still produced but flagged as possibly not applicable |
-| Host older than the baseline (still in peer range) | notice + the host-capability gate decides whether v3 is assessable (`SESSION_FORMAT_VERSION` too low ⇒ `not-assessable`, exit 3) |
-| **Unknown** session format (not in 0/1/2/3) | reported as **unverified format** and handled **read-only**: `check` runs structure rules only; `prewrite` / `fix` **refuse** (exit 3) |
-| Format **unrecognisable** (no `header.version` and no distinguishing event shapes) | same: "unverified format" + read-only |
-| File version above the host's supported maximum | `not-assessable` (**not** broken), exit 3; skipped/executed rules are listed |
-
-Implementation: `lib/version-support.js` (`TESTED_BASELINE` / `detectSupport()`, exported in the public API).
-Both the human-readable `check` output and the `--json` `support` field carry the baseline summary and the warnings, e.g.:
-
-```
-version support: host @deepseek-ai/dsh-session@0.1.5-rc.1 (baseline 0.1.5-rc.1) | file format v3 (header, baseline)
-```
-
 ## Installation
 
 ```bash
@@ -199,7 +171,7 @@ Sample output (the CLI reports in Chinese — it is the tool's UI language):
    事件 204754 ｜ surface 节点 16 ｜ replace 代数 5 ｜ 帧 8620（3439.5KiB → 8191.3KiB）
    违规 1（error 1 / warning 0）
 
-  [error] S5 @ seq 7000026 / line 778 (assistant/message)
+  [error] S5 @ seq <seq> / line <line> (assistant/message)
       surface replace: sourceEventSeqs 必须覆盖每个被替换节点；缺失 121774, 121779（共 2 个）
 
 ❌ 未通过：见上方违规明细（error 级 = 会话不可读/不可写）
@@ -364,7 +336,7 @@ MIT © OfferKuai Team
 
 ---
 
-## ⚠️ Upgrading to 0.3.12 — behaviour changes you must know
+## ⚠️ Upgrading to 0.3.14 — behaviour changes you must know (0.3.12 → 0.3.14)
 
 **1. New exit codes `3` / `4` — a defect fix that is also a breaking change.**
 - `3` = **not assessable on this host**: the file's `header.version` is higher than the host supports
