@@ -274,8 +274,9 @@ MIT © OfferKuai Team
   而是明确说明宿主能力不足；`fix --apply` 会**拒绝**该文件（不落盘、不写备份）。
 - `4` = **迁移预检 blocked**：本工具判断该文件会被官方升级链拒绝。
 - ⚠️ **把 `exit 0` 当"过"的流水线会由过转挂。** 旧行为在**工具自己就报告"官方会拒"**的文件上仍返回 `0`
-  —— 退出码与结论矛盾的假阴性。`--fail-on-migration` 是**默认已生效行为的显式别名**，不是开关，
-  且**没有 opt-out**；需要旧行为请读 `--json` 的 `assessmentScope` / `migration.ready` 自定门槛。
+  —— 退出码与结论矛盾的假阴性。`--fail-on-migration` 是**默认已生效行为的显式别名**；
+  **真正的 opt-out 是 `--no-fail-on-migration`**，它恢复 0.3.11 的行为（结构绿即 `exit 0`）。
+  两者同时给时 **opt-out 优先**。也可改读 `--json` 的 `assessmentScope` / `migration.ready` 自定门槛。
 
 **2. `--json` 新增 `assessmentScope`（三值）。**
 
