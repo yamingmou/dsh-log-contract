@@ -106,7 +106,7 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
 
   dsh-log-contract extract <session-log> --pattern <regex> [--out DIR] [--min-size N] [--json]
       考古提取：按命令正则导出工具输出（只读）。--out 写到目录（保留原始文本），
-      否则打印前 3 条摘要。--min-size 过滤小输出（默认 50，需求文档口径）。
+      否则打印前 3 条摘要。--min-size 过滤小输出（默认 50）。
 
   dsh-log-contract audit-report <session-log> [--json]
       考古审计报告：调用数 / 配对率 / 孤儿数 / 命令分布。
@@ -407,7 +407,7 @@ function cmdFix(args) {
   const trimBudget = budgetIdx >= 0 && args[budgetIdx + 1] ? Number(args[budgetIdx + 1]) : undefined;
   const compactIdx = args.indexOf('--compact-last');
   const compactLast = compactIdx >= 0 && args[compactIdx + 1] ? Number(args[compactIdx + 1]) : undefined;
-  // L4 新原语（2026-08-30 需求文档 §L4 收编 tools/）
+  // L4 新原语（2026-08-30 收编外部验证工具）
   const tailIdx = args.indexOf('--tail-renumber');
   const tailRenumberDelta = tailIdx >= 0 && args[tailIdx + 1] ? Number(args[tailIdx + 1]) : undefined;
   const neutralizeOrphan = args.includes('--neutralize-orphan');

@@ -18,7 +18,7 @@
 
 
 > DSH（DeepSeek Harness）会话日志的**结构契约保险丝**：离线体检 + 写前校验。
-> 原名 `log-contract-validator`（候选二号），按 Offer快 三件组合规划定名 **`dsh-log-contract`**。
+> 本包名 **`dsh-log-contract`**；早期工作名 `log-contract-validator`。
 
 给 DSH 会话日志（`*.jsonl` / `*.jsonl.zstd`）装一条保险丝：人眼看不出、程序解析会崩的日志格式漂移，在它这里被拦下并告警。它不判断日志**内容**对不对，只守护日志**结构**是否破坏了下游消费者（Harness 读路径、客户端引擎、插件 marker 语义）的预期。
 
@@ -257,15 +257,13 @@ if (!verdict.ok) {
 ## 测试
 
 ```bash
-pnpm check && pnpm test    # 语法检查 + 79 个单测（含事故回归用例）
+pnpm check && pnpm test    # 语法检查 + 契约文档漂移闸 + 全部单测（含事故回归用例）
 ```
 
 - **合成夹具**（入库）：合法会话 / seq 缺口 / 空 sourceEventSeqs / turn=null append / 未知 type / 坏 chunk 行 / 撕裂尾帧 / 未知 marker 前缀 / 自指 shadowed 等。
-- **真实化石**（不入库，含用户隐私）：本地跑
 
-```bash
-node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.zstd
-```
+> **发布包范围**：只含运行时代码与文档。维护者本地工具不在公开仓内，
+> 因此 `pnpm check` / `pnpm test` 在干净的克隆里即可通过。
 
 已知真值表（2026-08-31 实测更新——0.3.5 加 I1 后，`spliced-orphan` 已可报错，旧表 PASS 过时）：
 
@@ -297,7 +295,11 @@ MIT © OfferKuai Team
 
 ---
 
-## ⚠️ 升级到 0.3.14 —— 必须知道的行为变更（0.3.12 → 0.3.14）
+## ⚠️ 升级到 0.3.15 —— 必须知道的行为变更（0.3.12 → 0.3.15）
+
+> **0.3.15 本身不含行为变更。** 它只做两件事：清掉 0.3.14 已发布产物里的两处内部标识
+> （README 的定名说明 + 一处源码注释），并补齐发布前泄漏闸门的词表。
+> 从 0.3.12 升到 0.3.15 时，下面各条与原来完全一致。
 
 **1. 新增退出码 `3` / `4`：本质是缺陷修复，形式上也是破坏性变更。**
 - `3` = **不可在本宿主评估**：被检文件的 `header.version` 高于当前宿主支持的上限

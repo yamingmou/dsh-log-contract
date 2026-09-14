@@ -397,7 +397,7 @@ describe('clipCrossStepSourcesText（2026-08-30 第二类事故：resend 跨 ste
   });
 });
 
-describe('L4 新原语（2026-08-30 需求文档 §L4 收编 tools/）', () => {
+describe('L4 新原语（2026-08-30 收编外部验证工具）', () => {
   function sessionHeader(seedLength) {
     return { type: 'session', version: 0, id: 't', createdAt: 1, seedLength };
   }
@@ -564,7 +564,7 @@ describe('L4 新原语（2026-08-30 需求文档 §L4 收编 tools/）', () => {
   }, 30000);
 });
 
-describe('L5 trim 预算校准（2026-08-30 需求文档 §L5）', () => {
+describe('L5 trim 预算校准（2026-08-30）', () => {
   it('estimateTokensText：1000 中文字符 ≈ 940 tokens（×0.94，不是 ÷4）', () => {
     const text = JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '中'.repeat(1000) }] } });
     const est = estimateTokensText(text + '\n');

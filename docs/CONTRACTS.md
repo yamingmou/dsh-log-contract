@@ -3,6 +3,7 @@
 > **自动生成**（2026-09-06 起）：本文件由 `node scripts/gen-contracts-doc.mjs`
 > 从 `lib/contracts.js` 的 `CONTRACT_RULES` 注册表生成——**勿手改**，规则只增不减，
 > 新增规则后跑一次生成即同步（此前手工维护滞后 15+ 条，外部审计指出）。
+> **漂移闸**：`pnpm check` 会跑 `--check` 逐字节比对，改了注册表没重生成 ⇒ 直接红。
 >
 > DSH 会话日志契约的**可执行 spec**。每条规则在 `lib/checks.js`（逐事件判定）
 > 与 `lib/prewrite.js`（写前校验）中有对应实现；离线体检（`lib/validate.js`）
@@ -231,7 +232,7 @@
 ### E7 — ignorable 未知 type 合法性（带被忽略标记的未知事件须有消费者）
 
 - **层级**: persistence ｜ **严重度**: warning
-- **出处**: 对抗性复核 2026-09-09 T2（E3 ignorable 无合法性校验 = 后门）
+- **出处**: 对抗性复查 2026-09-09 T2（E3 ignorable 无合法性校验 = 后门）
 - **契约**: 未知 type + ignorable:true 被读路径接纳但无人消费 = 静默垃圾。排除已知消费者白名单（retrace/marker、retrace/goal-marker、message-editor/ 前缀等 retrace 客户端消费的插件 marker）后，其余 ignorable 未知事件报 warning。
 
 ### E8 — 事件信封键白名单（多余键：seed/restore 路径会拒）
@@ -255,19 +256,19 @@
 ### Z3 — 空会话文件（有 header 无事件）显式报出
 
 - **层级**: framing ｜ **严重度**: warning
-- **出处**: 对抗性复核 2026-09-09 T3（36 条规则全来自有内容事故,空态无覆盖）
+- **出处**: 对抗性复查 2026-09-09 T3（36 条规则全来自有内容事故,空态无覆盖）
 - **契约**: 有 header 但零事件 = 异常空会话（新建即空或写入未落盘）。空态不在任何有内容规则的覆盖下,显式 warning 供人判断。
 
 ### P3 — tool/call ↔ tool/result 配对完整性（考古 B1）
 
 - **层级**: plugin ｜ **严重度**: warning
-- **出处**: dsh-会话日志考古-插件需求与方法.md §2/§4.2（callId 配对，不可用"上一个 call"推断）
+- **出处**: 考古方法 §2/§4.2（callId 配对，不可用"上一个 call"推断）
 - **契约**: 每个 tool/call 的 data.callId 必须能在 tool/result 的 data.message.source.callId 中找到配对；孤儿 call（无 result）告警——中断/失败轮次可能产生孤儿（合法但要审计），考古提取将缺该输出。
 
 ### P4 — tool/result 输出结构可解析（考古 B2）
 
 - **层级**: plugin ｜ **严重度**: warning
-- **出处**: dsh-会话日志考古-插件需求与方法.md §2/§4.2（content 递归 text 结构）
+- **出处**: 考古方法 §2/§4.2（content 递归 text 结构）
 - **契约**: tool/result 的 data.message.content 必须可递归解析（list[dict{type:text,text}] 或等价）；不可解析片段 = 考古提取将漏数据。空 content（失败/无输出）合法。
 
 ### M1 — turn/step 为 null 的 assistant/message 只能 replace，不能 append
