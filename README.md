@@ -15,8 +15,7 @@ offline health check + pre-write validation. The business layer's **doctor**.
 
 </div>
 
-Formerly `log-contract-validator` (candidate #2); named **`dsh-log-contract`**
-per the OfferKuai three-piece plan.
+Formerly `log-contract-validator`; now **`dsh-log-contract`**.
 
 A fuse for DSH session logs (`*.jsonl` / `*.jsonl.zstd`): format drift that humans
 cannot see but parsers crash on is caught and reported here. It does **not** judge
@@ -289,17 +288,16 @@ if (!verdict.ok) {
 ## Tests
 
 ```bash
-pnpm check && pnpm test    # syntax check + 79 unit tests (incl. incident regressions)
+pnpm check && pnpm test    # syntax check + contract-doc drift gate + all unit tests
 ```
 
 - **Synthetic fixtures** (in-repo): legal session / seq gap / empty sourceEventSeqs
   / turn-null append / unknown type / bad chunk row / torn tail frame / unknown
   marker prefix / self-shadowing etc.
-- **Real fossils** (not in-repo, contain user data): run locally
 
-```bash
-node scripts/check-local-fossils.mjs   # scans ../ for backup-session-*.jsonl.zstd
-```
+> **Scope of the published package**: it contains the runtime code and documentation only.
+> Local maintainer tooling is not part of the public repository, so `pnpm check` and `pnpm test`
+> work from a clean clone.
 
 Known truth table (updated 2026-08-31 — after 0.3.5 added I1, `spliced-orphan`
 now FAILs; the old PASS row was stale):
@@ -336,7 +334,11 @@ MIT © OfferKuai Team
 
 ---
 
-## ⚠️ Upgrading to 0.3.14 — behaviour changes you must know (0.3.12 → 0.3.14)
+## ⚠️ Upgrading to 0.3.15 — behaviour changes you must know (0.3.12 → 0.3.15)
+
+> **0.3.15 itself changes no behaviour.** It removes two internal identifiers that had leaked into the
+> 0.3.14 published artifact (a README naming note and one source comment) and widens the pre-publish
+> leak gate vocabulary. Everything below applies unchanged when going from 0.3.12 to 0.3.15.
 
 **1. New exit codes `3` / `4` — a defect fix that is also a breaking change.**
 - `3` = **not assessable on this host**: the file's `header.version` is higher than the host supports
