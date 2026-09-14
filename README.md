@@ -37,10 +37,9 @@ plugin marker semantics).
 
 ## Where it sits in the business layer
 
-> **dsh-log-contract is the core capability component of
-> [dsh-retrace](https://github.com/yamingmou/dsh-retrace)** — the "doctor" module
-> of the business layer: session-log **check & repair**, so every recall/edit/rewind
-> lands on a legal log and `/compact` never breaks.
+> **dsh-log-contract is the core capability component of [dsh-retrace](https://github.com/yamingmou/dsh-retrace)** (the business layer's "doctor" module): it **checks and repairs** session logs so every recall/edit/rollback lands on a legal log — pre-write validation (`prewrite`) rejects error-level violations **before** anything is written.
+>
+> **About `/compact` (stated honestly)**: what this tool guarantees is that **new writes** stop creating token-meter pairing debt — since two-segment atomic pairs (marker + paired segment) landed, new markers pass T1 by construction. **Legacy** (single-segment) markers are still **known design debt**: pre-write validation downgrades their T1 violation to a warning (`isKnownMarkerCandidate` in `lib/prewrite.js`, which applies to **historical markers only**), so such sessions need **one check + cleanup before compaction** (`check` to locate → `fix --remove-markers`; the plugin side calls this "the doctor"). Otherwise the T1 self-check blocks `/compact`.
 
 | Layer | What it is | Components |
 |---|---|---|
@@ -106,6 +105,62 @@ omitted for privacy.
 > "production-grade" means here.
 
 ---
+
+## Version support (host / session format)
+
+**Tested baseline (the versions this rule set was verified against)**:
+
+| Item | Baseline | Note |
+|---|---|---|
+| Host package | `@deepseek-ai/dsh-session@0.1.5-rc.1` | version used on the dev box and in CI; the four `prepublishOnly` steps are green on it |
+| Session format | **v3** (`SESSION_FORMAT_VERSION = 3`) | v3 uses the runtime vocabulary + official `foldSurface` final check |
+| Declared range | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1` | installable — a declared range is **not** a per-version verification |
+| Known formats | 0 / 1 / 2 / 3 | 0–2 are supported by this package's **vendored** vocabulary + local equivalent fold (`legacyFoldSurface`), independent of the host |
+
+**What happens on unverified versions (detected and reported at runtime — never silently judged by stale rules)**:
+
+| Case | Behaviour |
+|---|---|
+| Host **newer than the baseline** | explicit **warning** (`host … is newer than the tested baseline …`); the verdict is still produced but flagged as possibly not applicable |
+| Host older than the baseline (still in peer range) | notice + the host-capability gate decides whether v3 is assessable (`SESSION_FORMAT_VERSION` too low ⇒ `not-assessable`, exit 3) |
+| **Unknown** session format (not in 0/1/2/3) | reported as **unverified format** and handled **read-only**: `check` runs structure rules only; `prewrite` / `fix` **refuse** (exit 3) |
+| Format **unrecognisable** (no `header.version` and no distinguishing event shapes) | same: "unverified format" + read-only |
+| File version above the host's supported maximum | `not-assessable` (**not** broken), exit 3; skipped/executed rules are listed |
+
+Implementation: `lib/version-support.js` (`TESTED_BASELINE` / `detectSupport()`, exported in the public API).
+Both the human-readable `check` output and the `--json` `support` field carry the baseline summary and the warnings, e.g.:
+
+```
+version support: host @deepseek-ai/dsh-session@0.1.5-rc.1 (baseline 0.1.5-rc.1) | file format v3 (header, baseline)
+```
+
+## Version support (host / session format)
+
+**Tested baseline (the versions this rule set was verified against)**:
+
+| Item | Baseline | Note |
+|---|---|---|
+| Host package | `@deepseek-ai/dsh-session@0.1.5-rc.1` | version used on the dev box and in CI; the four `prepublishOnly` steps are green on it |
+| Session format | **v3** (`SESSION_FORMAT_VERSION = 3`) | v3 uses the runtime vocabulary + official `foldSurface` final check |
+| Declared range | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1` | installable — a declared range is **not** a per-version verification |
+| Known formats | 0 / 1 / 2 / 3 | 0–2 are supported by this package's **vendored** vocabulary + local equivalent fold (`legacyFoldSurface`), independent of the host |
+
+**What happens on unverified versions (detected and reported at runtime — never silently judged by stale rules)**:
+
+| Case | Behaviour |
+|---|---|
+| Host **newer than the baseline** | explicit **warning** (`host … is newer than the tested baseline …`); the verdict is still produced but flagged as possibly not applicable |
+| Host older than the baseline (still in peer range) | notice + the host-capability gate decides whether v3 is assessable (`SESSION_FORMAT_VERSION` too low ⇒ `not-assessable`, exit 3) |
+| **Unknown** session format (not in 0/1/2/3) | reported as **unverified format** and handled **read-only**: `check` runs structure rules only; `prewrite` / `fix` **refuse** (exit 3) |
+| Format **unrecognisable** (no `header.version` and no distinguishing event shapes) | same: "unverified format" + read-only |
+| File version above the host's supported maximum | `not-assessable` (**not** broken), exit 3; skipped/executed rules are listed |
+
+Implementation: `lib/version-support.js` (`TESTED_BASELINE` / `detectSupport()`, exported in the public API).
+Both the human-readable `check` output and the `--json` `support` field carry the baseline summary and the warnings, e.g.:
+
+```
+version support: host @deepseek-ai/dsh-session@0.1.5-rc.1 (baseline 0.1.5-rc.1) | file format v3 (header, baseline)
+```
 
 ## Installation
 
@@ -276,10 +331,10 @@ node scripts/check-local-fossils.mjs   # scans ../ for backup-session-*.jsonl.zs
 
 Known truth table (updated 2026-08-31 — after 0.3.5 added I1, `spliced-orphan`
 now FAILs; the old PASS row was stale):
-- `5e55100b-corrupt` / `5e55100c-seqgap` / `rewritten-230542` → FAIL (seq gaps)
-- `5e55100b-spliced-orphan` → **FAIL (0.3.5+)** (T1/I1: invalid inbox splice + turn-null)
-- `5e55100d-pre-markerfix-20260825` → FAIL (pre-fix sample: turn-null markers remain)
-- `5e55100a-pre-cleansession-20260831` → PASS (3256-span replace marker is data-legal;
+- `<session>-corrupt` / `<session>-seqgap` / `<session>-rewritten-230542` → FAIL (seq gaps)
+- `<session>-spliced-orphan` → **FAIL (0.3.5+)** (T1/I1: invalid inbox splice + turn-null)
+- `<session>-pre-markerfix-20260825` → FAIL (pre-fix sample: turn-null markers remain)
+- `<session>-pre-cleanstate-20260831` → PASS (a multi-thousand-span replace marker is data-legal;
   official foldSurface replays cleanly — see the plugin ledger)
 The truth table tracks rule evolution (0.3.5's I1 flipped spliced-orphan PASS→FAIL);
 "repaired sessions PASS" must be verified on rebuilt samples — `pre-` backups are

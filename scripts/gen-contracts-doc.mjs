@@ -49,9 +49,16 @@ const doc = `# 契约规则目录（CONTRACTS）
 > 与 \`lib/prewrite.js\`（写前校验）中有对应实现；离线体检（\`lib/validate.js\`）
 > 逐条执行并在最后用官方 \`foldSurface\` 终验（S8）。
 >
-> 规则来源：\`dsh-scale-audit-问题记录.md\`（59 条审计发现）+ \`事故复盘记录-20260825.md\`
-> （三层契约）+ \`@deepseek-ai/dsh-session@0.1.0-rc.7\` 官方源码逐行核对
-> （后续规则随官方版本演进追加：T3/T4 渲染层 = 5e551001 复盘，T5 = 5e551005 malformed）。
+> 规则来源：早期内部审计发现（59 条）+ 三层契约事故复盘 + 官方源码逐行核对
+> （\`@deepseek-ai/dsh-session\`，各条出处见下）。后续规则随官方版本演进追加：
+> T3/T4 = 渲染层白屏事故复盘，T5 = malformed turn/end 事故复盘。
+>
+> **版本支持基线（本规则集验证过的版本；权威常量见 \`lib/version-support.js\` 的 TESTED_BASELINE）**：
+> 宿主 \`@deepseek-ai/dsh-session@0.1.5-rc.1\` ｜ 会话格式 **v3**（\`SESSION_FORMAT_VERSION = 3\`）｜
+> 声明范围 \`^0.1.0-rc.7 || ^0.1.5-rc.1\`（可安装 ≠ 逐个验证）｜ 已知格式 0/1/2/3
+> （0–2 由本包自带 vendored 词表 + \`legacyFoldSurface\` 支持，与宿主版本无关）。
+> **未验证版本**：宿主比基线新 → 运行时告警；文件格式未知/无法识别 → 报"未验证格式"并**按只读处理**
+> （\`prewrite\`/\`fix\` 拒绝，退出码 3）；文件版本 > 宿主上限 → \`not-assessable\`（不是 broken）。
 >
 > 严重度：**error** = 违反即会话不可加载/写入被拒（fail-loud）；**warning** = 合法但可疑。
 
