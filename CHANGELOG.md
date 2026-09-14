@@ -1,3 +1,30 @@
+## [0.3.13] — 2026-09-14 · 修复 --tail-renumber 的静默数据破坏 + 迁移门可 opt-out
+
+> ⚠️ **安全修复**:0.3.11/0.3.12 的 `--tail-renumber` 在 v3 会话上会把**区间对** `sourceEventSeqs` 写成 `null`
+> （`[[0,1]]` → `[null]`，静默破坏且仍报 `changed`）。本版修复。
+
+### 修复
+- **`--tail-renumber` 位移时同步所有 seq 引用**:`data.shadowedRange{start,end}` / `data.shadowedSeqs` /
+  `surfaceOp{start,end,startSeq,endSeq}` / `data.messageSeqs` / **v3 区间对 `sourceEventSeqs`**。
+  跨平移起点的区间对**明确报错**（不猜：两端分属起点两侧时结果不是单个闭区间）。
+  已知未覆盖:`command/done.data.sourceEventSeq`（单数，命中 2/284 文件，低严重度）。
+- **迁移门可 opt-out**:新增 `--no-fail-on-migration`（恢复 0.3.11 退出码;**只影响退出码**,JSON 结论不变）;
+  与 `--fail-on-migration` 同给时 opt-out 优先。
+- **迁移预检新增 G3**（`session/title` 系列 `messageSeqs`,出处 `v0-to-v1:2543-2556`）。
+
+### 一条**做了又撤回**的规则（如实记录）
+turn/start 状态机规则（G4）原型在 281 个真实 v0 上 **0 误报**、能把残余 mismatch 打到 0,
+但机制审计发现**官方把它跑在变换后的 v1/v2 artifact 上**（`v1-to-v2:104`,带 `cut`）,不是原始 v0 ——
+把官方该断言直接喂**原始 v0** 会 `THROW: assistant/chunk does not match an open turn and step`。
+⇒ **撤回**,并写进工具的 `coverage.uncovered`。
+**"0 误报"不等于"语义与官方一致"** —— 撤回的价值不是修 mismatch,而是**避免写错病因**。
+
+### 指标
+- 迁移交叉表（281 真实 v0）:拦住 **234** / **误拦 0** / 残余 mismatch **26**（原 27）/ 官方 OK 21;
+- 突变矩阵 **32/32 RED、0 存活**;双宿主 `0.1.5-rc.1` **169/0/2**、`0.1.0-rc.7` **157/0/14**;
+- 未覆盖（`coverage.uncovered`,6 类）:`turn/start` close-prior 10 / open-expected 7 / shape 4 / attempt 2 / inheritedCount 2 / inheritedCut 1;
+  下轮第一顺位 = `inheritedEventCount`（= `header.seedLength`,须与**展开后**事件数比较）。
+
 ## [0.3.12] — 2026-09-14 · 宿主 0.1.5 语义对齐（按被检文件版本择路）+ 诚实性修复
 
 ### 新增/修复
