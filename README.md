@@ -327,7 +327,7 @@ MIT © OfferKuai Team
 
 | value | meaning |
 |---|---|
-| `full` | file is already the host's target format (no migration) — coverage is complete |
+| `full` | file is already the host's target format (no migration) — coverage is complete（已是当前格式、**无需迁移**）（已是当前格式、**无需迁移**） |
 | `partial` | file needs migration ⇒ the migration pre-check covers **2 rules only; 6 classes are uncovered** (≠ pass; see `coverage.uncovered`) |
 | `none` | **not assessable on this host** — no "usable / upgradable" claim is certified |
 
