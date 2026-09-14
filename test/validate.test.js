@@ -385,7 +385,9 @@ describe('T2 token-meter 源引用（2026-08-30 跨 step 刷屏事故固化）',
     const path = require('node:path');
     const { decompressZstd } = require('../lib/log-reader.js');
     const bdir = BACKUP_DIR;
-    const before = path.join(bdir, 'backup-session-2026-08-29-21-03-13.jsonl.zstd');
+    // 夹具名用**合成时间戳**:此处曾写真实备份的文件名(会指认某个真实会话)。
+    // 维护者把同约定的备份放进 `DSH_LOG_CONTRACT_BACKUP_DIR` 即可让本用例真跑;缺则跳过。
+    const before = path.join(bdir, 'backup-session-2026-01-02-03-04-05.jsonl.zstd');
     if (!fs.existsSync(before)) {
       console.warn('skip: fixture not present');
       return;
@@ -750,7 +752,7 @@ describe('readSessionHeader（2026-09-02 · 轻量 header 读取，短码推导�
   })
 })
 
-describe('对抗性复核 2026-09-09 规则增量（T1 双向孤儿 result / T2 ignorable 合法性 / T3 空文件）', () => {
+describe('对抗性复查 2026-09-09 规则增量（T1 双向孤儿 result / T2 ignorable 合法性 / T3 空文件）', () => {
   it('T1:tool/result 无对应 tool/call → P3 warning（双向，精确指认 callId）', () => {
     const events = [
       userMessage({ seq: 0 }),
