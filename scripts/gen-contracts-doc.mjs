@@ -4,46 +4,58 @@
  *
  * 背景（2026-09-06）：docs/CONTRACTS.md 曾手工维护到 S8/M1/P2，滞后于 README
  * 宣传与实际注册（S9/T1-T5/I1/W1/W2/P3/P4 共 15+ 条缺失）——外部审计指出
- * "README 说 30+ 条，文档只落地一部分"。本脚本保证规则文档与注册表同步：
- * 规则只增不减时，跑一次即刷新；新增规则后 CI/发版前跑一次。
+ * "README 说 30+ 条，文档只落地一部分"。本脚本保证规则文档与注册表同步。
  *
- * 用法：node scripts/gen-contracts-doc.mjs（输出覆盖 docs/CONTRACTS.md）
+ * **漂移闸（2026-09-15 独立复验 ⚠️ 项）**：此前本脚本**没接进** `check`/`prepublishOnly`，
+ * 于是 docs/CONTRACTS.md 与注册表的一致性**靠手工**（复验实测当时一致，但无机制保证）。
+ * 现在 `--check` 是**幂等校验**：重生成到内存 → 与现行文件**逐字节比对** → 不一致即非 0 退出。
+ *   · `node scripts/gen-contracts-doc.mjs`          生成/覆盖
+ *   · `node scripts/gen-contracts-doc.mjs --check`  只校验（`pnpm check` 与 `prepublishOnly` 走这条）
+ * `buildContractsDoc()` 是纯函数（rules → 文本），既供 CLI、也供单测直接比对，
+ * 这样"改一条规则文本 ⇒ 文档失配 ⇒ 红"能被用例钉死，而不是靠人记得跑。
+ *
+ * 用法：
+ *   node scripts/gen-contracts-doc.mjs [--check]
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
+const TARGET = 'docs/CONTRACTS.md'
 
-// contracts.js 是 ESM：用动态 import 读注册表（脚本自身也是 ESM）。
-const contracts = await import(`file://${join(root, 'lib/contracts.js')}`)
-const rules = contracts.CONTRACT_RULES
-
-const SEV = { error: 'error', warning: 'warning', info: 'info' }
 const layerLabel = (l) => (typeof l === 'string' ? l : String(l ?? '?'))
 
-// ── 索引表 ────────────────────────────────────────────────────────────────
-const indexRows = rules
-  .map((r) => `| ${r.id} | ${r.severity} | ${layerLabel(r.layer)} | ${r.title} |`)
-  .join('\n')
+/**
+ * 纯函数：注册表 → docs/CONTRACTS.md 全文。
+ * 与文件系统无关，方便单测做"同一份 rules 必须产出同一份文本"的幂等/漂移断言。
+ * @param {ReadonlyArray<object>} rules CONTRACT_RULES
+ * @returns {string}
+ */
+export function buildContractsDoc(rules) {
+  // ── 索引表 ──────────────────────────────────────────────────────────────
+  const indexRows = rules
+    .map((r) => `| ${r.id} | ${r.severity} | ${layerLabel(r.layer)} | ${r.title} |`)
+    .join('\n')
 
-// ── 详细规则 ───────────────────────────────────────────────────────────────
-const details = rules
-  .map((r) => {
-    return `### ${r.id} — ${r.title}
+  // ── 详细规则 ─────────────────────────────────────────────────────────────
+  const details = rules
+    .map((r) => {
+      return `### ${r.id} — ${r.title}
 
 - **层级**: ${layerLabel(r.layer)} ｜ **严重度**: ${r.severity}
 - **出处**: ${r.source ?? '(未标注)'}
 - **契约**: ${r.description ?? '(未描述)'}
 `
-  })
-  .join('\n')
+    })
+    .join('\n')
 
-const doc = `# 契约规则目录（CONTRACTS）
+  return `# 契约规则目录（CONTRACTS）
 
 > **自动生成**（2026-09-06 起）：本文件由 \`node scripts/gen-contracts-doc.mjs\`
 > 从 \`lib/contracts.js\` 的 \`CONTRACT_RULES\` 注册表生成——**勿手改**，规则只增不减，
 > 新增规则后跑一次生成即同步（此前手工维护滞后 15+ 条，外部审计指出）。
+> **漂移闸**：\`pnpm check\` 会跑 \`--check\` 逐字节比对，改了注册表没重生成 ⇒ 直接红。
 >
 > DSH 会话日志契约的**可执行 spec**。每条规则在 \`lib/checks.js\`（逐事件判定）
 > 与 \`lib/prewrite.js\`（写前校验）中有对应实现；离线体检（\`lib/validate.js\`）
@@ -72,5 +84,59 @@ ${indexRows}
 
 ${details}
 `
-writeFileSync(join(root, 'docs/CONTRACTS.md'), doc)
-console.log(`✅ generated docs/CONTRACTS.md（${rules.length} 条规则）`)
+}
+
+/** 比对两份文本，返回不同行号（1-based）。 */
+export function diffLines(current, expected) {
+  const a = current.split('\n')
+  const b = expected.split('\n')
+  const out = []
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) out.push(i + 1)
+  return out
+}
+
+const isMain = (() => {
+  const entry = process.argv[1]
+  if (!entry) return false
+  try {
+    return fileURLToPath(import.meta.url) === entry
+  } catch {
+    return false
+  }
+})()
+
+if (isMain) {
+  const contracts = await import(`file://${join(root, 'lib/contracts.js')}`)
+  const rules = contracts.CONTRACT_RULES
+  const doc = buildContractsDoc(rules)
+  const target = join(root, TARGET)
+  const check = process.argv.includes('--check')
+
+  if (!check) {
+    writeFileSync(target, doc)
+    console.log(`✅ generated ${TARGET}（${rules.length} 条规则）`)
+    process.exit(0)
+  }
+
+  let current = null
+  try { current = readFileSync(target, 'utf8') } catch { /* 缺文件 = 不一致 */ }
+  if (current === doc) {
+    console.log(`✅ ${TARGET} 与注册表一致（${rules.length} 条规则）`)
+    process.exit(0)
+  }
+  const diffs = current === null ? [] : diffLines(current, doc)
+  console.log(`❌ ${TARGET} 与 lib/contracts.js 的注册表**不一致**（${rules.length} 条规则）`
+    + (current === null ? '：文件缺失' : `：${diffs.length} 行不同`))
+  if (current !== null) {
+    const a = current.split('\n')
+    const b = doc.split('\n')
+    for (const l of diffs.slice(0, 10)) {
+      console.log(`    行 ${l}:`)
+      if (a[l - 1] !== undefined) console.log(`      - ${a[l - 1].slice(0, 140)}`)
+      if (b[l - 1] !== undefined) console.log(`      + ${b[l - 1].slice(0, 140)}`)
+    }
+    if (diffs.length > 10) console.log(`    … 另有 ${diffs.length - 10} 行`)
+  }
+  console.log('    修法：node scripts/gen-contracts-doc.mjs')
+  process.exit(1)
+}
