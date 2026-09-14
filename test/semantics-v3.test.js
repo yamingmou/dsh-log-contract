@@ -590,12 +590,42 @@ describe('S1 · 迁移预检（官方升级路径，独立维度）', () => {
     expect(migrationVerdict(result).ready).toBe(false);
   });
 
-  it('迁移预检覆盖边界显式：implemented 2 条、uncovered 非空、note 标注判据版本', () => {
+  it('迁移预检覆盖边界显式：implemented 3 条、uncovered 非空、note 标注判据版本', () => {
     const mig = migrationVerdict(validateSessionLog(logOf(HEADER, [userMessage({ seq: 0 }), turnEnd({ seq: 1 })])));
-    expect(mig.coverage.implemented.length).toBe(2);
+    expect(mig.coverage.implemented.length).toBe(3);   // 第五轮：G1/G2 + G3(title messageSeqs)
     expect(mig.coverage.uncovered.length).toBeGreaterThanOrEqual(4);
     expect(mig.coverage.note).toMatch(/0\.1\.5-rc\.2/);
     expect(mig.ready).toBe(true);                       // 该 v0 输入无 G 违规
+  });
+
+  // ── 第五轮：G3（配 fixture；杀死它的突变见 r5-mutate.py）────────────────────────
+  const turnStart = ({ seq, turn }) => ({ type: 'turn/start', seq, time: seq + 1, data: { turn } });
+  const titleEvent = ({ seq, kind = 'llm', messageSeqs = [] }) => ({
+    type: 'session/title', seq, time: seq + 1, data: { title: 't', source: { kind }, messageSeqs },
+  });
+
+  it('G3：v0 源 session/title 的 messageSeqs 必须引用更早的人类 user/message', () => {
+    // 正例：用户标题 + 空 messageSeqs；引用 seq0 的人类 user/message 都合法
+    const ok1 = validateSessionLog(logOf(HEADER, [userMessage({ seq: 0 }), titleEvent({ seq: 1, kind: 'user', messageSeqs: [] })]));
+    expect(ok1.violations.filter((v) => v.id === 'G3')).toHaveLength(0);
+    const ok2 = validateSessionLog(logOf(HEADER, [userMessage({ seq: 0 }), titleEvent({ seq: 1, kind: 'llm', messageSeqs: [0] })]));
+    expect(ok2.violations.filter((v) => v.id === 'G3')).toHaveLength(0);
+    // 反例 A：非用户标题却空 messageSeqs
+    const bad1 = validateSessionLog(logOf(HEADER, [userMessage({ seq: 0 }), titleEvent({ seq: 1, kind: 'llm', messageSeqs: [] })]));
+    expect(bad1.violations.filter((v) => v.id === 'G3').map((v) => v.message).join('|')).toMatch(/empty exactly for a user title/);
+    // 反例 B：引用 assistant/message（非人类 user）
+    const bad2 = validateSessionLog(logOf(HEADER, [assistantMessage({ seq: 0 }), titleEvent({ seq: 1, kind: 'llm', messageSeqs: [0] })]));
+    expect(bad2.violations.filter((v) => v.id === 'G3').map((v) => v.message).join('|')).toMatch(/human user\/message/);
+    // 非 v0 文件不受 G3 约束
+    const v2 = validateSessionLog(logOf(HEADER_V2, [assistantMessage({ seq: 0 }), titleEvent({ seq: 1, kind: 'llm', messageSeqs: [0] })]));
+    expect(v2.violations.filter((v) => v.id === 'G3')).toHaveLength(0);
+  });
+
+  it('G4（不实现）留档：turn/start 状态机在原始 v0 上会误报已 seed 会话 ⇒ 归未覆盖', () => {
+    // 该用例是"我们**没有** G4"的守卫：任何在原始 v0 上重启 turn 状态机的实现都会让 G4 出现。
+    const r = validateSessionLog(logOf(HEADER, [turnStart({ seq: 0, turn: 2 })]));
+    expect(r.violations.filter((v) => v.id === 'G4')).toHaveLength(0);
+    expect(migrationVerdict(r).coverage.uncovered.join('|')).toMatch(/turn\/start/);
   });
 
   it('v3（= 宿主当前格式）→ 迁移不适用', () => {
@@ -670,6 +700,19 @@ describe('S1 收窄：待迁移文件不给无条件绿 + assessmentScope + 退�
     expect(spawnSync(process.execPath, [CLI, 'check', file, '--fail-on-migration'], { encoding: 'utf8' }).status).toBe(4);
     const js = spawnSync(process.execPath, [CLI, 'check', file, '--json'], { encoding: 'utf8' });
     expect(js.status).toBe(4);
+    expect(JSON.parse(js.stdout).migration.ready).toBe(false);
+  });
+
+  it('① opt-out：--no-fail-on-migration 恢复旧退出码（0），且优先于 --fail-on-migration', () => {
+    const file = g1File();
+    // 真 opt-out：迁移 blocked 但结构绿 ⇒ 旧行为 exit 0
+    expect(spawnSync(process.execPath, [CLI, 'check', file, '--no-fail-on-migration'], { encoding: 'utf8' }).status).toBe(0);
+    // 与 --fail-on-migration 同时给 ⇒ opt-out 优先
+    expect(spawnSync(process.execPath, [CLI, 'check', file, '--no-fail-on-migration', '--fail-on-migration'], { encoding: 'utf8' }).status).toBe(0);
+    expect(spawnSync(process.execPath, [CLI, 'check', file, '--fail-on-migration', '--no-fail-on-migration'], { encoding: 'utf8' }).status).toBe(0);
+    // opt-out 不改结论本身（migration.ready 仍为 false，只是退出码回旧）
+    const js = spawnSync(process.execPath, [CLI, 'check', file, '--no-fail-on-migration', '--json'], { encoding: 'utf8' });
+    expect(js.status).toBe(0);
     expect(JSON.parse(js.stdout).migration.ready).toBe(false);
   });
 
