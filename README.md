@@ -306,3 +306,34 @@ usually pre-fix bad samples. See the boundary note in
 ## License
 
 MIT © OfferKuai Team
+
+---
+
+## ⚠️ Upgrading to 0.3.12 — behaviour changes you must know
+
+**1. New exit codes `3` / `4` — a defect fix that is also a breaking change.**
+- `3` = **not assessable on this host**: the file's `header.version` is higher than the host supports
+  (e.g. checking a v3 log under `@deepseek-ai/dsh-session@0.1.0-rc.7`). Instead of reporting `broken`,
+  the tool now says the host lacks the capability, and `fix --apply` **refuses** the file (nothing written, no backup).
+- `4` = **migration pre-check blocked**: the tool judges that the official upgrade chain will refuse the file.
+- ⚠️ **Pipelines that treated `exit 0` as "fine" will now fail.** The old behaviour returned `0` even for files
+  the tool itself reported as refused by the official chain — a false negative where the exit code contradicted
+  the verdict. `--fail-on-migration` is an **explicit alias of the (now default) behaviour**, not a toggle, and
+  there is **no opt-out**; for the old behaviour read `assessmentScope` / `migration.ready` from `--json` and
+  apply your own threshold.
+
+**2. `--json` gains `assessmentScope` (three values).**
+
+| value | meaning |
+|---|---|
+| `full` | file is already the host's target format (no migration) — coverage is complete |
+| `partial` | file needs migration ⇒ the migration pre-check covers **2 rules only; 6 classes are uncovered** (≠ pass; see `coverage.uncovered`) |
+| `none` | **not assessable on this host** — no "usable / upgradable" claim is certified |
+
+Under `partial` the CLI no longer prints an unconditional green: both the migration line and the last line say
+the migration dimension is only partially covered.
+
+**3. What "the health check passed" does *not* mean.**
+The rule set is **not** the official upgrade chain's acceptance condition. `assessmentScope=partial` means
+"the part this tool looked at is clean" — it does **not** mean the official upgrade will accept the file.
+Read `coverage.uncovered` for the known gaps.
