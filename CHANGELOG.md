@@ -1,3 +1,37 @@
+## [0.3.14] — 2026-09-14 · 发布面清洗（泄漏闸门）+ 版本支持检测 + 文档如实性
+
+> 背景：0.3.8–0.3.13 的在架版本带着**内部标识**（真实会话 id / 内部工具名 / 内部线名 / 工单号 /
+> 本机私有落点），随 npm 与公开仓外泄。本版把对外面清到 0，并把「发布前必须核验」变成**可执行的闸门**。
+
+### 新增
+- **发布泄漏闸门**（`scripts/check-publish-leaks.mjs`）:must-0 词表（会话 id / seq / 内部线名与工具名 /
+  工单号 / 私有路径 / 私有概念）+ 逐条列名的 allow 清单（fail-closed:未列名一律算 must-0）;
+  发布集完整性 sanity(文件数下限 + 必需文件，按本仓参数化)⇒ 需大小 2 退出码区分"真干净"与"扫错地方"。
+- **版本支持检测**（`lib/version-support.js`):测试基线（宿主 `@deepseek-ai/dsh-session@0.1.5-rc.1` /
+  会话格式 v3 / 已知 0/1/2/3）变成**常量**并**运行时比对**:宿主比基线新 ⇒ 告警;
+  被检文件格式未知或无法识别 ⇒ 报"未验证格式"并**按只读处理**（`prewrite`/`fix` 拒绝，退出码 3）。
+- **行为探针**（`lib/host-probes.js`，独立复核裁定 R-D):自造微型日志喂宿主导出的
+  `foldSurface`/`adoptSessionEvent`,断言规则假设;不一致 ⇒ 相关规则标 `UNVERIFIED` 并在结论抬头点名。
+
+### 修复（独立复核 2026-09-14 确证的误报/漏检）
+- **Z2 撕裂尾帧误报**:宿主 `readZstdPrefix` 会恢复撕裂尾帧并 `tornTruncateTo`,旧实现直接抛错 ⇒
+  级联 `Z1+Z2+H1`、verdict=broken(把宿主能修的文件报成"会话坏了")。现按宿主语义**恢复**
+  (无完整帧仍报错);写路径仍 strict(不回写活动会话正在写的尾部)。
+- **S2 误报**:未知类型 + `ignorable:true` 的 opaque 元数据宿主**刻意容忍**(`dsh-session:270`),
+  不再报 S2 error(E7 warning 保留)。
+- **T2/P1/P2/C1/T3 标注**为"出处未复核 / 判定前提存疑"(机读字段 + 结论抬头清单);
+  **E5**"写入即被拒"订正为"写入会成功、下一次读取才炸"。
+- **R-C 历史 marker 白名单收窄**:从"任意 `data.editor`"收窄为可识别的历史 retrace 载体
+  (id 前缀 + `editor.targetSeq === op.start`),**只对 ≤v2 降级**且降级可见;
+  新增一次性根治 `fix --neutralize-legacy-markers`。
+- **R-G 补 3 条候选规则**:E9 `system/message` 必须 plugin source;E10 `request/header` 字段约束;
+  E8 信封键白名单(**按 R-D 探针订正口径**:load 路径容忍、seed/restore 路径拒 ⇒ warning)。
+
+### 文档
+- README 中英:「版本支持」明文（基线 + 未验证版本行为）;`/compact` 表述改为**带前提的如实版**
+  （只承诺新写入不再制造 token-meter 配对债;历史单段 marker 需先清理）。
+- 删除 README 中英重复的「版本支持」整段;「升级到 0.3.12」标题更新到 0.3.14。
+
 ## [0.3.13] — 2026-09-14 · 修复 --tail-renumber 的静默数据破坏 + 迁移门可 opt-out
 
 > ⚠️ **安全修复**:0.3.11/0.3.12 的 `--tail-renumber` 在 v3 会话上会把**区间对** `sourceEventSeqs` 写成 `null`
