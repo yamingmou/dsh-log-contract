@@ -115,35 +115,6 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
   测试基线：@deepseek-ai/dsh-session@0.1.5-rc.1 ｜ 会话格式 v3（已知 0/1/2/3；peer ^0.1.0-rc.7 || ^0.1.5-rc.1）
 ```
 
-## 版本支持（宿主 / 会话格式）
-
-**测试基线（本规则集验证过的版本）**：
-
-| 项 | 基线 | 说明 |
-|---|---|---|
-| 宿主包 | `@deepseek-ai/dsh-session@0.1.5-rc.1` | 开发机与 CI 实装版本；`prepublishOnly` 四步在此版本上全绿 |
-| 会话格式 | **v3**（`SESSION_FORMAT_VERSION = 3`） | v3 走运行时词表 + 官方 `foldSurface` 终验 |
-| 声明范围 | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1` | 允许安装；**范围内不等于逐个验证过** |
-| 已知格式 | 0 / 1 / 2 / 3 | 0–2 由本包**自带** vendored 词表 + 本地等价折叠（`legacyFoldSurface`）支持，与宿主版本无关 |
-
-**未验证的版本会发生什么（运行时检测并报告，不闷着按旧规则判）**：
-
-| 情形 | 行为 |
-|---|---|
-| 宿主**比基线新** | 明确**告警**（`⚠️ 宿主 … 比测试基线 … 新 —— 本规则集未在该宿主上验证…`）；结论仍给出，但标注可能不适用 |
-| 宿主比基线旧（仍在 peer 内） | 提示 + 由宿主能力闸决定能否评估 v3（`SESSION_FORMAT_VERSION` 不足 ⇒ `not-assessable`，退出码 3） |
-| 被检文件格式**未知**（不在 0/1/2/3） | 报「**未验证格式**」并**按只读处理**：`check` 只跑结构层，`prewrite` / `fix` **直接拒绝**（退出码 3） |
-| 格式**无法识别**（无 `header.version` 且事件形状无判别特征） | 同上：报「未验证格式」+ 只读 |
-| 文件版本 > 宿主支持上限 | `not-assessable`（**不是** broken），退出码 3；显式列出跳过/执行的规则 |
-
-检测实现：`lib/version-support.js`（`TESTED_BASELINE` / `detectSupport()`，导出到公开 API）。
-`check` 的人类可读输出与 `--json` 的 `support` 字段都带基线摘要与逐条告警，例如：
-
-```
-版本支持：宿主 @deepseek-ai/dsh-session@0.1.5-rc.1（基线 0.1.5-rc.1,baseline） ｜ 文件格式 v3（header,baseline）
-  测试基线：@deepseek-ai/dsh-session@0.1.5-rc.1 ｜ 会话格式 v3（已知 0/1/2/3；peer ^0.1.0-rc.7 || ^0.1.5-rc.1）
-```
-
 ## 安装
 
 ```bash
@@ -178,7 +149,7 @@ dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json   # 机器可读
    事件 204754 ｜ surface 节点 16 ｜ replace 代数 5 ｜ 帧 8620（3439.5KiB → 8191.3KiB）
    违规 1（error 1 / warning 0）
 
-  [error] S5 @ seq 7000026 / line 778 (assistant/message)
+  [error] S5 @ seq <seq> / line <line> (assistant/message)
       surface replace: sourceEventSeqs 必须覆盖每个被替换节点；缺失 121774, 121779（共 2 个）
 
 ❌ 未通过：见上方违规明细（error 级 = 会话不可读/不可写）
@@ -326,7 +297,7 @@ MIT © OfferKuai Team
 
 ---
 
-## ⚠️ 升级到 0.3.12 —— 必须知道的行为变更
+## ⚠️ 升级到 0.3.14 —— 必须知道的行为变更（0.3.12 → 0.3.14）
 
 **1. 新增退出码 `3` / `4`：本质是缺陷修复，形式上也是破坏性变更。**
 - `3` = **不可在本宿主评估**：被检文件的 `header.version` 高于当前宿主支持的上限
