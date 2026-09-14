@@ -172,9 +172,19 @@ describe('逐条违规规则', () => {
     expect(ids(validateSessionLog(loadSessionLog(file)))).toContain('H1');
   });
 
-  it('H2：header.version 非 0 → 违规', () => {
-    const file = writeSession(validSessionEvents(), { header: { type: 'session', version: 1, id: 'x', createdAt: 1 } });
+  // 0/1/2/3 都是真实发布过的格式：App 2.0.9 内置 dsh-session-format-v0-to-v1 / v1-to-v2 / v2-to-v3
+  // 三个迁移包，且官方 SESSION_FORMAT_VERSION = 3。旧用例把"非 0"一律当违规，是单格式(v0)时代的残留；
+  // H2 现在的语义是"未知版本"（validate.js:68 接受 [0,1,2,3]）。
+  it('H2：header.version 未知（不在 0/1/2/3）→ 违规', () => {
+    const file = writeSession(validSessionEvents(), { header: { type: 'session', version: 9, id: 'x', createdAt: 1 } });
     expect(ids(validateSessionLog(loadSessionLog(file)))).toContain('H2');
+  });
+
+  it('H2：header.version 1/2/3（受支持的历史格式）→ 不报 H2', () => {
+    for (const version of [1, 2, 3]) {
+      const file = writeSession(validSessionEvents(), { header: { type: 'session', version, id: 'x', createdAt: 1 } });
+      expect(ids(validateSessionLog(loadSessionLog(file))), `version ${version}`).not.toContain('H2');
+    }
   });
 
   it('R1：中间行非 JSON → 违规', () => {

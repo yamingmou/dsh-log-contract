@@ -1,3 +1,29 @@
+## [0.3.12] — 2026-09-14 · 宿主 0.1.5 语义对齐（按被检文件版本择路）+ 诚实性修复
+
+### 新增/修复
+- **按被检文件自身 `header.version` 择路**（不按运行时版本）：v0–v2 走本地等价折叠，v3 走官方 `foldSurface`；
+  修掉一处**死分支**（旧格式回退路径只看 `.error`，`violations` 成死数据 ⇒ 终验 S8 永不触发）。
+- **v3 区间编码**：`sourceEventSeqs` 的官方区间对 `[[a,b],…]` 现在会展开（本地 vendored `decodeSeqRanges`；
+  该导出**只有 0.1.5+ 有**，直接引官方会在旧宿主上"装即坏"）；在**读取层 / 体检入口 / 写前入口**三处归一。
+  实测：一处真实 v3 会话由「S5×1+S6×4+S8×1 误报」变为 `ok` 且与官方一致（487 节点 / 198 替换）。
+- **删掉模块级 `fileVersion` 全局状态**，版本改为「显式参数 > `header.version` > 事件形状推断」，
+  消除"同进程先体检 v3 再写前校验 v0 结论翻转"的隐式串味。
+- **宿主能力闸**：文件版本高于宿主上限 ⇒ 输出 `not-assessable`（退出码 3），不再误报 `broken`；
+  `fix --apply` 拒绝落盘。
+- **迁移预检**（`migrationVerdict`）：对"官方升级链会拒"的文件显式 blocked（退出码 4），
+  交叉表把"工具判 ok 但官方拒"从 259/280 降到 27/281。
+- **`--json` 新增 `assessmentScope`**（`full`/`partial`/`none`）：`partial` 时 CLI 不再给无条件绿。
+- `--json` 大报告不再被 `process.exit` 截断（先同步写完）；v2 词表按官方构造式剔除 `assistant/chunk`。
+
+### ⚠️ 破坏性变更
+- **退出码**：新增 3/4，且"工具自己判官方会拒"的文件不再返回 0。
+
+### 已知限制（未覆盖，详见 `coverage.uncovered`）
+- 迁移预检只覆盖 2 条规则，另有 6 类未覆盖；`turn/start` 未闭合/未打开预期轮、继承切点、
+  `title messageSeqs`、`assistant/attempt` 等仍不在覆盖内。
+- payload 层形状（如 `subagent/descriptor.data.version`）与内嵌 `assistant/attempt.data.stream` 的校验未做。
+- `fix --tail-renumber` 未同步 `shadowedRange`/`surfaceOp`/`shadowedSeqs` 的位移（未审改动，本版**未纳入**）。
+
 ## [0.3.11] — 2026-09-09 · 对抗性复核规则增量 T1-T3（38 条规则）
 
 ### 新增（2026-09-09 · 工程师任务清单 插件需求-对抗性复核提取-20260909.md）
