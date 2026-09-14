@@ -30,7 +30,9 @@
 
 ## 它在业务层里的位置
 
-> **dsh-log-contract 是 [dsh-retrace](https://github.com/yamingmou/dsh-retrace) 的核心能力组件**（业务层的「医生」模块）：负责会话日志的**体检与修复**——让每一次撤回/编辑/回退都落在合法日志上，让 /compact 永不失效。
+> **dsh-log-contract 是 [dsh-retrace](https://github.com/yamingmou/dsh-retrace) 的核心能力组件**（业务层的「医生」模块）：负责会话日志的**体检与修复**——让每一次撤回/编辑/回退都落在合法日志上，写前校验（`prewrite`）会把 error 级违约**拦在落盘之前**。
+>
+> **关于 `/compact`（如实表述）**：本工具保证的是**新写入**不再制造 token-meter 配对债——自两段原子成对（marker + 配对段）起，新 marker 天然通过 T1。**历史**（单段）marker 仍属**已知设计债**：写前校验对它的 T1 违规降级为 warning（`lib/prewrite.js` 的 `isKnownMarkerCandidate` 白名单，**只适用于历史 marker**），因此这类会话**压缩（`/compact`）前需要先跑一次体检 + 清理**（`check` 定位 → `fix --remove-markers`；插件侧即「医生」），否则 T1 自检会拦住压缩。
 
 | 层 | 是什么 | 组件 |
 |---|---|---|
@@ -83,6 +85,64 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 > **结论**：这个工具的每条规则都是一次真实会话留下的疤——用真实的损坏会话夹具验证过，不是合成理论。这就是这里「生产级」的含义。
 
 ---
+
+## 版本支持（宿主 / 会话格式）
+
+**测试基线（本规则集验证过的版本）**：
+
+| 项 | 基线 | 说明 |
+|---|---|---|
+| 宿主包 | `@deepseek-ai/dsh-session@0.1.5-rc.1` | 开发机与 CI 实装版本；`prepublishOnly` 四步在此版本上全绿 |
+| 会话格式 | **v3**（`SESSION_FORMAT_VERSION = 3`） | v3 走运行时词表 + 官方 `foldSurface` 终验 |
+| 声明范围 | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1` | 允许安装；**范围内不等于逐个验证过** |
+| 已知格式 | 0 / 1 / 2 / 3 | 0–2 由本包**自带** vendored 词表 + 本地等价折叠（`legacyFoldSurface`）支持，与宿主版本无关 |
+
+**未验证的版本会发生什么（运行时检测并报告，不闷着按旧规则判）**：
+
+| 情形 | 行为 |
+|---|---|
+| 宿主**比基线新** | 明确**告警**（`⚠️ 宿主 … 比测试基线 … 新 —— 本规则集未在该宿主上验证…`）；结论仍给出，但标注可能不适用 |
+| 宿主比基线旧（仍在 peer 内） | 提示 + 由宿主能力闸决定能否评估 v3（`SESSION_FORMAT_VERSION` 不足 ⇒ `not-assessable`，退出码 3） |
+| 被检文件格式**未知**（不在 0/1/2/3） | 报「**未验证格式**」并**按只读处理**：`check` 只跑结构层，`prewrite` / `fix` **直接拒绝**（退出码 3） |
+| 格式**无法识别**（无 `header.version` 且事件形状无判别特征） | 同上：报「未验证格式」+ 只读 |
+| 文件版本 > 宿主支持上限 | `not-assessable`（**不是** broken），退出码 3；显式列出跳过/执行的规则 |
+
+检测实现：`lib/version-support.js`（`TESTED_BASELINE` / `detectSupport()`，导出到公开 API）。
+`check` 的人类可读输出与 `--json` 的 `support` 字段都带基线摘要与逐条告警，例如：
+
+```
+版本支持：宿主 @deepseek-ai/dsh-session@0.1.5-rc.1（基线 0.1.5-rc.1,baseline） ｜ 文件格式 v3（header,baseline）
+  测试基线：@deepseek-ai/dsh-session@0.1.5-rc.1 ｜ 会话格式 v3（已知 0/1/2/3；peer ^0.1.0-rc.7 || ^0.1.5-rc.1）
+```
+
+## 版本支持（宿主 / 会话格式）
+
+**测试基线（本规则集验证过的版本）**：
+
+| 项 | 基线 | 说明 |
+|---|---|---|
+| 宿主包 | `@deepseek-ai/dsh-session@0.1.5-rc.1` | 开发机与 CI 实装版本；`prepublishOnly` 四步在此版本上全绿 |
+| 会话格式 | **v3**（`SESSION_FORMAT_VERSION = 3`） | v3 走运行时词表 + 官方 `foldSurface` 终验 |
+| 声明范围 | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1` | 允许安装；**范围内不等于逐个验证过** |
+| 已知格式 | 0 / 1 / 2 / 3 | 0–2 由本包**自带** vendored 词表 + 本地等价折叠（`legacyFoldSurface`）支持，与宿主版本无关 |
+
+**未验证的版本会发生什么（运行时检测并报告，不闷着按旧规则判）**：
+
+| 情形 | 行为 |
+|---|---|
+| 宿主**比基线新** | 明确**告警**（`⚠️ 宿主 … 比测试基线 … 新 —— 本规则集未在该宿主上验证…`）；结论仍给出，但标注可能不适用 |
+| 宿主比基线旧（仍在 peer 内） | 提示 + 由宿主能力闸决定能否评估 v3（`SESSION_FORMAT_VERSION` 不足 ⇒ `not-assessable`，退出码 3） |
+| 被检文件格式**未知**（不在 0/1/2/3） | 报「**未验证格式**」并**按只读处理**：`check` 只跑结构层，`prewrite` / `fix` **直接拒绝**（退出码 3） |
+| 格式**无法识别**（无 `header.version` 且事件形状无判别特征） | 同上：报「未验证格式」+ 只读 |
+| 文件版本 > 宿主支持上限 | `not-assessable`（**不是** broken），退出码 3；显式列出跳过/执行的规则 |
+
+检测实现：`lib/version-support.js`（`TESTED_BASELINE` / `detectSupport()`，导出到公开 API）。
+`check` 的人类可读输出与 `--json` 的 `support` 字段都带基线摘要与逐条告警，例如：
+
+```
+版本支持：宿主 @deepseek-ai/dsh-session@0.1.5-rc.1（基线 0.1.5-rc.1,baseline） ｜ 文件格式 v3（header,baseline）
+  测试基线：@deepseek-ai/dsh-session@0.1.5-rc.1 ｜ 会话格式 v3（已知 0/1/2/3；peer ^0.1.0-rc.7 || ^0.1.5-rc.1）
+```
 
 ## 安装
 
@@ -240,12 +300,12 @@ node scripts/check-local-fossils.mjs   # 扫描 ../ 下 backup-session-*.jsonl.z
 
 | 化石 | 判定 | 违规 |
 |---|---|---|
-| `5e55100b-corrupt` | FAIL | S8/C1/T1/E2（seq 缺口 → 加载被拒） |
-| `5e55100c-seqgap` / `recorrupt` | FAIL | S8/C1/T1/E2/S9（seq 缺口/倒退） |
-| `5e55100b-rewritten-230542` | FAIL | S8/C1/T1/E2/I1（重写引入缺口） |
-| `5e55100b-spliced-orphan` | **FAIL（0.3.5+）** | T1/I1（inbox splice 无效 + turn-null）——旧表 PASS 已过时 |
-| `5e55100d-pre-markerfix-20260825` | FAIL | T1×5（修复前样本：turn-null marker 残留，非「修复后」） |
-| `5e55100a-pre-cleansession-20260831` | **PASS** | error 0（3256 跨度 replace marker 数据合规，官方 foldSurface 重放通过——见插件需求台账） |
+| `<session>-corrupt` | FAIL | S8/C1/T1/E2（seq 缺口 → 加载被拒） |
+| `<session>-seqgap` / `<session>-recorrupt` | FAIL | S8/C1/T1/E2/S9（seq 缺口/倒退） |
+| `<session>-rewritten-230542` | FAIL | S8/C1/T1/E2/I1（重写引入缺口） |
+| `<session>-spliced-orphan` | **FAIL（0.3.5+）** | T1/I1（inbox splice 无效 + turn-null）——旧表 PASS 已过时 |
+| `<session>-pre-markerfix-20260825` | FAIL | T1×5（修复前样本：turn-null marker 残留，非「修复后」） |
+| `<session>-pre-cleanstate-20260831` | **PASS** | error 0（数千跨度的 replace marker 数据合规，官方 foldSurface 重放通过） |
 
 > 说明：真值表随规则演进更新（0.3.5 新增 I1 后 spliced-orphan 从 PASS 变 FAIL）；
 > 「修复后会话 PASS」需用重建/修复后的样本验证，pre- 前缀备份多为修复前坏样本。

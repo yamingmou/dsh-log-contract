@@ -5,6 +5,9 @@
  * 含复盘事故回归用例（S5 清空 sourceEventSeqs / M1 turn=null append）。
  */
 import { describe, expect, it } from 'vitest';
+
+/** 真实夹具目录(开发机本地;仓内不写私有归档目录名)。未设置且默认目录不存在时,相关用例 skip。 */
+const BACKUP_DIR = process.env.DSH_LOG_CONTRACT_BACKUP_DIR ?? require('node:path').join(require('node:os').homedir(), 'dsh-log-contract-backups');
 import { loadSessionLog } from '../lib/log-reader.js';
 import { validateSessionLog, resumeVerdict } from '../lib/validate.js';
 import { tokenMeterSourceViolations } from '../lib/checks.js';
@@ -201,11 +204,61 @@ describe('逐条违规规则', () => {
     expect(ids(result)).toContain('R2');
   });
 
-  it('Z1：zstd 尾帧撕裂 → 告警（文件当前不可读 → 整体 error）', () => {
+  it('R-B 回归（误报 S2）：未知 + ignorable 事件带 surfaceOp → 不报 S2（宿主 dsh-session:270 刻意容忍 opaque metadata）', () => {
+    // 宿主依据:`@deepseek-ai/dsh-session@0.1.5-rc.1` lib/index.js:270（unknown + ignorable===true
+    //   直接 return,不检查 surfaceOp/sourceEventSeqs）+ :305 契约注释（"retain opaque metadata
+    //   and never change the surface"）。实测变异 06:宿主收、旧契约 S2/error。
+    const events = [
+      ...validSessionEvents(),
+      { type: 'future/thing', seq: 99, time: 9, ignorable: true, surfaceOp: 'append', data: { k: 1 } },
+    ];
+    const result = validateSessionLog({ header: { type: 'session', version: 3, id: 'x', createdAt: 1 }, headerLine: 0, rows: [], events: events.map((event) => ({ event })), frameInfo: { frames: 0, torn: false } });
+    expect(ids(result)).not.toContain('S2');
+    // 对照:同样带 surfaceOp 但**不带** ignorable 的未知类型 → 仍然报 S2（宿主会抛）
+    const strict = [
+      ...validSessionEvents(),
+      { type: 'future/thing', seq: 99, time: 9, surfaceOp: 'append', data: { k: 1 } },
+    ];
+    const r2 = validateSessionLog({ header: { type: 'session', version: 3, id: 'x', createdAt: 1 }, headerLine: 0, rows: [], events: strict.map((event) => ({ event })), frameInfo: { frames: 0, torn: false } });
+    expect(ids(r2)).toContain('S2');
+  });
+
+  it('Z2：单帧文件被截断（头帧都没了）→ 报错（宿主 readZstdPrefix:2793 对 header-less 同样抛）', () => {
     const file = writeSession(validSessionEvents(), { zstd: true, torn: true });
     const result = validateSessionLog(loadSessionLog(file));
     expect(ids(result)).toContain('Z1');
-    expect(result.ok).toBe(false); // 撕裂尾帧 = 当前不可读
+    expect(result.ok).toBe(false); // 连一个完整帧都没有 = 真的读不了（与宿主一致）
+  });
+
+  it('R-B 回归（误报 Z2）：多帧文件的**撕裂尾帧**按宿主语义恢复 —— 只报 Z1(warning)，不报 Z2/H1、verdict=loadable', () => {
+    // 宿主依据:`dsh-session-persistence-jsonl@0.1.5-rc.1`
+    //   · lib/index.js:2791-2849 readZstdPrefix —— 恢复撕裂尾帧、保留完整记录、返回 tornTruncateTo
+    //   · lib/index.js:226-228 —— 下次写入 truncateTornTail 自动截断
+    // 复现:两帧(帧1=header,帧2=事件),把帧2尾部砍掉几个字节 = "边写边读"的 in-flight 尾帧。
+    const fsx = require('node:fs');
+    const osx = require('node:os');
+    const pathx = require('node:path');
+    const { zstdCompressSync } = require('node:zlib');
+    const events = validSessionEvents();
+    const headerLine = JSON.stringify({ type: 'session', version: 3, id: 'torn-fixture', createdAt: 1 }) + '\n';
+    const restLine = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+    const twoFrames = Buffer.concat([
+      zstdCompressSync(Buffer.from(headerLine)),
+      zstdCompressSync(Buffer.from(restLine)),
+    ]);
+    const dir = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'dlc-torn-'));
+    const file = pathx.join(dir, 'session.jsonl.zstd');
+    // 砍掉最后一帧尾部若干字节 → 尾帧撕裂（帧1仍完整）
+    fsx.writeFileSync(file, twoFrames.subarray(0, twoFrames.length - 6));
+    const log = loadSessionLog(file);
+    expect(log.frameInfo.torn).toBe(true);      // 声明撕裂
+    expect(log.header).not.toBeNull();          // 头帧完整 → 会话可读
+    const result = validateSessionLog(log);
+    expect(ids(result)).toContain('Z1');        // 只告警
+    expect(ids(result)).not.toContain('Z2');    // 不再是"单帧全损"
+    expect(ids(result)).not.toContain('H1');    // 不再级联成"整个会话不可读"
+    expect(result.ok).toBe(true);               // 宿主能打开这个文件 ⇒ 契约也不得判 broken
+    expect(resumeVerdict(result).verdict).not.toBe('broken');
   });
 
   it('P1：未知 marker 前缀 → 告警', () => {
@@ -326,12 +379,12 @@ describe('T2 token-meter 源引用（2026-08-30 跨 step 刷屏事故固化）',
     expect(result.ok).toBe(false);
   });
 
-  it('真实夹具：5e551007 clip 前备份报 T2@7000004', () => {
+  it('真实夹具：clip 前备份报 T2（跨 step 源引用）', () => {
     const fs = require('node:fs');
     const os = require('node:os');
     const path = require('node:path');
     const { decompressZstd } = require('../lib/log-reader.js');
-    const bdir = path.join(process.env.HOME, 'archive-backup-2026-08/backups');
+    const bdir = BACKUP_DIR;
     const before = path.join(bdir, 'backup-session-2026-08-29-21-03-13.jsonl.zstd');
     if (!fs.existsSync(before)) {
       console.warn('skip: fixture not present');
@@ -343,7 +396,8 @@ describe('T2 token-meter 源引用（2026-08-30 跨 step 刷屏事故固化）',
     const log = loadSessionLog(tmp);
     const t2 = tokenMeterSourceViolations(log.events);
     expect(t2.length).toBeGreaterThanOrEqual(1);
-    expect(t2[0].seq).toBe(7000004);
+    expect(t2[0].id).toBe('T2');
+    expect(Number.isSafeInteger(t2[0].seq)).toBe(true);
   });
 
   it('非 chunk 引用 → T2 error（官方 :644 直接 throw，2026-08-30 19:23 实机事故固化）', () => {
@@ -449,19 +503,24 @@ describe('S9 文件物理序 seq 单调（2026-08-30 固化；交接书 L2）', 
     expect(v[0].severity).toBe('error');
   });
 
-  it('真实夹具：5e551007 交织备份报 S9，修复后 0', () => {
+  it('真实夹具：交织备份报 S9，修复后 0', () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const { physicalOrderViolations } = require('../lib/checks.js');
-    const bdir = path.join(process.env.HOME, 'archive-backup-2026-08/backups');
-    const interleaved = fs.readdirSync(bdir).find((f) => f.includes('5e551007-pre-keepranges'));
+    const bdir = BACKUP_DIR;
+    const interleaved = fs.existsSync(bdir) ? fs.readdirSync(bdir).find((f) => f.includes('-pre-keepranges')) : undefined;
     if (!interleaved) {
       console.warn('skip: interleaved fixture not present');
       return;
     }
     const log = loadSessionLog(path.join(bdir, interleaved));
     expect(physicalOrderViolations(log.rows).length).toBeGreaterThanOrEqual(1);
-    const fixed = loadSessionLog(path.join(process.env.HOME, '.dsh/sessions/--home-anon-<workspace>--/session-aaaaaaaa-0002-4000-8000-000000000002/session.jsonl.zstd'));
+    const fixedPath = process.env.DSH_LOG_CONTRACT_FIXED_SESSION;
+    if (!fixedPath) {
+      console.warn('skip: fixed-session fixture not present (set DSH_LOG_CONTRACT_FIXED_SESSION)');
+      return;
+    }
+    const fixed = loadSessionLog(fixedPath);
     expect(physicalOrderViolations(fixed.rows)).toEqual([]);
   });
 });
@@ -501,11 +560,13 @@ describe('I1 inbox seed 相对重放（交接书 L1；fork 边界孤儿）', () 
     expect(i1[0].severity).toBe('error');
   });
 
-  it('真实夹具：5e551009 fork 孤儿备份报 I1@7000005', () => {
+  it('真实夹具：fork 孤儿备份报 I1（inbox 重放）', () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const { inboxReplayViolations } = require('../lib/checks.js');
-    const f = path.join(process.env.HOME, 'archive-backup-2026-08/backups/backup-session-5e551009-pre-inboxfix-20260828-202840.jsonl.zstd');
+    const f = fs.existsSync(BACKUP_DIR)
+      ? path.join(BACKUP_DIR, fs.readdirSync(BACKUP_DIR).find((n) => n.includes('-pre-inboxfix')) ?? '')
+      : '';
     if (!fs.existsSync(f)) {
       console.warn('skip: fixture not present');
       return;
@@ -513,7 +574,8 @@ describe('I1 inbox seed 相对重放（交接书 L1；fork 边界孤儿）', () 
     const log = loadSessionLog(f);
     const v = inboxReplayViolations(log.events, log.header);
     expect(v.length).toBeGreaterThanOrEqual(1);
-    expect(v[0].seq).toBe(7000005);
+    expect(v[0].id).toBe('I1');
+    expect(Number.isSafeInteger(v[0].seq)).toBe(true);
   });
 });
 
@@ -591,7 +653,7 @@ describe('resumeVerdict（L3：check --resume 三档结论）', () => {
 });
 
 
-describe('T5 turn/end reason.kind（2026-09-02 5e551005 malformed turn/end 固化）', () => {
+describe('T5 turn/end reason.kind（2026-09-02 malformed turn/end 固化）', () => {
   it('turn/end 带 reason.kind → 0 违规', async () => {
     const { turnEndReasonViolations } = await import('../lib/checks.js')
     const events = [

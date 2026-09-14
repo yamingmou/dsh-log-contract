@@ -13,7 +13,7 @@
  *   contracts                     列出内置契约规则目录
  */
 import fs from 'node:fs';
-import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION } from '../lib/index.js';
+import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport } from '../lib/index.js';
 
 /**
  * 同步写 fd（F4 修复）——`process.stdout.write` 在**管道**下是异步的，紧跟着的
@@ -64,7 +64,7 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
               4 迁移预检 blocked（assessmentScope=partial 且 migration.ready=false；可用
               --no-fail-on-migration 退出该档）。
 
-  dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--clip-crossstep] [--drop-failed-turns] [--trim-last N] [--compact-last N] [--tail-renumber D] [--neutralize-orphan] [--extract-turn N] [--keep-ranges a-b,c-d] [--apply] [--backup-dir DIR] [--json]
+  dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--neutralize-legacy-markers] [--clip-crossstep] [--drop-failed-turns] [--trim-last N] [--compact-last N] [--tail-renumber D] [--neutralize-orphan] [--extract-turn N] [--keep-ranges a-b,c-d] [--apply] [--backup-dir DIR] [--json]
       诊断 + 修复（2026-08 事故固化方案）。先做严格 seq 连续扫描 + 契约体检
       （含 W1/W2 wire 级悬空 tool 检查），再按需修复：
       --remove-markers 移除 retrace/message-editor marker 并全量重编号
@@ -73,6 +73,11 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
       --neutralize     原地中和 turn-null marker（type→retrace/marker +
                        ignorable:true，删 surfaceOp/sourceEventSeqs，seq/行数不变）
                        —— token-meter 不再刷屏，会话驻留也安全（2026-08-30 事故）
+      --neutralize-legacy-markers
+                       **一次性根治历史载体债**（R-C）：只中和
+                       assistant/message + data.editor 形态的历史 retrace marker
+                       （新载体是 user/message + data.id，不在此列）。清理后，
+                       写前校验不再需要"≤v2 历史 marker T1 降级"那条豁免。
       --drop-failed-turns 删除"本轮运行失败"的轮次（清失败报错气泡）
       --trim-last N    裁剪到最近 N 条 append 消息（保留所在 turn 结构）
       --trim-budget N  按 token 预算裁剪（L5）：自动选保留消息数使估算 ≤ N
@@ -133,6 +138,38 @@ function printViolations(violations, maxDetails = 8) {
   }
 }
 
+/** R-E 抬头（2026-09-14 裁定）:漂移清单 + 未复核清单 + "勿据此跑 fix --apply"。 */
+function driftLines(drift, probes) {
+  if (!drift) return '';
+  const host = probes ? `${probes.hostPackage}（SESSION_FORMAT_VERSION=${probes.sessionFormatVersion},词表 ${probes.knownTypes} 类）` : '未知';
+  // 注:这里**刻意不用 ✅/⚠️ 之外的"通过"符号**——待迁移文件（assessmentScope=partial）的
+  // 输出被测试钉死为"不得出现无条件绿的 ✅"，漂移行不能破坏那条纪律。
+  const probeOk = (probes?.probes ?? []).filter((x) => x.ok).length;
+  const probeTotal = (probes?.probes ?? []).length;
+  let out = `   漂移检测：宿主 ${host} ｜ 行为探针 ${drift.probeVerified ? `全部与规则假设一致（${probeOk}/${probeTotal}）` : `${drift.unverifiedRules.length} 组不一致（${probeOk}/${probeTotal} 一致）`}\n`;
+  if (drift.unverifiedRules.length > 0) {
+    out += `     ⛔ **UNVERIFIED**（探针与规则假设不一致,结论不可采信）:${drift.unverifiedRules.join('、')}\n`;
+  }
+  out += `     出处未复核（R-F,已知债,仅告警）:${drift.driftedSources.join('、')}\n`;
+  out += `     判定前提存疑（复核 §1,仅告警）:${drift.premiseStale.join('、')}${drift.undecidable.length ? `；无法判定:${drift.undecidable.join('、')}` : ''}\n`;
+  if (drift.fixApplyBlocked) {
+    out += '     ⛔ **禁止据此跑 `fix --apply`**（存在未验证规则:写入类动作不可逆）——先按 report 复核这些规则或显式确认。\n';
+  }
+  return out;
+}
+
+/** 版本支持面（2026-09-14 用户要求第 1 条）：一行摘要 + 逐条告警。
+ *  `readOnly` = 未验证格式 ⇒ 只读（check 照跑结构层；prewrite/fix 直接拒绝）。 */
+function supportLines(support) {
+  if (!support) return '';
+  let s = `   版本支持：${support.summary}\n`;
+  s += `     测试基线：${support.baseline.hostPackage}@${support.baseline.hostVersion} ｜ 会话格式 v${support.baseline.sessionFormatVersion}`
+    + `（已知 ${support.baseline.knownFormatVersions.join('/')}；peer ${support.baseline.peerRange}）\n`;
+  for (const w of support.warnings ?? []) s += `     ⚠️  ${w}\n`;
+  if (support.readOnly) s += '     ⛔ 未验证格式 ⇒ **只读**：不给出写入/修复结论（版本检测见 lib/version-support.js）\n';
+  return s;
+}
+
 /** S2 横幅：被检文件版本 > 宿主支持上限 ⇒ "不可在本宿主评估"（**不是** broken）。 */
 function notAssessableBanner(result) {
   const na = result.notAssessable ?? {};
@@ -142,7 +179,8 @@ function notAssessableBanner(result) {
     + `    原因：${na.reason}\n`
     + `    已跳过规则：${(na.skippedRules ?? []).join(', ')}\n`
     + `    已执行：结构层（Z/H/R/E1·E2·E4·E5·E6/S9/M/P/P3·P4/I1）；结构层结论 ${result.structuralOk ? '绿' : '有 error（见上）'}\n`
-    + `    ⚠️ 这不表示日志损坏，也**不要**据此运行 fix --apply —— 请用 0.1.5+ 宿主评估。\n`;
+    + `    ⚠️ 这不表示日志损坏，也**不要**据此运行 fix --apply —— 请用 0.1.5+ 宿主评估。\n`
+    + supportLines(result.support);
 }
 
 /** 迁移预检（独立维度）文本。
@@ -206,7 +244,7 @@ function cmdCheck(args) {
   const exitCode = notAssessable ? 3 : (!ok ? 1 : (migGate ? 4 : 0));
 
   if (json) {
-    const payload = { file, ok, assessable: !notAssessable, assessmentScope: scope, host: hostCapability(), migration, summary, violations };
+    const payload = { file, ok, assessable: !notAssessable, assessmentScope: scope, host: hostCapability(), support: result.support ?? null, probes: result.probes ?? null, drift: result.drift ?? null, migration, summary, violations };
     if (notAssessable) payload.notAssessable = result.notAssessable;
     if (resume) payload.resume = resumeVerdict(result);
     out(JSON.stringify(payload, null, 2) + '\n');
@@ -239,6 +277,8 @@ function cmdCheck(args) {
       out(`     ${mark} ${name} — ${desc}\n`);
       if (blockers.length > 0) out(`        阻断: ${[...new Set(blockers)].join(', ')}\n`);
     }
+    out(supportLines(result.support));
+    out(driftLines(result.drift, result.probes));
     out(migrationLine(migration, partial));
     out(`\n   结论: ${icons[tier]}${migBlocked
       ? '（本工具规则集内）—— 但**迁移预检 blocked**：不得据此宣称"可升级"'
@@ -252,6 +292,8 @@ function cmdCheck(args) {
   out(`\n📋 dsh-log-contract check —— ${file}\n`);
   out(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / 1024).toFixed(1)}KiB → ${(summary.plaintextBytes / 1024).toFixed(1)}KiB）\n`);
   out(`   违规 ${summary.total}（error ${summary.bySeverity.error} / warning ${summary.bySeverity.warning}）\n`);
+  out(supportLines(result.support));
+  out(driftLines(result.drift, result.probes));
   out(migrationLine(migration, partial));
   out('\n');
   printViolations(violations, maxDetails);
@@ -286,6 +328,11 @@ function cmdPrewrite(args) {
     fail(`会话日志读取失败：${err.message}`);
   }
   const baseline = validateSessionLog(log);
+  // 版本支持面（2026-09-14 用户要求第 1 条）：**未验证格式 ⇒ 只读**，不得给出写入结论。
+  if (baseline.support?.readOnly) {
+    fail(`未验证的会话格式（来源 ${baseline.support.file.source}，版本 v${baseline.support.file.version}）——按只读处理，写前校验无法给出可信结论。`
+      + ` ${baseline.support.warnings?.[0] ?? ''}`, 3);
+  }
   // S2：本宿主评估不了的文件**不能**给出写前结论（否则会拿假阳性去拦合法写入）
   if (baseline.assessable === false) {
     fail(`不可在本宿主评估该会话（${baseline.notAssessable?.reason ?? '宿主能力不足'}）——写前校验无法给出可信结论；请用 0.1.5+ 宿主`, 3);
@@ -310,11 +357,19 @@ function cmdPrewrite(args) {
   }
 
   if (json) {
-    out(JSON.stringify({ file, op: result.op, ok: result.ok, bySeverity: result.bySeverity, violations: result.violations }, null, 2) + '\n');
+    out(JSON.stringify({ file, op: result.op, ok: result.ok, bySeverity: result.bySeverity, legacyMarkerDebt: result.legacyMarkerDebt ?? null, violations: result.violations }, null, 2) + '\n');
     process.exit(result.ok ? 0 : 1);
   }
 
   out(`\n✍️  dsh-log-contract prewrite —— ${file}（op: ${result.op}，nextSeq: ${prewriter.nextSeq}）\n\n`);
+  if (result.legacyMarkerDebt) {
+    // R-C「降级可见」:历史 marker 债不只是 warning 里的一句话,这里显式打印并给出根治命令。
+    const d = result.legacyMarkerDebt;
+    out(`  ⚠️  检测到**历史 marker 载体**（${d.kind} 形态，id=${d.id}，targetSeq=${d.targetSeq}，seq=${d.seq}）：\n`);
+    out(`     T1 已按 ≤v${d.formatVersion <= 2 ? 2 : d.formatVersion} 白名单降级为 warning（仅历史载体、仅旧格式文件）——\n`);
+    out('     但**压缩（/compact）前仍需清理**，否则 token-meter 自检会拦：一次性根治 →\n');
+    out(`     \`dsh-log-contract fix <log> --neutralize-legacy-markers --apply\`（备份后原地中和，seq/行数不变）\n\n`);
+  }
   if (result.ok) {
     out('  ✅ 写入安全：三层契约全绿（持久化 foldSurface 可重放 / 引擎层无崩溃风险 / 插件 marker 语义自洽）\n');
     out(`     写入后 surface 节点 ${result.stateAfter.surfaceNodes} 个，nextSeq ${result.stateAfter.nextSeq}\n\n`);
@@ -329,7 +384,12 @@ function cmdPrewrite(args) {
 function cmdContracts() {
   out('dsh-log-contract 契约规则目录（spec：59 条审计发现 + 官方源码逐行核对）\n\n');
   for (const r of CONTRACT_RULES) {
-    out(`  ${r.id}  [${r.severity}/${r.layer}] ${r.title}\n      ${r.description}\n      出处: ${r.source}\n\n`);
+    const flags = [
+      r.candidate ? '候选规则' : null,
+      r.sourceVerified === false ? '出处未复核' : null,
+      r.premiseStale ? '判定前提存疑' : null,
+    ].filter(Boolean).join(' / ');
+    out(`  ${r.id}  [${r.severity}/${r.layer}] ${r.title}${flags ? `  ⟪${flags}⟫` : ''}\n      ${r.description}\n      出处: ${r.source}\n\n`);
   }
 }
 
@@ -337,6 +397,8 @@ function cmdFix(args) {
   const json = args.includes('--json');
   const removeMarkers = args.includes('--remove-markers');
   const neutralize = args.includes('--neutralize');
+  // R-C 一次性根治路径:只中和**历史载体**(assistant/message + data.editor)的 retrace marker
+  const neutralizeLegacyMarkers = args.includes('--neutralize-legacy-markers');
   const clipCrossStep = args.includes('--clip-crossstep');
   const dropFailedTurns = args.includes('--drop-failed-turns');
   const trimIdx = args.indexOf('--trim-last');
@@ -365,12 +427,18 @@ function cmdFix(args) {
   // 日志报成 broken → 用户以为日志坏了去跑 `fix --apply` ⇒ 在健康日志上动手。这里直接拒绝。
   const head = readSessionHeader(file);
   const fileVersion = Number.isSafeInteger(head?.version) ? head.version : 0;
+  // 版本支持面：未验证格式 ⇒ 只读（不得修），与 S2 宿主能力闸并列。
+  const support = detectSupport({ header: head });
+  if (support.readOnly) {
+    fail(`未验证的会话格式（来源 ${support.file.source}，版本 v${support.file.version}）——按只读处理，拒绝修复。`
+      + ` ${support.warnings?.[0] ?? ''}`, 3);
+  }
   if (fileVersion > HOST_MAX_FILE_VERSION) {
     fail(`拒绝修复：被检文件 version=${fileVersion} 高于本宿主 @deepseek-ai/dsh-session@${hostCapability().hostPackage} 支持的最大版本 ${HOST_MAX_FILE_VERSION}`
       + ` —— 本宿主评估不了该文件（不是"日志坏了"）。请用 0.1.5+ 宿主修复。`, 3);
   }
 
-  const result = repairSession(file, { removeMarkers, neutralize, clipCrossStep, dropFailedTurns, trimLast, trimBudget, compactLast, tailRenumberDelta, neutralizeOrphan, extractTurn, extractTurnTo, keepRanges, apply, backupDir });
+  const result = repairSession(file, { removeMarkers, neutralize, neutralizeLegacyMarkers, clipCrossStep, dropFailedTurns, trimLast, trimBudget, compactLast, tailRenumberDelta, neutralizeOrphan, extractTurn, extractTurnTo, keepRanges, apply, backupDir });
   if (json) {
     out(JSON.stringify(result, null, 2) + '\n');
     process.exit(result.ok ? 0 : 1);

@@ -17,6 +17,9 @@ import { validateSessionLog } from '../lib/validate.js';
 import { repairSession, strictScanText, removeMarkersText, dropFailedTurnsText, trimLastMessagesText, trimLastMessagesByBudget, estimateTokensText, tailRenumberText, neutralizeOrphanText, extractTurnText, keepRangesText } from '../lib/repair.js';
 import { assistantMessage, markerEvent, toolResultMessage, userMessage, validSessionEvents, writeSession, writeRawSession } from './helpers.js';
 
+/** 真实夹具目录(开发机本地;仓内不写私有归档目录名)。未设置且默认目录不存在时,相关用例 skip。 */
+const BACKUP_DIR = process.env.DSH_LOG_CONTRACT_BACKUP_DIR ?? path.join(os.homedir(), 'dsh-log-contract-backups');
+
 function ids(result) {
   return result.violations.map((v) => v.id);
 }
@@ -315,9 +318,11 @@ describe('neutralizeMarkersText（2026-08-30 事故：turn-null marker 刷屏压
     expect(re.violations.filter((v) => v.id === 'T1')).toHaveLength(0);
   });
 
-  it('真实夹具：5e551008 的 turn-null marker 被中和（regression 锁死事故现场）', () => {
+  it('真实夹具：turn-null marker 被中和（regression 锁死事故现场）', () => {
     const { neutralizeMarkersText } = require('../lib/repair.js');
-    const backup = path.join(process.env.HOME, 'archive-backup-2026-08/backups/backup-session-5e551008-pre-markerfix-20260830-043631.jsonl.zstd');
+    const fsx = require('node:fs');
+    const backup = process.env.DSH_LOG_CONTRACT_MARKERFIX_FIXTURE
+      ?? (fsx.existsSync(BACKUP_DIR) ? require('node:path').join(BACKUP_DIR, fsx.readdirSync(BACKUP_DIR).find((n) => n.includes('-pre-markerfix')) ?? '') : '');
     if (!fs.existsSync(backup)) {
       console.warn('skip: backup fixture not present');
       return;
@@ -547,8 +552,9 @@ describe('L4 新原语（2026-08-30 需求文档 §L4 收编 tools/）', () => {
     expect(JSON.parse(kept[2]).data.text).toBe('b');
   });
 
-  it('repairSession 干跑能检出 neutralize-orphan（5e551009 夹具）', () => {
-    const f = path.join(process.env.HOME, 'archive-backup-2026-08/backups/backup-session-5e551009-pre-inboxfix-20260828-202840.jsonl.zstd');
+  it('repairSession 干跑能检出 neutralize-orphan（真实夹具）', () => {
+    const f = process.env.DSH_LOG_CONTRACT_ORPHAN_FIXTURE
+      ?? (fs.existsSync(BACKUP_DIR) ? path.join(BACKUP_DIR, fs.readdirSync(BACKUP_DIR).find((n) => n.includes('-pre-inboxfix')) ?? '') : '');
     if (!fs.existsSync(f)) {
       console.warn('skip: fixture not present');
       return;
