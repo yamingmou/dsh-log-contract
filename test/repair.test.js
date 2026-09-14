@@ -416,6 +416,52 @@ describe('L4 新原语（2026-08-30 需求文档 §L4 收编 tools/）', () => {
     expect(last.seq).toBe(7);
   });
 
+  it('tailRenumberText ②：seq 引用同族位移（shadowedRange/shadowedSeqs/surfaceOp/messageSeqs/区间对）', () => {
+    const header = JSON.stringify(sessionHeader(0));
+    const rows = [
+      { type: 'user/message', seq: 0, time: 1, surfaceOp: 'append', data: { id: 'u0', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'a' }] } },
+      { type: 'user/message', seq: 1, time: 2, surfaceOp: 'append', data: { id: 'u1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'b' }] } },
+      // v0 形 replace（start/end）+ 普通 sourceEventSeqs：引用点都 < startSeq ⇒ 不动
+      { type: 'user/message', seq: 2, time: 3, surfaceOp: { op: 'replace', start: 0, end: 1 }, sourceEventSeqs: [0, 1], data: { id: 'u2', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'c' }] } },
+      // v3 形 replace（startSeq/endSeq）+ **区间对** sourceEventSeqs：端点 >= startSeq ⇒ 整体平移
+      { type: 'user/message', seq: 3, time: 4, surfaceOp: { op: 'replace', startSeq: 2, endSeq: 2 }, sourceEventSeqs: [[2, 3]], data: { id: 'u3', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'd' }] } },
+      { type: 'compaction/prune', seq: 4, time: 5, data: { shadowedRange: { start: 2, end: 3 }, shadowedSeqs: [2, 3], shadowedTokenCount: 2 } },
+      { type: 'session/title', seq: 5, time: 6, data: { source: { kind: 'user' }, title: 't', messageSeqs: [2, 3] } },
+    ];
+    const text = [header, ...rows.map((r) => JSON.stringify(r))].join('\n') + '\n';
+    const r = tailRenumberText(text, 2, 2); // seq>=2 → -2
+    expect(r.error).toBeUndefined();
+    const outRows = r.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const bySeq = new Map(outRows.map((x) => [x.seq, x]));
+    expect(bySeq.has(0)).toBe(true);
+    expect(bySeq.has(1)).toBe(true);
+    const rep0 = bySeq.get(0); // 原 seq2 → 0
+    expect(rep0.surfaceOp).toEqual({ op: 'replace', start: 0, end: 1 }); // 引用点 < startSeq ⇒ 不动
+    expect(rep0.sourceEventSeqs).toEqual([0, 1]);
+    const rep1 = bySeq.get(1); // 原 seq3 → 1
+    expect(rep1.surfaceOp).toEqual({ op: 'replace', startSeq: 0, endSeq: 0 });
+    expect(rep1.sourceEventSeqs).toEqual([[0, 1]]); // 区间对整体平移（旧实现会写成 [null]）
+    const prune = bySeq.get(2);
+    expect(prune.data.shadowedRange).toEqual({ start: 0, end: 1 });
+    expect(prune.data.shadowedSeqs).toEqual([0, 1]);
+    const title = bySeq.get(3);
+    expect(title.data.messageSeqs).toEqual([0, 1]);
+  });
+
+  it('tailRenumberText ②：区间对跨平移起点 ⇒ 报错且不破坏文本（旧实现写 null）', () => {
+    const header = JSON.stringify(sessionHeader(0));
+    const row = JSON.stringify({
+      type: 'user/message', seq: 2, time: 3, surfaceOp: 'append', sourceEventSeqs: [[0, 1]],
+      data: { id: 'u2', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'x' }] },
+    });
+    const input = [header, row].join('\n') + '\n';
+    const r = tailRenumberText(input, 1, 1); // 区间 [0,1] 跨起点 1
+    expect(r.error).toMatch(/跨平移起点/);
+    expect(r.changed).toBe(0);
+    expect(r.text).toBe(input); // 原样返回
+    expect(r.text).not.toContain('null');
+  });
+
   it('neutralizeOrphanText：孤儿 spliced removedCount→0（原地不动 seq/行数）', () => {
     const events = [
       { type: 'agent/inbox/spliced', seq: 10, time: 11, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } },
