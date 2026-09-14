@@ -1,7 +1,7 @@
 /**
  * dsh-log-contract · test/semantics-v3.test.js —— 第二轮（语义对齐）回归套件
  *
- * 独立审核（`/tmp/logcontract-release-gate-review.md` §2）用 17 个突变证明：第一轮
+ * 独立审核（第二轮语义对齐复验 §2）用 17 个突变证明：第一轮
  * "113 passed" 里 **12 个突变存活**——套件 0 个 v2/v3 夹具，`grep "version: *[23]" test/`
  * 零命中。本文件补上这些夹具与用例，逐条钉住那些突变打坏的**语义本体**：
  *
