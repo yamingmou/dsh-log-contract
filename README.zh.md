@@ -42,7 +42,7 @@
 
 **含义**：dsh-log-contract 独立发布（供单独使用或二次开发），但它首先是
 dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构成
-**Agent 业务层（生产级保证）** 在 DSH 上的落地（详见 [dsh-retrace 路线图](https://github.com/yamingmou/dsh-retrace/blob/main/docs/ROADMAP.md)）。
+**Agent 业务层（生产级保证）** 在 DSH 上的落地（详见 [dsh-retrace 仓库](https://github.com/yamingmou/dsh-retrace)）。
 
 ---
 
