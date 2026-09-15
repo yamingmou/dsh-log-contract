@@ -45,8 +45,8 @@ describe('CLI', () => {
     const file = writeSession(validSessionEvents());
     const { code, out } = run(['check', file]);
     expect(code).toBe(0);
-    // 2026-09-14 最终复核：v0 文件 migration.applies=true ⇒ 迁移维度只部分覆盖，
-    // 禁止无条件 ✅（AC1）。
+    // 2026-09-14：v0 文件 migration.applies=true ⇒ 迁移维度只部分覆盖，
+    // 禁止无条件 ✅。
     expect(out).not.toContain('✅');
     expect(out).toContain('迁移维度仅部分覆盖');
     expect(out).toContain('部分');
@@ -80,7 +80,7 @@ describe('CLI', () => {
     expect(out).toContain('可加载');
     expect(out).toContain('可继续');
     expect(out).toContain('可压缩');
-    // partial 时不给 ✅（AC1），末行明示部分覆盖
+    // partial 时不给 ✅，末行明示部分覆盖
     expect(out).not.toContain('✅');
     expect(out).toContain('迁移维度仅部分覆盖');
   });

@@ -1,24 +1,23 @@
 /**
- * dsh-log-contract · test/semantics-v3.test.js —— 第二轮（语义对齐）回归套件
+ * dsh-log-contract · test/semantics-v3.test.js —— v2/v3 语义回归套件
  *
- * 独立审核（第二轮语义对齐复验 §2）用 17 个突变证明：第一轮
- * "113 passed" 里 **12 个突变存活**——套件 0 个 v2/v3 夹具，`grep "version: *[23]" test/`
- * 零命中。本文件补上这些夹具与用例，逐条钉住那些突变打坏的**语义本体**：
+ * 为什么单独成文件：主套件长期只有 v0 夹具（`grep "version: *[23]" test/` 零命中），
+ * v3 语义改动可以一路绿灯而不被发现。本文件补齐 v2/v3 夹具，逐条钉住**语义本体**：
  *
  *   C1  v3 `sourceEventSeqs` 区间编码（官方 `decodeSeqRanges`）——读取层 + 体检入口 + 写前入口；
  *   C2  `prewrite` 版本来源显式化（显式参数 > header.version > 事件形状推断），同进程交错不翻转；
  *   C3  v3 surface 类型（`system/message`）、v3 replace 字段名（`startSeq/endSeq`）、
  *       **按被检文件版本择路**（v3→官方 foldSurface / v0–v2→本地 legacy）、v2 词表与路由；
- *   M9  chunk 行 `dt` arity 校验；M10 lossless-JSON `-0`/稀疏数组边界；
- *   F4  `--json` 大报告必须仍是合法 JSON（CLI 子进程，真管道）。
+ *   compat  compat 边界：chunk 行 `dt` arity 校验、lossless-JSON `-0`/稀疏数组边界；
+ *   CLI  `--json` 大报告必须仍是合法 JSON（CLI 子进程，真管道）。
  *
  * **宿主分层（诚实记录）**：`0.1.0-rc.7` 是 v0 时代宿主（`SESSION_FORMAT_VERSION=0`，
  * `KNOWN_SESSION_EVENT_TYPES` 无 `system/message`，`foldSurface` 是 v0 语义）——它**无法**
  * 提供 v3 语义。因此"需要 v3 运行时"的用例用 `itV3`（`it.skipIf(!HOST_V3)`）显式跳过并在
- * 报告里计数；**宿主无关**的用例（区间解码、版本推断、compat 边界、F4、v2 本地路由）
+ * 报告里计数；**宿主无关**的用例（区间解码、版本推断、compat 边界、大 JSON、v2 本地路由）
  * 在两种宿主上都真跑。这比"让 v3 断言在旧宿主上假绿"诚实。
  *
- * 每条用例的注释都标出它对应哪个审核突变（M#），便于对照报告里的"突变前后对照表"。
+ * 每条用例的注释都标出它钉住的那条语义（以及"改坏哪一处会让它变红"）。
  */
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
@@ -44,7 +43,7 @@ const HOST_V3 = SESSION_FORMAT_VERSION >= 3 && KNOWN_SESSION_EVENT_TYPES.has('sy
 const itV3 = (title, fn) => it.skipIf(!HOST_V3)(title, fn);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// v2/v3 夹具（第一轮完全缺失）
+// v2/v3 夹具（此前完全缺失）
 // ─────────────────────────────────────────────────────────────────────────────
 const HEADER_V3 = { type: 'session', version: 3, id: 'v3-fixture', createdAt: 1, cwd: '/tmp' };
 const HEADER_V2 = { type: 'session', version: 2, id: 'v2-fixture', createdAt: 1, cwd: '/tmp' };
@@ -59,7 +58,7 @@ function systemMessage({ seq, turn = 0, step = 0, text = 'sys' } = {}) {
     data: {
       turn,
       step,
-      // R-G/E9：宿主要求 system/message 的 source.kind==='plugin' 且 plugin 非空
+      // E9：宿主要求 system/message 的 source.kind==='plugin' 且 plugin 非空
       // （dsh-session@0.1.5-rc.1 lib/index.js:942-944）——夹具按宿主契约写,否则会被 E9 判红。
       message: { id: `s-${seq}`, role: 'system', source: { kind: 'plugin', plugin: 'test-plugin' }, content: [{ type: 'text', text }] },
     },
@@ -195,7 +194,7 @@ describe('C1 · v3 sourceEventSeqs 区间编码（官方 decodeSeqRanges）', ()
   it('体检入口对手搓 log 也归一（S7：v3 宿主 ok===true / 旧宿主显式 not-assessable）', () => {
     const events = [userMessage({ seq: 0 }), assistantMessage({ seq: 1 }), v3Replace({ seq: 2, startSeq: 0, endSeq: 1, shadowed: [[0, 1]] }), turnEnd({ seq: 3 })];
     const result = validateSessionLog(logOf(HEADER_V3, events));
-    // N3 突变（体检入口不归一）→ 未展开的 `[[0,1]]` 会报 S6（并连带 S5）
+    // 反例（体检入口不归一）→ 未展开的 `[[0,1]]` 会报 S6（并连带 S5）
     expectC1ReadOk(result);
   });
 
@@ -208,7 +207,7 @@ describe('C1 · v3 sourceEventSeqs 区间编码（官方 decodeSeqRanges）', ()
   });
 
   it('写前**基座**含区间编码 → validateAppend 归一（S7：v3 宿主 ok===true）', () => {
-    // N2 突变：构造期不归一 → 基座未展开 → S6/S5
+    // 反例：构造期不归一 → 基座未展开 → S6/S5
     const base = [userMessage({ seq: 0 }), assistantMessage({ seq: 1 }), v3Replace({ seq: 2, startSeq: 0, endSeq: 1, shadowed: [[0, 1]] }), turnEnd({ seq: 3 })];
     const pw = createPreWriter({ events: base, formatVersion: 3 });
     const r = pw.validateAppend(userMessage({ seq: 4 }));
@@ -230,7 +229,7 @@ describe('C2 · prewrite 版本来源（显式参数 / header 推断 / 不依赖
   const v3Events = () => [systemMessage({ seq: 0 }), userMessage({ seq: 1 }), turnEnd({ seq: 2 })];
 
   itV3('v3 事件喂 prewrite（不传 header）→ 自行推断 v3，无 E3/S2/S8', () => {
-    // 审核复现 C：全新进程 createPreWriter({events: realV3}) → ok=false + 10 条 E3/S2/S8
+    // 反例：全新进程 createPreWriter({events: realV3}) 若不自行推断版本 → ok=false + 10 条 E3/S2/S8
     const events = v3Events();
     const pw = createPreWriter({ events });
     expect(pw.formatVersion).toBe(3);
@@ -260,7 +259,7 @@ describe('C2 · prewrite 版本来源（显式参数 / header 推断 / 不依赖
     expect(uniqueIds(r)).toContain('S4');   // 旧 {start,end} 在 v3 语义下是非法 replace surfaceOp
   });
 
-  it('同进程交错：先 validate(v3) 再 prewrite(v0)，结论不翻转（审核复现 B）', () => {
+  it('同进程交错：先 validate(v3) 再 prewrite(v0)，结论不翻转', () => {
     // 旧实现：validate(v3) 写模块级 fileVersion=3 → 下面的 v0 marker 被按 v3 判 → S4+S8。
     // 现在版本是本次调用的局部量；此断言在两种宿主上都必须成立。
     validateSessionLog(logOf(HEADER_V3, v3Events()));
@@ -292,7 +291,7 @@ describe('C2 · prewrite 版本来源（显式参数 / header 推断 / 不依赖
 // ─────────────────────────────────────────────────────────────────────────────
 describe('C3 · v3 surface 类型（system/message）', () => {
   itV3('system/message 是 v3 surface 类型：append 不报 E3/S2', () => {
-    // M1/M2：把 system/message 从 v3 surface 集去掉 → 该事件被当非 surface 却带 surfaceOp → S2
+    // 反例：把 system/message 从 v3 surface 集去掉 → 该事件被当非 surface 却带 surfaceOp → S2
     const result = validateSessionLog(logOf(HEADER_V3, [systemMessage({ seq: 0 }), userMessage({ seq: 1 }), turnEnd({ seq: 2 })]));
     expect(uniqueIds(result)).not.toContain('S2');
     expect(uniqueIds(result)).not.toContain('E3');
@@ -308,7 +307,7 @@ describe('C3 · v3 surface 类型（system/message）', () => {
 });
 
 describe('C3 · v3 replace 字段名（startSeq/endSeq）', () => {
-  it('normalizeReplaceOp 按版本读字段名（宿主无关；M3/M4 的直接牙齿）', () => {
+  it('normalizeReplaceOp 按版本读字段名（宿主无关）', () => {
     // v3：只认 startSeq/endSeq
     expect(normalizeReplaceOp({ op: 'replace', startSeq: 1, endSeq: 0 }, 3)).toEqual({ start: 1, end: 0 });
     expect(normalizeReplaceOp({ op: 'replace', start: 0, end: 1 }, 3)).toBeNull();
@@ -319,7 +318,7 @@ describe('C3 · v3 replace 字段名（startSeq/endSeq）', () => {
     expect(normalizeReplaceOp({ op: 'append' }, 3)).toBeNull();
   });
 
-  itV3('v3 replace {startSeq,endSeq} → 通过（M3 对调端点 / M4 读旧字段名 → 变红）', () => {
+  itV3('v3 replace {startSeq,endSeq} → 通过（对调端点、或按旧字段名读 → 变红）', () => {
     const result = validateSessionLog(logOf(HEADER_V3, [
       userMessage({ seq: 0 }),
       assistantMessage({ seq: 1 }),
@@ -340,7 +339,7 @@ describe('C3 · v3 replace 字段名（startSeq/endSeq）', () => {
     expect(uniqueIds(result)).toContain('S4');
   });
 
-  itV3('v3 文件里用旧 {start,end} → S4（M4：v3 分支按旧字段名读 → 该断言反向）', () => {
+  itV3('v3 文件里用旧 {start,end} → S4（v3 分支若按旧字段名读，该断言即反向）', () => {
     const result = validateSessionLog(logOf(HEADER_V3, [
       userMessage({ seq: 0 }),
       assistantMessage({ seq: 1 }),
@@ -362,7 +361,7 @@ describe('C3 · 按被检文件版本择路（v3→官方 foldSurface / v0–v2�
   };
 
   itV3('v3：assistant/message 带 sourceEventSeqs → S8（用官方折叠）', () => {
-    // M6（currentFold 永用官方）/M7（永用本地）/M17（无视 header 版本）都在这对用例上暴露
+    // 三个反例都在这对用例上暴露：折叠永用官方 / 永用本地 / 无视 header 版本
     const result = validateSessionLog(logOf(HEADER_V3, shape()));
     expect(uniqueIds(result)).toContain('S8');
     expect(result.ok).toBe(false);
@@ -381,18 +380,18 @@ describe('C3 · 按被检文件版本择路（v3→官方 foldSurface / v0–v2�
     expect(finalFold(events, 2).error).toBeFalsy();
   });
 
-  it('版本边界常量 = 2（v2 仍是旧格式；M12 把它退回 1 → v2 用例变红）', () => {
+  it('版本边界常量 = 2（v2 仍是旧格式；退回 1 会让 v2 用例变红）', () => {
     expect(LEGACY_FORMAT_MAX_VERSION).toBe(2);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// C3 · wire 归因也按 v3 字段名（M14）
+// C3 · wire 归因也按 v3 字段名
 // ─────────────────────────────────────────────────────────────────────────────
-describe('C3 · wire 归因也按 v3 字段名（M14）', () => {
+describe('C3 · wire 归因也按 v3 字段名', () => {
   // 形状：assistant(tool-call) → user 文本 → `{op:'replace',startSeq:0,endSeq:0}` 遮蔽该 assistant。
   // v3 正确归因：assistant 节点被 replace 掉 ⇒ wire 里没有未满足的 tool-call ⇒ 无 W2。
-  // M14（wire 退回 isReplaceOp 读 start/end）: v3 replace 不被识别 ⇒ 节点残留 ⇒ 出现 W2。
+  // 反例（wire 退回 isReplaceOp 读 start/end）: v3 replace 不被识别 ⇒ 节点残留 ⇒ 出现 W2。
   it('v3 replace 在 wire 层被识别 → 无 W2；同一形状按 v0 语义则产生 W2', () => {
     const amTool = (seq) => ({
       type: 'assistant/message', seq, time: seq + 1, surfaceOp: 'append',
@@ -409,7 +408,7 @@ describe('C3 · wire 归因也按 v3 字段名（M14）', () => {
 // C3 · v2 词表与路由
 // ─────────────────────────────────────────────────────────────────────────────
 describe('C3 · v2 词表与路由', () => {
-  it('v2 词表含 assistant/attempt、不含 assistant/chunk（F9 / M11 / M13）', () => {
+  it('v2 词表含 assistant/attempt、不含 assistant/chunk', () => {
     expect(V2_EVENT_TYPES.has('assistant/attempt')).toBe(true);
     expect(V2_EVENT_TYPES.has('assistant/chunk')).toBe(false);
     // v0 词表仍含 chunk（vendored 口径不变）
@@ -433,7 +432,7 @@ describe('C3 · v2 词表与路由', () => {
     expect(uniqueIds(chunk)).toContain('E3');
   });
 
-  it('v2 用旧 {start,end} replace → 通过（M12：把 v2 当新格式 → S4/S8）', () => {
+  it('v2 用旧 {start,end} replace → 通过（把 v2 当新格式 → S4/S8）', () => {
     const result = validateSessionLog(logOf(HEADER_V2, [
       userMessage({ seq: 0 }),
       assistantMessage({ seq: 1 }),
@@ -446,22 +445,22 @@ describe('C3 · v2 词表与路由', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// M9/M10 · compat 边界
+// compat 边界 · chunk 行 dt arity / lossless-JSON
 // ─────────────────────────────────────────────────────────────────────────────
-describe('compat 边界（M9 dt arity / M10 lossless-JSON）', () => {
-  it('chunk 行 dt 长度与成员数不匹配 → decodeStorageRecord 抛错（M9）', () => {
+describe('compat 边界（chunk 行 dt arity / lossless-JSON）', () => {
+  it('chunk 行 dt 长度与成员数不匹配 → decodeStorageRecord 抛错', () => {
     const row = { type: 'text-chunks', seq0: 0, time0: 0, data: { turn: 0, step: 1, index: 0, dt: [], texts: ['a', 'b'] } };
     expect(() => decodeStorageRecord(row)).toThrow(/dt length/);
     const ok = { type: 'text-chunks', seq0: 0, time0: 0, data: { turn: 0, step: 1, index: 0, dt: [5], texts: ['a', 'b'] } };
     expect(decodeStorageRecord(ok)).toHaveLength(2);
   });
 
-  it('chunk 行 dt 非安全整数 → 抛错（M9 的另一半）', () => {
+  it('chunk 行 dt 非安全整数 → 抛错', () => {
     const row = { type: 'text-chunks', seq0: 0, time0: 0, data: { turn: 0, step: 1, index: 0, dt: [1.5], texts: ['a', 'b'] } };
     expect(() => decodeStorageRecord(row)).toThrow(/dt must be an array of safe integers/);
   });
 
-  it('isJsonValue 拒绝 -0 与稀疏数组（M10）', () => {
+  it('isJsonValue 拒绝 -0 与稀疏数组', () => {
     expect(isJsonValue(-0)).toBe(false);
     expect(isJsonValue(0)).toBe(true);
     expect(isJsonValue([1, , 3])).toBe(false); // eslint-disable-line no-sparse-arrays
@@ -596,13 +595,13 @@ describe('S1 · 迁移预检（官方升级路径，独立维度）', () => {
 
   it('迁移预检覆盖边界显式：implemented 3 条、uncovered 非空、note 标注判据版本', () => {
     const mig = migrationVerdict(validateSessionLog(logOf(HEADER, [userMessage({ seq: 0 }), turnEnd({ seq: 1 })])));
-    expect(mig.coverage.implemented.length).toBe(3);   // 第五轮：G1/G2 + G3(title messageSeqs)
+    expect(mig.coverage.implemented.length).toBe(3);   // G1/G2 + G3(title messageSeqs)
     expect(mig.coverage.uncovered.length).toBeGreaterThanOrEqual(4);
     expect(mig.coverage.note).toMatch(/0\.1\.5-rc\.2/);
     expect(mig.ready).toBe(true);                       // 该 v0 输入无 G 违规
   });
 
-  // ── 第五轮：G3（配 fixture；杀死它的突变见 r5-mutate.py）────────────────────────
+  // ── G3（config fixture：session/title 的 messageSeqs 引用约束）────────────────
   const turnStart = ({ seq, turn }) => ({ type: 'turn/start', seq, time: seq + 1, data: { turn } });
   const titleEvent = ({ seq, kind = 'llm', messageSeqs = [] }) => ({
     type: 'session/title', seq, time: seq + 1, data: { title: 't', source: { kind }, messageSeqs },
@@ -654,7 +653,7 @@ describe('S1 · 迁移预检（官方升级路径，独立维度）', () => {
     expect(payload.migration.applies).toBe(true);
     expect(payload.migration.ready).toBe(false);
     expect(payload.migration.blocked.map((v) => v.id)).toContain('G1');
-    expect(json.status).toBe(4);                                  // 第四轮：AC3
+    expect(json.status).toBe(4);                                  // 迁移 blocked ⇒ 退出码 4
     const text = spawnSync(process.execPath, [CLI, 'check', file], { encoding: 'utf8' });
     expect(text.stdout).toContain('迁移预检');
     expect(text.stdout).toContain('blocked');
@@ -662,15 +661,15 @@ describe('S1 · 迁移预检（官方升级路径，独立维度）', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// S1 收窄（2026-09-14 第四轮 · 最终复核 AC1/AC2/AC3）
+// S1 收窄（2026-09-14）
 //   残余 27 例原先在人读/机读两面**同时全绿**（✅ + ok=true + ready=true + exit 0）。
 // ─────────────────────────────────────────────────────────────────────────────
-describe('S1 收窄：待迁移文件不给无条件绿 + assessmentScope + 退出码（第四轮）', () => {
+describe('S1 收窄：待迁移文件不给无条件绿 + assessmentScope + 退出码', () => {
   const descriptorV2 = (seq) => ({ type: 'subagent/descriptor', seq, time: seq + 1, data: { turn: 0, step: 0, id: 'sub-1', version: 2 } });
   const plainV0File = () => writeJsonl(HEADER, [userMessage({ seq: 0 }), turnEnd({ seq: 1 })]);
   const g1File = () => writeJsonl(HEADER, [userMessage({ seq: 0 }), descriptorV2(1), turnEnd({ seq: 2 })]);
 
-  it('AC1：待迁移文件纯文本输出无任何 ✅，末行含"部分覆盖/未覆盖"', () => {
+  it('待迁移文件纯文本输出无任何 ✅，末行含"部分覆盖/未覆盖"', () => {
     const file = plainV0File();
     for (const extra of [[], ['--resume']]) {
       const res = spawnSync(process.execPath, [CLI, 'check', file, ...extra], { encoding: 'utf8' });
@@ -680,7 +679,7 @@ describe('S1 收窄：待迁移文件不给无条件绿 + assessmentScope + 退�
     }
   });
 
-  it('AC2：assessmentScope —— 待迁移(v0)=partial；已是当前格式(v3)=full（宿主支持 v3 时）', () => {
+  it('assessmentScope —— 待迁移(v0)=partial；已是当前格式(v3)=full（宿主支持 v3 时）', () => {
     const p0 = JSON.parse(spawnSync(process.execPath, [CLI, 'check', plainV0File(), '--json'], { encoding: 'utf8' }).stdout);
     expect(p0.migration.applies).toBe(true);
     expect(p0.assessmentScope).toBe('partial');
@@ -698,7 +697,7 @@ describe('S1 收窄：待迁移文件不给无条件绿 + assessmentScope + 退�
     }
   });
 
-  it('AC3：migration.ready===false ⇒ 退出码 4（默认与 --fail-on-migration 均然）', () => {
+  it('migration.ready===false ⇒ 退出码 4（默认与 --fail-on-migration 均然）', () => {
     const file = g1File();
     expect(spawnSync(process.execPath, [CLI, 'check', file], { encoding: 'utf8' }).status).toBe(4);
     expect(spawnSync(process.execPath, [CLI, 'check', file, '--fail-on-migration'], { encoding: 'utf8' }).status).toBe(4);
@@ -757,9 +756,9 @@ describe('S7 · C1 三入口在 v3 宿主上的强断言（ok===true）', () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// F4 · --json 大报告（真管道，>64KiB）
+// --json 大报告（真管道，>64KiB）
 // ─────────────────────────────────────────────────────────────────────────────
-describe('F4 · CLI --json 大报告必须是合法 JSON', () => {
+describe('CLI --json 大报告必须是合法 JSON', () => {
   it('3000 条违规（stdout > 64KiB）仍可 JSON.parse', () => {
     const events = [];
     for (let i = 0; i < 3000; i++) {
@@ -778,11 +777,11 @@ describe('F4 · CLI --json 大报告必须是合法 JSON', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// R-G · 独立复核确证的 3 例漏检（2026-09-14）——补成候选规则并钉住
+// v3 形状/字段层漏检（2026-09-14）——补成候选规则并钉住
 // 依据：`@deepseek-ai/dsh-session@0.1.5-rc.1` 真源码（行号见各条 source）。
-// 每条的对照实验：宿主**拒**、旧契约 0 违规（复核报告 §2.3 变异 03/05/12）。
+// 每条的对照实验：宿主**拒**、旧契约 0 违规。
 // ─────────────────────────────────────────────────────────────────────────────
-describe('R-G · v3 形状/字段层漏检（候选规则 E8/E9/E10）', () => {
+describe('v3 形状/字段层漏检（候选规则 E8/E9/E10）', () => {
   const checkEvents = (events, header = HEADER_V3) => validateSessionLog({
     header, headerLine: 0, rows: [], events: events.map((event) => ({ event })), frameInfo: { frames: 0, torn: false },
   });
@@ -800,7 +799,7 @@ describe('R-G · v3 形状/字段层漏检（候选规则 E8/E9/E10）', () => {
 
   itV3('E9：system/message 的 source 不是 plugin → error（宿主 :942-944）', () => {
     const bad = systemMessage({ seq: 1 });
-    bad.data.message.source = { kind: 'user' };   // 变异 03 的形态
+    bad.data.message.source = { kind: 'user' };   // 反例形态
     const result = checkEvents([...baseV3(), bad]);
     expect(result.violations.map((v) => v.id)).toContain('E9');
     // 对照：plugin source + 非空 plugin → 不报
@@ -824,10 +823,10 @@ describe('R-G · v3 形状/字段层漏检（候选规则 E8/E9/E10）', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// R-C · 历史 marker 白名单收窄 + 版本门 + 一次性根治（2026-09-14 独立复核 §3）
-// 复核判定：旧判据"任意 data.editor"是"设计粗糙的豁口"（第三方同形状也能领豁免）。
+// 历史 marker 白名单收窄 + 版本门 + 一次性根治（2026-09-14）
+// 旧判据"任意 data.editor"是"设计粗糙的豁口"（第三方同形状也能领豁免）。
 // ─────────────────────────────────────────────────────────────────────────────
-describe('R-C · 历史 marker 白名单（收窄 + ≤v2 版本门 + 可见降级 + 一次性根治）', () => {
+describe('历史 marker 白名单（收窄 + ≤v2 版本门 + 可见降级 + 一次性根治）', () => {
   const { markerEvent: mkMarker, validSessionEvents: validEvents, userMessage: mkUser, HEADER: H0 } = helpersForRc;
 
   it('可识别历史载体 + 写入通过 → legacyMarkerDebt 可见（kind/id/targetSeq/seq/formatVersion）', () => {
