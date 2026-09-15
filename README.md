@@ -49,7 +49,7 @@ plugin marker semantics).
 **Meaning**: dsh-log-contract is published standalone (for direct use or
 re-implementation), but it is first the "check & repair" capability of dsh-retrace —
 together they form the **Agent business layer (production-grade guarantees)** on
-DSH (see the [dsh-retrace roadmap](https://github.com/yamingmou/dsh-retrace/blob/main/docs/ROADMAP.md)).
+DSH (see the [dsh-retrace repository](https://github.com/yamingmou/dsh-retrace)).
 
 ---
 
