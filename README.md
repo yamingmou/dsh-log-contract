@@ -8,7 +8,7 @@ offline health check + pre-write validation. The business layer's **doctor**.
 [![npm version](https://img.shields.io/npm/v/dsh-log-contract)](https://www.npmjs.com/package/dsh-log-contract)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-log-contract)](https://www.npmjs.com/package/dsh-log-contract)
 [![License: MIT](https://img.shields.io/npm/l/dsh-log-contract)](https://github.com/yamingmou/dsh-log-contract/blob/main/LICENSE)
-[![DSH plugin](https://img.shields.io/badge/DSH-plugin-4A90D9)](https://github.com/topics/dsh-plugin)
+[![DSH ecosystem](https://img.shields.io/badge/DSH-ecosystem-4A90D9)](https://github.com/topics/dsh-plugin)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/yamingmou/dsh-log-contract/pulls)
 
 **English** · [简体中文](./README.zh.md)
@@ -38,13 +38,13 @@ plugin marker semantics).
 
 > **dsh-log-contract is the core capability component of [dsh-retrace](https://github.com/yamingmou/dsh-retrace)** (the business layer's "doctor" module): it **checks and repairs** session logs so every recall/edit/rollback lands on a legal log — pre-write validation (`prewrite`) rejects error-level violations **before** anything is written.
 >
-> **About `/compact` (stated honestly)**: what this tool guarantees is that **new writes** stop creating token-meter pairing debt — since two-segment atomic pairs (marker + paired segment) landed, new markers pass T1 by construction. **Legacy** (single-segment) markers are still **known design debt**: pre-write validation downgrades their T1 violation to a warning (`isKnownMarkerCandidate` in `lib/prewrite.js`, which applies to **historical markers only**), so such sessions need **one check + cleanup before compaction** (`check` to locate → `fix --remove-markers`; the plugin side calls this "the doctor"). Otherwise the T1 self-check blocks `/compact`.
+> **About `/compact` (stated honestly)**: what this tool guarantees is that **new writes** stop creating token-meter pairing debt — since two-segment atomic pairs (marker + paired segment) landed, new markers pass T1 by construction. **Legacy** (single-segment) markers are still **known design debt**: pre-write validation downgrades their T1 violation to a warning (`legacyMarkerKindOf` in `lib/prewrite.js`, which applies to **historical markers only**), so such sessions need **one check + cleanup before compaction** (`check` to locate → `fix --remove-markers`; the plugin side calls this "the doctor"). Otherwise the T1 self-check blocks `/compact`.
 
 | Layer | What it is | Components |
 |---|---|---|
 | **Agent business layer (production-grade)** | Framework-agnostic core: session hygiene / retraceability / auditability / recoverability | Four modules: governance / retrospect / archaeology / **doctor** |
 | **dsh-retrace** | The business layer's DeepSeek Harness implementation | recall/edit/version/rollback/watchdog |
-| **dsh-log-contract** | dsh-retrace's core component = the business layer's **doctor** (check & repair) | check / prewrite / fix / extract / audit |
+| **dsh-log-contract** | dsh-retrace's core component = the business layer's **doctor** (check & repair) | check / prewrite / fix / extract / audit-report |
 
 **Meaning**: dsh-log-contract is published standalone (for direct use or
 re-implementation), but it is first the "check & repair" capability of dsh-retrace —
@@ -55,14 +55,16 @@ DSH (see the [dsh-retrace roadmap](https://github.com/yamingmou/dsh-retrace/blob
 
 ## Why it exists
 
-**#3632 "one log, two consumers, two verdicts"**: one log is consumed by both
+**"one log, two consumers, two verdicts"**: one log is consumed by both
 humans and automated programs. Humans tolerate format drift; programs depend on
 strict contracts. Once the format drifts, humans see nothing wrong while programs
 crash or misreport.
 
-**Real incidents shaped every rule here** — see the [Incident log](#-incident-log)
-below. Each incident is a regression fixture: a corrupted session that this tool
-must flag, and a fixed session that it must pass.
+**Real incidents shaped most of the rules here** — see the [Incident log](#-incident-log)
+below. The incident-derived cases are pinned by regression tests: a corrupt log shape
+this tool must flag, and the repaired shape it must pass. The remaining rules come from
+line-by-line verification against the official Host source (each rule carries its
+`source`).
 
 ---
 
@@ -86,21 +88,21 @@ must flag, and a fixed session that it must pass.
 
 ## ⚡ Incident log — why "production-grade" is not a slogan
 
-Every rule below was born from a **real incident** in our workspace. These are the
-sessions that made us build this tool. Dates and shapes are real; session ids are
-omitted for privacy.
+Each entry below is a **real incident** from production sessions — the cases that
+made us build this tool. Dates and shapes are real; session ids and file names are
+omitted.
 
 | # | Date | What happened | The rule / fix it produced |
 |---|---|---|---|
 | 1 | 2026-08-25 | A "restore hidden content" repair wrote a replace marker with **emptied `sourceEventSeqs`** → the session refused to load (`SessionPersistenceCorruptionError`); a second attempt changed the marker to **append** → the client engine crashed. Both were **violating writes that nothing caught**. | **S5** (sourceEventSeqs must cover shadowed nodes), **M1** (turn-null assistant/message can only be replace), pre-write validation |
 | 2 | 2026-08-27~28 | Interrupted/restarted turns replayed with a **stale in-memory cursor**, re-appending old seqs to the file tail (tail regression, duplicate batches); two writers interleaved → **file-physical order non-monotonic** (`734056 → 733539 → 735470`). Sessions failed to load with `seq gap`. | **S9** (physical-order monotonic), fix `--tail-renumber` |
 | 3 | 2026-08-27~28 | **Fork-boundary orphan splice**: the fork's "remove parent's pending prompt" splice assumed the parent's inbox; the child's seed-relative replay has an empty inbox → `resume failed: invalid persisted inbox splice`. | **I1** (inbox seed-relative replay), fix `--neutralize-orphan` |
-| 4 | 2026-08-28 | An oversized session (**1,052,557 tokens** vs the 1M window) could neither continue nor `/compact`; the trim budget estimator underpriced CJK by ~3.7×. | T1 (token-meter pairing) for compactability, `fix --trim` budget guidance |
+| 4 | 2026-08-28 | An oversized session (**1,052,557 tokens** vs the 1M window) could neither continue nor `/compact`; the trim budget estimator underpriced CJK by ~3.7×. | T1 (token-meter pairing) for compactability, `fix --trim-budget` guidance |
 | 5 | 2026-08-29 | **W1/W2 wire violations**: markers shadowed an assistant with tool_calls but left the tool results dangling → strict endpoints (`INVALID_REQUEST`) reject the session's request stream. | **W1 / W2** (wire message flow) |
 | 6 | 2026-08-30 | A single **turn-null marker** made the token-meter listener throw on **every** appended event (`consumedEvents` never advanced → full-prefix re-fold per event) → **30s / 10,008 log lines**, host event loop crushed, all sessions locked. Same session also had a **cross-step sourceEventSeqs** (steps 7/8/9 mixed in one assistant message) — offline checks were green, the live meter crashed. | **T1** (turn/step pairing), **T2** (cross-step source refs), `fix --neutralize`, `fix --clip-crossstep` |
 
-> **Takeaway**: every rule in this tool is a scar from a real session — validated
-> against the actual corrupted-session fixtures, not synthetic theory. That is what
+> **Takeaway**: these rules are not synthetic theory — each one is pinned by a
+> regression test that reproduces the corrupt shape it guards against. That is what
 > "production-grade" means here.
 
 ---
@@ -111,7 +113,7 @@ omitted for privacy.
 
 | Item | Baseline | Note |
 |---|---|---|
-| Host package | `@deepseek-ai/dsh-session@0.1.5-rc.1` | version used on the dev box and in CI; the four `prepublishOnly` steps are green on it |
+| Host package | `@deepseek-ai/dsh-session@0.1.5-rc.1` | the version this rule set is developed and CI-tested against (CI runs `pnpm check` + `pnpm test`; the four `prepublishOnly` steps are green locally on it) |
 | Session format | **v3** (`SESSION_FORMAT_VERSION = 3`) | v3 uses the runtime vocabulary + official `foldSurface` final check |
 | Declared range | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1` | installable — a declared range is **not** a per-version verification |
 | Known formats | 0 / 1 / 2 / 3 | 0–2 are supported by this package's **vendored** vocabulary + local equivalent fold (`legacyFoldSurface`), independent of the host |
@@ -145,8 +147,8 @@ pnpm dlx dsh-log-contract --help
 > repair primitives) comes with the plugin automatically. This package is published
 > standalone for direct use or re-implementation.
 >
-> **Downloaded the repo as a ZIP?** `cd dsh-log-contract && npm install && npm run build`,
-> then `node bin/dsh-log-contract.mjs check <session-log>` — no global install needed.
+> **Downloaded the repo as a ZIP?** `cd dsh-log-contract && npm install`, then
+> `node bin/dsh-log-contract.mjs check <session-log>` — no build step and no global install needed.
 
 Dependencies: Node ≥ 22 (`node:zlib` has built-in zstd), `@deepseek-ai/dsh-session`
 (peer; validation/decode reuse the official implementation, so it stays in sync
@@ -176,7 +178,8 @@ Sample output (the CLI reports in Chinese — it is the tool's UI language):
 ❌ 未通过：见上方违规明细（error 级 = 会话不可读/不可写）
 ```
 
-Exit code: 0 = pass (no error-level violations); 1 = error-level violations exist.
+Exit code: 0 = pass (no error-level violations); 1 = error-level violations exist;
+3 = not assessable on this host; 4 = the migration pre-check is blocked (see the upgrade notes below).
 
 `check` adds **W1/W2 wire-level checks** since 0.2.0: expand the model request
 stream in surface order and catch "dangling tool messages" (a tool result with no
@@ -246,7 +249,7 @@ audit asset. Read-only archaeology:
 
 ```sh
 # Export tool outputs matching a command regex (original text preserved)
-dsh-log-contract extract <session-log> --pattern "seed-scale" --min-size 50 --out ./found
+dsh-log-contract extract <session-log> --pattern "build-report" --min-size 50 --out ./found
 
 # Archaeology audit report: call count / pairing rate / orphans / command distribution
 dsh-log-contract audit-report <session-log>
@@ -299,17 +302,21 @@ pnpm check && pnpm test    # syntax check + contract-doc drift gate + all unit t
 > Local maintainer tooling is not part of the public repository, so `pnpm check` and `pnpm test`
 > work from a clean clone.
 
-Known truth table (updated 2026-08-31 — after 0.3.5 added I1, `spliced-orphan`
-now FAILs; the old PASS row was stale):
-- `<session>-corrupt` / `<session>-seqgap` / `<session>-rewritten-230542` → FAIL (seq gaps)
-- `<session>-spliced-orphan` → **FAIL (0.3.5+)** (T1/I1: invalid inbox splice + turn-null)
-- `<session>-pre-markerfix-20260825` → FAIL (pre-fix sample: turn-null markers remain)
-- `<session>-pre-cleanstate-20260831` → PASS (a multi-thousand-span replace marker is data-legal;
-  official foldSurface replays cleanly — see the plugin ledger)
-The truth table tracks rule evolution (0.3.5's I1 flipped spliced-orphan PASS→FAIL);
-"repaired sessions PASS" must be verified on rebuilt samples — `pre-` backups are
-usually pre-fix bad samples. See the boundary note in
-[docs/CONTRACTS.md](docs/CONTRACTS.md)).
+Verdict by **log shape** — what the tool must say about each defect class, not about
+any particular file:
+
+| Log shape | Verdict | Rules that fire |
+|---|---|---|
+| seq gap, or non-monotonic file-physical order | FAIL | S8 / C1 / T1 / E2 (plus S9 when seq goes backwards) |
+| a rewrite that introduces a gap | FAIL | S8 / C1 / T1 / E2 / I1 |
+| invalid inbox splice + turn-null marker | FAIL | T1 / I1 |
+| pre-fix shape: legacy turn-null markers still present | FAIL | T1 |
+| a multi-thousand-span replace marker with full coverage | PASS | error 0 — data-legal, official `foldSurface` replays cleanly |
+
+Rule evolution moves rows: 0.3.5 added I1, which flipped the "invalid inbox splice"
+shape from PASS to FAIL. And "a repaired session passes" holds only for the repaired
+artifact — the pre-repair form of the same session is normally still a FAIL. See the
+boundary note in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 
 ---
 
@@ -323,6 +330,9 @@ usually pre-fix bad samples. See the boundary note in
   fold-position fix → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize` (in-place
   turn-null neutralization) → 0.3.4 `fix --clip-crossstep` (cross-step clipping) →
   0.3.5 **T2/S9/I1 rules** (cross-step source refs / physical order / inbox replay)
+- [x] **0.3.6 → 0.3.15**: per-version rule routing for v0–v3 (T3/T4/T5, L3–L5, E8/E9/E10),
+  exit codes `3`/`4` for the host-capability and migration gates, and a version-support
+  report that says what was *not* verified (see [CHANGELOG.md](CHANGELOG.md))
 - [ ] Phase 2: runtime guard (subscribe to the session append stream, validate live,
   mark violations as `dsh/contract-violation`, policy configurable alert/block) —
   DSH plugin form
@@ -334,11 +344,13 @@ MIT © OfferKuai Team
 
 ---
 
-## ⚠️ Upgrading to 0.3.15 — behaviour changes you must know (0.3.12 → 0.3.15)
+## ⚠️ Upgrading to 0.3.16 — behaviour changes you must know (0.3.12 → 0.3.16)
 
-> **0.3.15 itself changes no behaviour.** It removes two internal identifiers that had leaked into the
-> 0.3.14 published artifact (a README naming note and one source comment) and widens the pre-publish
-> leak gate vocabulary. Everything below applies unchanged when going from 0.3.12 to 0.3.15.
+> **0.3.16 changes no behaviour.** It rewrites comments, test titles, a few diagnostic strings and the
+> README so that they describe the product and its contract only. Every verdict, exit code and `--json`
+> field is unchanged from 0.3.15, so everything below applies unchanged when going from 0.3.12 to 0.3.16.
+>
+> 0.3.15 was a documentation-only release as well.
 
 **1. New exit codes `3` / `4` — a defect fix that is also a breaking change.**
 - `3` = **not assessable on this host**: the file's `header.version` is higher than the host supports
@@ -356,7 +368,7 @@ MIT © OfferKuai Team
 
 | value | meaning |
 |---|---|
-| `full` | file is already the host's target format (no migration) — coverage is complete（已是当前格式、**无需迁移**）（已是当前格式、**无需迁移**） |
+| `full` | file is already the host's target format (no migration) — coverage is complete |
 | `partial` | file needs migration ⇒ the migration pre-check covers **2 rules only; 6 classes are uncovered** (≠ pass; see `coverage.uncovered`) |
 | `none` | **not assessable on this host** — no "usable / upgradable" claim is certified |
 

@@ -1,7 +1,7 @@
 /**
  * dsh-log-contract · test/contracts-doc.test.js
  *
- * **契约文档漂移闸的回归**（2026-09-15 独立复验 ⚠️ 项）。
+ * **契约文档漂移闸的回归**（2026-09-15）。
  *
  * 背景：`docs/CONTRACTS.md` 由 `scripts/gen-contracts-doc.mjs` 从 `lib/contracts.js` 的
  * `CONTRACT_RULES` 注册表生成——**它是 tracked 的公开文档**。此前生成器没接进

@@ -16,9 +16,9 @@ import fs from 'node:fs';
 import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport } from '../lib/index.js';
 
 /**
- * 同步写 fd（F4 修复）——`process.stdout.write` 在**管道**下是异步的，紧跟着的
+ * 同步写 fd——`process.stdout.write` 在**管道**下是异步的，紧跟着的
  * `process.exit()` 不会等待 flush：>~64KiB 的输出会丢尾，`--json` 因此变成非法 JSON
- * （独立审核在 3000 事件夹具与真实 14.5MB v3 会话上复现，stdout 56648B 处 "Unterminated string"）。
+ * （实测在 3000 事件夹具与真实 14.5MB v3 会话上复现，stdout 56648B 处 "Unterminated string"）。
  * 这里直接同步写 fd 1/2（非阻塞管道 EAGAIN 时自旋重试），做到"先写完再 exit"。
  */
 function writeAllSync(fd, text) {
@@ -49,7 +49,7 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
       --resume        输出分层结论：可加载 / 可继续 / 可压缩（本工具规则集内）
                       + 迁移预检（官方 v0/v1/v2→当前格式会不会拒）；--json 时附带。
       --fail-on-migration     migration.ready===false（工具判"官方升级会拒"）时退出码 4。
-                      **注意：默认已经是这个行为**（第四轮把"报告与退出码不一致"的假阴性修掉了）；
+                      **注意：默认已经是这个行为**（已把"报告与退出码不一致"的假阴性修掉）；
                       本开关是**显式别名**，便于 CI 把意图写进命令行。
       --no-fail-on-migration  **真 opt-out**：恢复 0.3.11 的行为——迁移 blocked 不再改退出码
                       （结构绿即 exit 0）。两者同时给时 **opt-out 优先**。若你的流水线依赖旧退出码，
@@ -74,7 +74,7 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
                        ignorable:true，删 surfaceOp/sourceEventSeqs，seq/行数不变）
                        —— token-meter 不再刷屏，会话驻留也安全（2026-08-30 事故）
       --neutralize-legacy-markers
-                       **一次性根治历史载体债**（R-C）：只中和
+                       **一次性根治历史载体债**：只中和
                        assistant/message + data.editor 形态的历史 retrace marker
                        （新载体是 user/message + data.id，不在此列）。清理后，
                        写前校验不再需要"≤v2 历史 marker T1 降级"那条豁免。
@@ -138,7 +138,7 @@ function printViolations(violations, maxDetails = 8) {
   }
 }
 
-/** R-E 抬头（2026-09-14 裁定）:漂移清单 + 未复核清单 + "勿据此跑 fix --apply"。 */
+/** 漂移抬头（2026-09-14）:漂移清单 + 未复核清单 + "勿据此跑 fix --apply"。 */
 function driftLines(drift, probes) {
   if (!drift) return '';
   const host = probes ? `${probes.hostPackage}（SESSION_FORMAT_VERSION=${probes.sessionFormatVersion},词表 ${probes.knownTypes} 类）` : '未知';
@@ -150,8 +150,8 @@ function driftLines(drift, probes) {
   if (drift.unverifiedRules.length > 0) {
     out += `     ⛔ **UNVERIFIED**（探针与规则假设不一致,结论不可采信）:${drift.unverifiedRules.join('、')}\n`;
   }
-  out += `     出处未复核（R-F,已知债,仅告警）:${drift.driftedSources.join('、')}\n`;
-  out += `     判定前提存疑（复核 §1,仅告警）:${drift.premiseStale.join('、')}${drift.undecidable.length ? `；无法判定:${drift.undecidable.join('、')}` : ''}\n`;
+  out += `     出处未复核（已知债,仅告警）:${drift.driftedSources.join('、')}\n`;
+  out += `     判定前提存疑（仅告警）:${drift.premiseStale.join('、')}${drift.undecidable.length ? `；无法判定:${drift.undecidable.join('、')}` : ''}\n`;
   if (drift.fixApplyBlocked) {
     out += '     ⛔ **禁止据此跑 `fix --apply`**（存在未验证规则:写入类动作不可逆）——先按 report 复核这些规则或显式确认。\n';
   }
@@ -186,7 +186,7 @@ function notAssessableBanner(result) {
 /** 迁移预检（独立维度）文本。
  * @param {object} mig `migrationVerdict()` 结果
  * @param {boolean} partial 待迁移文件（`migration.applies===true`）⇒ 迁移维度只部分覆盖，
- *   不得给无条件绿（2026-09-14 最终复核规格 (i)+(iii)）。
+ *   不得给无条件绿（2026-09-14 规格 (i)+(iii)）。
  */
 function migrationLine(mig, partial = false) {
   if (!mig) return '';
@@ -213,7 +213,7 @@ function migrationLine(mig, partial = false) {
 function cmdCheck(args) {
   const json = args.includes('--json');
   const resume = args.includes('--resume');
-  // 第四轮/第五轮：`--fail-on-migration` 是**默认已生效行为**的显式别名；
+  // `--fail-on-migration` 是**默认已生效行为**的显式别名；
   // `--no-fail-on-migration` 是**真 opt-out**（恢复旧行为：迁移 blocked 不再改退出码）。
   // 两者同时给 ⇒ opt-out 优先（help/README 写明）。
   const failOnMigration = args.includes('--fail-on-migration');
@@ -233,11 +233,11 @@ function cmdCheck(args) {
   const { summary, violations, ok } = result;
   const notAssessable = result.assessable === false;
   const migration = result.migration ?? migrationVerdict(result);
-  // 第四轮：机器可判的评估范围（partial = 待迁移文件，迁移维度只部分覆盖）。
+  // 机器可判的评估范围（partial = 待迁移文件，迁移维度只部分覆盖）。
   const scope = result.assessmentScope ?? assessmentScope(result);
   const partial = scope === 'partial';
   const migBlocked = migration?.applies === true && migration.ready === false;
-  // 默认：`ready===false` ⇒ 非 0（第四轮修复的假阴性）。
+  // 默认：`ready===false` ⇒ 非 0（修掉的假阴性）。
   // `--fail-on-migration` = 显式别名（同默认）；`--no-fail-on-migration` = 真 opt-out（恢复旧行为）。
   const migGate = !noFailOnMigration && (migBlocked || (failOnMigration && migration?.ready === false));
   // 退出码：3 不可评估 > 1 结构 error > 4 迁移 blocked > 0。
@@ -363,7 +363,7 @@ function cmdPrewrite(args) {
 
   out(`\n✍️  dsh-log-contract prewrite —— ${file}（op: ${result.op}，nextSeq: ${prewriter.nextSeq}）\n\n`);
   if (result.legacyMarkerDebt) {
-    // R-C「降级可见」:历史 marker 债不只是 warning 里的一句话,这里显式打印并给出根治命令。
+    // 「降级可见」:历史 marker 债不只是 warning 里的一句话,这里显式打印并给出根治命令。
     const d = result.legacyMarkerDebt;
     out(`  ⚠️  检测到**历史 marker 载体**（${d.kind} 形态，id=${d.id}，targetSeq=${d.targetSeq}，seq=${d.seq}）：\n`);
     out(`     T1 已按 ≤v${d.formatVersion <= 2 ? 2 : d.formatVersion} 白名单降级为 warning（仅历史载体、仅旧格式文件）——\n`);
@@ -382,7 +382,7 @@ function cmdPrewrite(args) {
 }
 
 function cmdContracts() {
-  out('dsh-log-contract 契约规则目录（spec：59 条审计发现 + 官方源码逐行核对）\n\n');
+  out('dsh-log-contract 契约规则目录（spec：官方源码逐行核对 + 实测事故固化）\n\n');
   for (const r of CONTRACT_RULES) {
     const flags = [
       r.candidate ? '候选规则' : null,
@@ -397,7 +397,7 @@ function cmdFix(args) {
   const json = args.includes('--json');
   const removeMarkers = args.includes('--remove-markers');
   const neutralize = args.includes('--neutralize');
-  // R-C 一次性根治路径:只中和**历史载体**(assistant/message + data.editor)的 retrace marker
+  // 一次性根治路径:只中和**历史载体**(assistant/message + data.editor)的 retrace marker
   const neutralizeLegacyMarkers = args.includes('--neutralize-legacy-markers');
   const clipCrossStep = args.includes('--clip-crossstep');
   const dropFailedTurns = args.includes('--drop-failed-turns');
@@ -423,7 +423,7 @@ function cmdFix(args) {
   const file = args.find((a) => !a.startsWith('-'));
   if (!file) fail(USAGE);
 
-  // S2 安全闸：本宿主评估不了的文件**不许**修。危害路径（独立复核指出）：rc.7 上把健康 v3
+  // S2 安全闸：本宿主评估不了的文件**不许**修。危害路径（实测指出）：rc.7 上把健康 v3
   // 日志报成 broken → 用户以为日志坏了去跑 `fix --apply` ⇒ 在健康日志上动手。这里直接拒绝。
   const head = readSessionHeader(file);
   const fileVersion = Number.isSafeInteger(head?.version) ? head.version : 0;

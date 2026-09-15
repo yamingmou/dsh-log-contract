@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
  * 发布前元数据校验（2026-09-04）：package.json 的 repository / homepage / bugs
- * 必须指向当前仓库（github.com/yamingmou/<name>），不得残留旧账号 azmavethy。
+ * 必须指向当前仓库（github.com/yamingmou/<name>），不得指向任何其它账号或仓库名。
  *
- * 事故背景：dsh-retrace 0.3.0 的 repository 曾指向 azmavethy/dsh-retrace
- * （旧 GitHub 账号，后注销 → 404 永久失效；npm 已发布版本元数据不可改）。
- * 本脚本防再犯：repository/homepage/bugs 任一写回旧名/写错 → 发布前即失败。
+ * 为什么必须发布前查：npm 已发布版本的元数据**不可修改**，写错一次就是永久失效的
+ * 404 链接（只能靠发新版本覆盖）。这里用**正向断言**兜住——只要不是
+ * `github.com/yamingmou/<name>` 就失败，因此旧账号、拼写错误、克隆来的模板值一并拦下。
  *
  * 接入：prepublishOnly（发布必查）+ 可手动跑 `node scripts/check-pkg-meta.mjs`。
  */
@@ -25,24 +25,15 @@ const repo = typeof pkg.repository === 'string' ? pkg.repository : (pkg.reposito
 if (!repo.includes(expectedRepo)) {
   problems.push(`repository 应为 ${expectedRepo}，实际 ${JSON.stringify(repo) || '(缺失)'}`)
 }
-if (repo.includes('azmavethy')) {
-  problems.push('repository 残留旧账号 azmavethy（已注销 → 404 永久失效）')
-}
 
 const homepage = pkg.homepage ?? ''
 if (homepage && !homepage.includes(expectedPage)) {
   problems.push(`homepage 应指向 ${expectedPage}，实际 ${homepage}`)
 }
-if (homepage.includes('azmavethy')) {
-  problems.push('homepage 残留旧账号 azmavethy')
-}
 
 const bugs = typeof pkg.bugs === 'string' ? pkg.bugs : (pkg.bugs?.url ?? '')
 if (bugs && !bugs.includes(expectedPage)) {
   problems.push(`bugs 应指向 ${expectedPage}，实际 ${bugs}`)
-}
-if (bugs.includes('azmavethy')) {
-  problems.push('bugs 残留旧账号 azmavethy')
 }
 
 if (problems.length > 0) {

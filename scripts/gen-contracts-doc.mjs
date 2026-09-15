@@ -2,12 +2,11 @@
 /**
  * 从 lib/contracts.js 的 CONTRACT_RULES 注册表自动生成 docs/CONTRACTS.md。
  *
- * 背景（2026-09-06）：docs/CONTRACTS.md 曾手工维护到 S8/M1/P2，滞后于 README
- * 宣传与实际注册（S9/T1-T5/I1/W1/W2/P3/P4 共 15+ 条缺失）——外部审计指出
- * "README 说 30+ 条，文档只落地一部分"。本脚本保证规则文档与注册表同步。
+ * 背景（2026-09-06）：docs/CONTRACTS.md 曾手工维护，滞后于 README 宣传与实际注册
+ * （README 说 30+ 条，文档只落地一部分）。本脚本保证规则文档与注册表同步。
  *
- * **漂移闸（2026-09-15 独立复验 ⚠️ 项）**：此前本脚本**没接进** `check`/`prepublishOnly`，
- * 于是 docs/CONTRACTS.md 与注册表的一致性**靠手工**（复验实测当时一致，但无机制保证）。
+ * **漂移闸（2026-09-15）**：此前本脚本**没接进** `check`/`prepublishOnly`，
+ * 于是 docs/CONTRACTS.md 与注册表的一致性**靠手工**（当时一致，但无机制保证）。
  * 现在 `--check` 是**幂等校验**：重生成到内存 → 与现行文件**逐字节比对** → 不一致即非 0 退出。
  *   · `node scripts/gen-contracts-doc.mjs`          生成/覆盖
  *   · `node scripts/gen-contracts-doc.mjs --check`  只校验（`pnpm check` 与 `prepublishOnly` 走这条）
@@ -54,14 +53,14 @@ export function buildContractsDoc(rules) {
 
 > **自动生成**（2026-09-06 起）：本文件由 \`node scripts/gen-contracts-doc.mjs\`
 > 从 \`lib/contracts.js\` 的 \`CONTRACT_RULES\` 注册表生成——**勿手改**，规则只增不减，
-> 新增规则后跑一次生成即同步（此前手工维护滞后 15+ 条，外部审计指出）。
+> 新增规则后跑一次生成即同步（此前手工维护滞后 15+ 条）。
 > **漂移闸**：\`pnpm check\` 会跑 \`--check\` 逐字节比对，改了注册表没重生成 ⇒ 直接红。
 >
 > DSH 会话日志契约的**可执行 spec**。每条规则在 \`lib/checks.js\`（逐事件判定）
 > 与 \`lib/prewrite.js\`（写前校验）中有对应实现；离线体检（\`lib/validate.js\`）
 > 逐条执行并在最后用官方 \`foldSurface\` 终验（S8）。
 >
-> 规则来源：早期内部审计发现（59 条）+ 三层契约事故复盘 + 官方源码逐行核对
+> 规则来源：历史会话日志的实测事故与契约缺口（持久化/客户端引擎/插件语义三层）+ 官方源码逐行核对
 > （\`@deepseek-ai/dsh-session\`，各条出处见下）。后续规则随官方版本演进追加：
 > T3/T4 = 渲染层白屏事故复盘，T5 = malformed turn/end 事故复盘。
 >

@@ -106,13 +106,13 @@ describe('版本支持面接到 validateSessionLog(端到端)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// R-D/R-F（2026-09-14 独立复核裁定）:行为探针 + 出处/前提漂移的机读标注
+// 2026-09-14:行为探针 + 出处/前提漂移的机读标注
 // ─────────────────────────────────────────────────────────────────────────────
 import { runHostProbes, PROBES } from '../lib/host-probes.js';
 import { SOURCE_DRIFT, CONTRACT_RULES, ruleById } from '../lib/contracts.js';
 import { driftOf } from '../lib/validate.js';
 
-describe('R-D · 行为探针（宿主运行时自身当 oracle）', () => {
+describe('行为探针（宿主运行时自身当 oracle）', () => {
   it('探针集非空且覆盖 6 组关键语义（S4/S6/E6/E9/S2/E8/E10 被背书）', () => {
     const r = runHostProbes();
     expect(r.probes.length).toBeGreaterThanOrEqual(6);
@@ -144,8 +144,8 @@ describe('R-D · 行为探针（宿主运行时自身当 oracle）', () => {
   });
 });
 
-describe('R-F · 出处/前提漂移是机读标注（不再只是人读字符串）', () => {
-  it('漂移清单与前提存疑清单非空且点名复核给的条目', () => {
+describe('出处/前提漂移是机读标注（不再只是人读字符串）', () => {
+  it('漂移清单与前提存疑清单非空且点名具体条目', () => {
     for (const id of ['T2', 'P1', 'P2', 'C1', 'I1', 'G3', 'R2', 'R3', 'E5', 'E6']) expect(SOURCE_DRIFT.drifted).toContain(id);
     for (const id of ['T2', 'P1', 'P2', 'C1']) expect(SOURCE_DRIFT.premiseStale).toContain(id);
     expect(SOURCE_DRIFT.undecidable).toContain('T3');
