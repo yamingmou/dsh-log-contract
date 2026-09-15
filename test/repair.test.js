@@ -507,7 +507,7 @@ describe('L4 新原语（2026-08-30 收编外部验证工具）', () => {
     expect(turns[3].seq).toBe(2);
   });
 
-  it('extractTurnText：双流同 seq 碰撞时保留行不被误删（2026-08-31 独立审查复现）', () => {
+  it('extractTurnText：双流同 seq 碰撞时保留行不被误删（2026-08-31 实测复现）', () => {
     // 双流交织：真实流 turn 2 的 turn/start 与重放流的 turn/end 共享 seq 2
     const events = [
       { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
