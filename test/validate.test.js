@@ -56,7 +56,7 @@ describe('合法会话', () => {
 });
 
 describe('事故回归用例（复盘 2026-08-25）', () => {
-  it('第 1 轮：清空 sourceEventSeqs 的 replace → S5/S8 拦截', () => {
+  it('第 1 次尝试：清空 sourceEventSeqs 的 replace → S5/S8 拦截', () => {
     const events = [
       userMessage({ seq: 0 }),
       assistantMessage({ seq: 1 }),
@@ -79,7 +79,7 @@ describe('事故回归用例（复盘 2026-08-25）', () => {
     expect(ids(validateSessionLog(loadSessionLog(file)))).toContain('S6');
   });
 
-  it('第 2 轮：turn=null 的 assistant/message 以 append 进入 → M1 拦截', () => {
+  it('第 2 次尝试：turn=null 的 assistant/message 以 append 进入 → M1 拦截', () => {
     const events = [
       userMessage({ seq: 0 }),
       // 缺少 data.turn/data.step 的 append
@@ -204,10 +204,10 @@ describe('逐条违规规则', () => {
     expect(ids(result)).toContain('R2');
   });
 
-  it('R-B 回归（误报 S2）：未知 + ignorable 事件带 surfaceOp → 不报 S2（宿主 dsh-session:270 刻意容忍 opaque metadata）', () => {
+  it('回归（误报 S2）：未知 + ignorable 事件带 surfaceOp → 不报 S2（宿主 dsh-session:270 刻意容忍 opaque metadata）', () => {
     // 宿主依据:`@deepseek-ai/dsh-session@0.1.5-rc.1` lib/index.js:270（unknown + ignorable===true
     //   直接 return,不检查 surfaceOp/sourceEventSeqs）+ :305 契约注释（"retain opaque metadata
-    //   and never change the surface"）。实测变异 06:宿主收、旧契约 S2/error。
+    //   and never change the surface"）。实测:宿主收、旧契约 S2/error。
     const events = [
       ...validSessionEvents(),
       { type: 'future/thing', seq: 99, time: 9, ignorable: true, surfaceOp: 'append', data: { k: 1 } },
@@ -230,7 +230,7 @@ describe('逐条违规规则', () => {
     expect(result.ok).toBe(false); // 连一个完整帧都没有 = 真的读不了（与宿主一致）
   });
 
-  it('R-B 回归（误报 Z2）：多帧文件的**撕裂尾帧**按宿主语义恢复 —— 只报 Z1(warning)，不报 Z2/H1、verdict=loadable', () => {
+  it('回归（误报 Z2）：多帧文件的**撕裂尾帧**按宿主语义恢复 —— 只报 Z1(warning)，不报 Z2/H1、verdict=loadable', () => {
     // 宿主依据:`dsh-session-persistence-jsonl@0.1.5-rc.1`
     //   · lib/index.js:2791-2849 readZstdPrefix —— 恢复撕裂尾帧、保留完整记录、返回 tornTruncateTo
     //   · lib/index.js:226-228 —— 下次写入 truncateTornTail 自动截断
@@ -752,7 +752,7 @@ describe('readSessionHeader（2026-09-02 · 轻量 header 读取，短码推导�
   })
 })
 
-describe('对抗性复查 2026-09-09 规则增量（T1 双向孤儿 result / T2 ignorable 合法性 / T3 空文件）', () => {
+describe('2026-09-09 规则增量（T1 双向孤儿 result / T2 ignorable 合法性 / T3 空文件）', () => {
   it('T1:tool/result 无对应 tool/call → P3 warning（双向，精确指认 callId）', () => {
     const events = [
       userMessage({ seq: 0 }),

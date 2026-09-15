@@ -32,7 +32,7 @@ const wrapped = (events) => events.map((event) => ({ event, lineNo: 1 }));
 describe('P3 配对完整性', () => {
   it('正常会话：call 全配对 → 0 孤儿', () => {
     const events = [
-      callEvent(0, 'c1', 'python seed-scale6.py'),
+      callEvent(0, 'c1', 'python build-report.py'),
       resultEvent(1, 'c1', [{ type: 'text', text: 'ok' }]),
       callEvent(2, 'c2', 'ls'),
       resultEvent(3, 'c2', [{ type: 'text', text: 'files' }]),
@@ -42,7 +42,7 @@ describe('P3 配对完整性', () => {
 
   it('删 result 的坏日志 → P3 触发（孤儿 call）', () => {
     const events = [
-      callEvent(0, 'c1', 'python seed-scale6.py'),
+      callEvent(0, 'c1', 'python build-report.py'),
       callEvent(2, 'c2', 'ls'),
       resultEvent(3, 'c2', [{ type: 'text', text: 'files' }]),
     ];
@@ -82,12 +82,12 @@ describe('extractText（递归提取）', () => {
 describe('extractToolOutputs', () => {
   it('按命令正则找回输出（含 min-size 过滤）', () => {
     const events = [
-      callEvent(0, 'c1', 'python seed-scale6.py'),
+      callEvent(0, 'c1', 'python build-report.py'),
       resultEvent(1, 'c1', [{ type: 'text', text: 'x'.repeat(60) }]),
-      callEvent(2, 'c2', 'python seed-evolve.py'),
+      callEvent(2, 'c2', 'python render-chart.py'),
       resultEvent(3, 'c2', [{ type: 'text', text: 'y'.repeat(10) }]), // 小于 minSize
     ];
-    const { pairs } = extractToolOutputs(events, 'seed-scale6', { minSize: 50 });
+    const { pairs } = extractToolOutputs(events, 'build-report', { minSize: 50 });
     expect(pairs).toHaveLength(1);
     expect(pairs[0].callId).toBe('c1');
     expect(pairs[0].text).toBe('x'.repeat(60));
@@ -97,9 +97,9 @@ describe('extractToolOutputs', () => {
 describe('auditToolCalls', () => {
   it('调用数/配对率/孤儿数/命令分布与手统计一致', () => {
     const events = [
-      callEvent(0, 'c1', 'seed-scale6.py'),
+      callEvent(0, 'c1', 'build-report.py'),
       resultEvent(1, 'c1', [{ type: 'text', text: 'out1' }]),
-      callEvent(2, 'c2', 'seed-scale6.py'),
+      callEvent(2, 'c2', 'build-report.py'),
       resultEvent(3, 'c2', [{ type: 'text', text: 'out2' }]),
       callEvent(4, 'c3', 'ls'), // 孤儿
     ];
@@ -108,7 +108,7 @@ describe('auditToolCalls', () => {
     expect(report.results).toBe(2);
     expect(report.pairingRate).toBeCloseTo(2 / 3);
     expect(report.orphans).toBe(1);
-    expect(report.commands.top[0]).toEqual({ command: 'seed-scale6.py', count: 2 });
+    expect(report.commands.top[0]).toEqual({ command: 'build-report.py', count: 2 });
     expect(report.commands.top[1]).toEqual({ command: 'ls', count: 1 });
     expect(report.outputBytes).toBe(8); // 'out1' + 'out2'
   });

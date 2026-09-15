@@ -43,7 +43,7 @@ describe('validateAppend —— 追加写入前校验', () => {
     expect(ids(r)).toContain('E2');
   });
 
-  it('★ 事故第 1 轮：marker 空 sourceEventSeqs 的 replace 写入 → S5/S6/S8 拦截', () => {
+  it('★ 事故第 1 次尝试：marker 空 sourceEventSeqs 的 replace 写入 → S5/S6/S8 拦截', () => {
     const prewriter = createPreWriter({ events: validSessionEvents() });
     const badMarker = markerEvent({ seq: 3, start: 0, end: 1, shadowedSeqs: [] });
     const r = prewriter.validateAppend(badMarker);
@@ -52,7 +52,7 @@ describe('validateAppend —— 追加写入前校验', () => {
     expect(ids(r)).toContain('S8');
   });
 
-  it('★ 事故第 2 轮：turn=null 的 assistant/message 以 append 写入 → M1 拦截', () => {
+  it('★ 事故第 2 次尝试：turn=null 的 assistant/message 以 append 写入 → M1 拦截', () => {
     const prewriter = createPreWriter({ events: validSessionEvents() });
     const bad = assistantMessage({ seq: 3, turn: 1, step: 0 });
     bad.data.turn = null;
