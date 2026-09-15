@@ -2,14 +2,14 @@
 
 > **自动生成**（2026-09-06 起）：本文件由 `node scripts/gen-contracts-doc.mjs`
 > 从 `lib/contracts.js` 的 `CONTRACT_RULES` 注册表生成——**勿手改**，规则只增不减，
-> 新增规则后跑一次生成即同步（此前手工维护滞后 15+ 条，外部审计指出）。
+> 新增规则后跑一次生成即同步（此前手工维护滞后 15+ 条）。
 > **漂移闸**：`pnpm check` 会跑 `--check` 逐字节比对，改了注册表没重生成 ⇒ 直接红。
 >
 > DSH 会话日志契约的**可执行 spec**。每条规则在 `lib/checks.js`（逐事件判定）
 > 与 `lib/prewrite.js`（写前校验）中有对应实现；离线体检（`lib/validate.js`）
 > 逐条执行并在最后用官方 `foldSurface` 终验（S8）。
 >
-> 规则来源：早期内部审计发现（59 条）+ 三层契约事故复盘 + 官方源码逐行核对
+> 规则来源：历史会话日志的实测事故与契约缺口（持久化/客户端引擎/插件语义三层）+ 官方源码逐行核对
 > （`@deepseek-ai/dsh-session`，各条出处见下）。后续规则随官方版本演进追加：
 > T3/T4 = 渲染层白屏事故复盘，T5 = malformed turn/end 事故复盘。
 >
@@ -88,7 +88,7 @@
 ### R1 — 每行必须是合法 JSON
 
 - **层级**: persistence ｜ **严重度**: error
-- **出处**: 审计方法论（scan-seq-gaps.mjs）；dsh-session-persistence-jsonl 读路径
+- **出处**: seq 缺口扫描；dsh-session-persistence-jsonl 读路径
 - **契约**: 非空行无法 JSON.parse = 损坏行。帧边界产生的空行是合法的（跳过）。
 
 ### R2 — chunk 行必须满足精确信封形状
@@ -112,7 +112,7 @@
 ### E2 — seq 严格连续（单写入者假设）
 
 - **层级**: persistence ｜ **严重度**: error
-- **出处**: @deepseek-ai/dsh-session lib/index.js:398 (planSurfaceEvent "not contiguous")；审计 S2/N6
+- **出处**: @deepseek-ai/dsh-session lib/index.js:398 (planSurfaceEvent "not contiguous")
 - **契约**: seq 必须从 0（或窗口 baseSeq）严格连续递增。缺口/倒退 = 违反单写入者假设（多实例共享存储并发写的痕迹），加载时直接 throw。
 
 ### S9 — 文件物理序 seq 单调（多写入者交织现场特征）
@@ -143,7 +143,7 @@
 
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session lib/index.js:1273-1277 (assertSupportedRequestHeader)
-- **契约**: request/header-delta 与 reason=fallback 的 request/header 是已删除的遗留格式。注意（R-F 订正复核 §1 E5）：宿主 Session.append/appendLines 不看 type ⇒ 写入会成功、下一次读取才炸（依据 dsh-session@0.1.5-rc.1 lib/index.js:1170-1210 / persistence-jsonl:3046-3073），不是写入即被拒。
+- **契约**: request/header-delta 与 reason=fallback 的 request/header 是已删除的遗留格式。注意（订正 E5）：宿主 Session.append/appendLines 不看 type ⇒ 写入会成功、下一次读取才炸（依据 dsh-session@0.1.5-rc.1 lib/index.js:1170-1210 / persistence-jsonl:3046-3073），不是写入即被拒。
 
 ### E6 — 消息类事件消息形状
 
@@ -178,8 +178,8 @@
 ### S5 — replace 的 sourceEventSeqs 必须完整覆盖被替换节点
 
 - **层级**: persistence ｜ **严重度**: error
-- **出处**: @deepseek-ai/dsh-session lib/index.js:335-336 (assertProvenance)；复盘事故第 1 轮
-- **契约**: ★ 写前校验核心规则：sourceEventSeqs 必须包含每一个被替换（shadowed）的 surface 节点，缺一个 = 会话加载被拒（SessionPersistenceCorruptionError）。2026-08-25 事故第 1 轮（清空 sourceEventSeqs）正是违反此规则。
+- **出处**: @deepseek-ai/dsh-session lib/index.js:335-336 (assertProvenance)；复盘事故第 1 次尝试
+- **契约**: ★ 写前校验核心规则：sourceEventSeqs 必须包含每一个被替换（shadowed）的 surface 节点，缺一个 = 会话加载被拒（SessionPersistenceCorruptionError）。2026-08-25 事故第 1 次尝试（清空 sourceEventSeqs）正是违反此规则。
 
 ### S6 — sourceEventSeqs 自身约束
 
@@ -232,31 +232,31 @@
 ### E7 — ignorable 未知 type 合法性（带被忽略标记的未知事件须有消费者）
 
 - **层级**: persistence ｜ **严重度**: warning
-- **出处**: 对抗性复查 2026-09-09 T2（E3 ignorable 无合法性校验 = 后门）
+- **出处**: 实测 2026-09-09 T2（E3 ignorable 无合法性校验 = 后门）
 - **契约**: 未知 type + ignorable:true 被读路径接纳但无人消费 = 静默垃圾。排除已知消费者白名单（retrace/marker、retrace/goal-marker、message-editor/ 前缀等 retrace 客户端消费的插件 marker）后，其余 ignorable 未知事件报 warning。
 
 ### E8 — 事件信封键白名单（多余键：seed/restore 路径会拒）
 
 - **层级**: persistence ｜ **严重度**: warning
 - **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:849-861（assertSessionEventEnvelope）+ :1063-1068（唯一调用点=seed 路径）；load 路径容忍见行为探针 p5
-- **契约**: 事件对象只允许 7 个信封键（type/seq/time/data/surfaceOp/sourceEventSeqs/ignorable）。独立复核变异 05 指出"宿主拒、旧契约 0 违规"；R-D 行为探针进一步订正口径：**load 路径容忍、seed/restore 路径拒** ⇒ warning。
+- **契约**: 事件对象只允许 7 个信封键（type/seq/time/data/surfaceOp/sourceEventSeqs/ignorable）。实测反例指出"宿主拒、旧契约 0 违规"；行为探针进一步订正口径：**load 路径容忍、seed/restore 路径拒** ⇒ warning。
 
 ### E9 — system/message 必须带 plugin source
 
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:942-944（"must have plugin source"）；角色表 :917-926
-- **契约**: v3 新增的 system/message：role 必须为 system，source.kind 必须为 plugin 且 plugin 非空。实测（变异 03）：source.kind='user' 宿主拒、旧契约 0 违规 ⇒ 漏检。
+- **契约**: v3 新增的 system/message：role 必须为 system，source.kind 必须为 plugin 且 plugin 非空。实测（反例）：source.kind='user' 宿主拒、旧契约 0 违规 ⇒ 漏检。
 
 ### E10 — request/header 的 data.header 字段约束
 
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:231-248（validateSessionEventData：omit header.system / omit empty tools / omit empty adapterDefaults）
-- **契约**: request/header 必须省略 header.system（系统提示改走 system/message）、空 tools、空 adapterDefaults。实测（变异 12）：带 header.system 的写入宿主拒、旧契约 0 违规 ⇒ 漏检。
+- **契约**: request/header 必须省略 header.system（系统提示改走 system/message）、空 tools、空 adapterDefaults。实测（反例）：带 header.system 的写入宿主拒、旧契约 0 违规 ⇒ 漏检。
 
 ### Z3 — 空会话文件（有 header 无事件）显式报出
 
 - **层级**: framing ｜ **严重度**: warning
-- **出处**: 对抗性复查 2026-09-09 T3（36 条规则全来自有内容事故,空态无覆盖）
+- **出处**: 实测 2026-09-09 T3（36 条规则全来自有内容事故,空态无覆盖）
 - **契约**: 有 header 但零事件 = 异常空会话（新建即空或写入未落盘）。空态不在任何有内容规则的覆盖下,显式 warning 供人判断。
 
 ### P3 — tool/call ↔ tool/result 配对完整性（考古 B1）
@@ -274,7 +274,7 @@
 ### M1 — turn/step 为 null 的 assistant/message 只能 replace，不能 append
 
 - **层级**: engine ｜ **严重度**: error
-- **出处**: 复盘事故第 2 轮（rt.js:6816 崩溃）；实证 data.turn/data.step：正常消息为数字、插件 marker 为 null
+- **出处**: 复盘事故第 2 次尝试（rt.js:6816 崩溃）；实证 data.turn/data.step：正常消息为数字、插件 marker 为 null
 - **契约**: data.turn/data.step 为 null 的 assistant/message（如插件 marker）只能以 replace 承载（走插件 marker 定义）；作为 append 会落进核心 assistant-step 定义，因 turn=null 发布 location data 导致客户端引擎崩溃。
 
 ### P1 — marker id 前缀必须被识别
@@ -292,19 +292,19 @@
 ### C1 — seq 缺口/倒退提示多写入者
 
 - **层级**: concurrency ｜ **严重度**: warning
-- **出处**: 审计 N6：dsh-session-persistence-jsonl appendLines 无锁（:1200-1227），全仓无会话级排他锁
+- **出处**: dsh-session-persistence-jsonl appendLines 无锁（:1200-1227），全仓无会话级排他锁
 - **契约**: 离线体检无法直接观测跨进程竞态，但 E2 暴露的缺口/倒退即是"≥2 个 Host 进程共享同一 session 目录并发写"的后果。单实例部署不触发。
 
 ### Z1 — zstd 尾帧撕裂
 
 - **层级**: framing ｜ **严重度**: warning
-- **出处**: 审计 N5 相关；帧扫描方法论
+- **出处**: zstd 帧布局（dsh-session-persistence-jsonl 多帧）
 - **契约**: 尾帧不完整（torn）：可能正在写入（in-flight）或文件被截断。若这是唯一异常，通常可等待写入完成；若持续存在则是截断证据。
 
 ### Z2 — zstd 帧解码失败 = 单帧全损
 
 - **层级**: framing ｜ **严重度**: error
-- **出处**: 审计 N5：多帧单帧全损 → 整会话不可读
+- **出处**: 多帧单帧全损 → 整会话不可读
 - **契约**: 任一帧解码失败（磁盘 bitrot / 传输截断 / 并发写撕裂）即整会话不可读；帧越多，单帧损坏下丢失概率线性上升。
 
 ### W1 — wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后
