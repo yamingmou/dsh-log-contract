@@ -344,11 +344,11 @@ MIT © OfferKuai Team
 
 ---
 
-## ⚠️ Upgrading to 0.3.16 — behaviour changes you must know (0.3.12 → 0.3.16)
+## ⚠️ Upgrading to 0.3.17 — behaviour changes you must know (0.3.12 → 0.3.17)
 
-> **0.3.16 changes no behaviour.** It rewrites comments, test titles, a few diagnostic strings and the
+> **0.3.17 changes no behaviour.** It rewrites comments, test titles, a few diagnostic strings and the
 > README so that they describe the product and its contract only. Every verdict, exit code and `--json`
-> field is unchanged from 0.3.15, so everything below applies unchanged when going from 0.3.12 to 0.3.16.
+> field is unchanged from 0.3.15, so everything below applies unchanged when going from 0.3.12 to 0.3.17.
 >
 > 0.3.15 was a documentation-only release as well.
 
