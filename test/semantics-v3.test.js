@@ -30,7 +30,7 @@ import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, cr
 import { V0_EVENT_TYPES, V2_EVENT_TYPES, inferFormatVersion, LEGACY_FORMAT_MAX_VERSION, currentVocabulary } from '../lib/vocab.js';
 import { isJsonValue, decodeSeqRanges, decodeStorageRecord } from '../lib/compat.js';
 import { finalFold, wireViolations, normalizeReplaceOp } from '../lib/checks.js';
-import { HEADER, validSessionEvents, markerEvent, userMessage, assistantMessage, turnEnd } from './helpers.js';
+import { HEADER, validSessionEvents, markerEvent, userMessage, assistantMessage, turnEnd, faithfulFrameInfo } from './helpers.js';
 import * as helpersForRc from './helpers.js';
 import { neutralizeMarkersText as neutralizeLegacy } from '../lib/repair.js';
 
@@ -104,14 +104,20 @@ function chunkEvent({ seq, turn = 0, step = 1 } = {}) {
   };
 }
 
-/** 手搓一个 `loadSessionLog` 形状的 log（rows 与 events 都按单行直出）。 */
+/**
+ * 手搓一个 `loadSessionLog` 形状的 log（rows 与 events 都按单行直出）。
+ *
+ * `frameInfo` 走 `faithfulFrameInfo()`：**与官方写盘形状一致**（帧 1 = header 独占，
+ * 事件按批次分帧）。此前这里写死 `frames: 1`，等于声明"整份日志压成 1 帧"——
+ * 那是宿主从不产出的形状，会平白触发 Z5（2026-09-16 真机事故后新增的规则）。
+ */
 function logOf(header, events) {
   return {
     header,
     headerLine: 0,
     rows: events.map((e, i) => ({ lineNo: i + 1, value: e, decoded: [e], error: null })),
     events: events.map((e, i) => ({ seq: e.seq, event: e, lineNo: i + 1 })),
-    frameInfo: { frames: 1, torn: false, compressedBytes: 0, plaintextBytes: 0 },
+    frameInfo: faithfulFrameInfo({ eventRows: events.length }),
   };
 }
 

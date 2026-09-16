@@ -22,7 +22,7 @@
 >
 > 严重度：**error** = 违反即会话不可加载/写入被拒（fail-loud）；**warning** = 合法但可疑。
 
-## 规则索引（共 44 条）
+## 规则索引（共 46 条）
 
 | id | 严重度 | 层级 | 规则 |
 |---|---|---|---|
@@ -65,6 +65,8 @@
 | C1 | warning | concurrency | seq 缺口/倒退提示多写入者 |
 | Z1 | warning | framing | zstd 尾帧撕裂 |
 | Z2 | error | framing | zstd 帧解码失败 = 单帧全损 |
+| Z4 | error | framing | 首帧必须恰好一行 header |
+| Z5 | error | framing | 多行日志不得压成单帧 |
 | W1 | error | engine | wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后 |
 | W2 | error | engine | wire 流：user 文本不得插在 tool_calls 与其 tool 结果之间 |
 | G1 | warning | migration | 迁移预检：v0 源文件的 subagent/descriptor.data.version 必须为 3 |
@@ -306,6 +308,18 @@
 - **层级**: framing ｜ **严重度**: error
 - **出处**: 多帧单帧全损 → 整会话不可读
 - **契约**: 任一帧解码失败（磁盘 bitrot / 传输截断 / 并发写撕裂）即整会话不可读；帧越多，单帧损坏下丢失概率线性上升。
+
+### Z4 — 首帧必须恰好一行 header
+
+- **层级**: framing ｜ **严重度**: error
+- **出处**: 宿主 assertZstdHeaderFrame（0.1.5-rc.2 lib/index.js:2184）：首帧非"恰好一行"即抛
+- **契约**: 官方写盘形状是 header **独占第一帧**。首帧装多行时宿主抛错，且抛点在 listArtifacts **遍历全库**、无 per-session 容错 ⇒ **整个客户端起不来**（2026-09-16 真机事故：有人把整份日志重压成单帧写回）。
+
+### Z5 — 多行日志不得压成单帧
+
+- **层级**: framing ｜ **严重度**: error
+- **出处**: 官方形状：header 第一帧 + 事件批次逐帧追加
+- **契约**: 把整份日志重压成 1 帧会同时触发 Z4；任何"重写会话"的路径都必须**保形**（逐帧解、逐帧回写，或走宿主写入器），不得整体重压缩。
 
 ### W1 — wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后
 
