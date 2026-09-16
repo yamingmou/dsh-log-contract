@@ -223,8 +223,10 @@ describe('逐条违规规则', () => {
     expect(ids(r2)).toContain('S2');
   });
 
-  it('Z2：单帧文件被截断（头帧都没了）→ 报错（宿主 readZstdPrefix:2793 对 header-less 同样抛）', () => {
-    const file = writeSession(validSessionEvents(), { zstd: true, torn: true });
+  it("Z2：首帧被截断（header 帧都没了）→ 报错（宿主 readZstdPrefix:2793 对 header-less 同样抛）", () => {
+    // 夹具走官方形状（帧 1 = header 独占），`torn: 'head'` 砍进**第一帧** ⇒ 一个完整帧都不剩。
+    // 与下面那条 `torn: 'tail'` 成对：同样是"撕裂"，砍头帧是读不了、砍尾帧是可恢复。
+    const file = writeSession(validSessionEvents(), { zstd: true, torn: 'head' });
     const result = validateSessionLog(loadSessionLog(file));
     expect(ids(result)).toContain('Z1');
     expect(result.ok).toBe(false); // 连一个完整帧都没有 = 真的读不了（与宿主一致）
@@ -234,22 +236,10 @@ describe('逐条违规规则', () => {
     // 宿主依据:`dsh-session-persistence-jsonl@0.1.5-rc.1`
     //   · lib/index.js:2791-2849 readZstdPrefix —— 恢复撕裂尾帧、保留完整记录、返回 tornTruncateTo
     //   · lib/index.js:226-228 —— 下次写入 truncateTornTail 自动截断
-    // 复现:两帧(帧1=header,帧2=事件),把帧2尾部砍掉几个字节 = "边写边读"的 in-flight 尾帧。
-    const fsx = require('node:fs');
-    const osx = require('node:os');
-    const pathx = require('node:path');
-    const { zstdCompressSync } = require('node:zlib');
-    const events = validSessionEvents();
-    const headerLine = JSON.stringify({ type: 'session', version: 3, id: 'torn-fixture', createdAt: 1 }) + '\n';
-    const restLine = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
-    const twoFrames = Buffer.concat([
-      zstdCompressSync(Buffer.from(headerLine)),
-      zstdCompressSync(Buffer.from(restLine)),
-    ]);
-    const dir = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'dlc-torn-'));
-    const file = pathx.join(dir, 'session.jsonl.zstd');
-    // 砍掉最后一帧尾部若干字节 → 尾帧撕裂（帧1仍完整）
-    fsx.writeFileSync(file, twoFrames.subarray(0, twoFrames.length - 6));
+    // 复现:官方形状多帧(帧1=header 独占,其后事件批次),把**最后一帧**尾部砍掉几个字节
+    // = "边写边读"的 in-flight 尾帧（前帧完整）。夹具走 helpers.writeSessionFrames。
+    const headerV3 = { type: 'session', version: 3, id: 'torn-fixture', createdAt: 1 };
+    const file = writeSession(validSessionEvents(), { zstd: true, torn: 'tail', header: headerV3 });
     const log = loadSessionLog(file);
     expect(log.frameInfo.torn).toBe(true);      // 声明撕裂
     expect(log.header).not.toBeNull();          // 头帧完整 → 会话可读
