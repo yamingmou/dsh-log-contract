@@ -27,7 +27,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SESSION_FORMAT_VERSION, KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session';
 import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, createPreWriter, preWriterFromLog, HOST_MAX_FILE_VERSION } from '../lib/index.js';
-import { V0_EVENT_TYPES, V2_EVENT_TYPES, inferFormatVersion, LEGACY_FORMAT_MAX_VERSION, currentVocabulary } from '../lib/vocab.js';
+import { V0_EVENT_TYPES, V2_EVENT_TYPES, inferFormatVersion, LEGACY_FORMAT_MAX_VERSION, MIGRATION_TARGET_VERSION, currentVocabulary } from '../lib/vocab.js';
 import { isJsonValue, decodeSeqRanges, decodeStorageRecord } from '../lib/compat.js';
 import { finalFold, wireViolations, normalizeReplaceOp } from '../lib/checks.js';
 import { HEADER, validSessionEvents, markerEvent, userMessage, assistantMessage, turnEnd, faithfulFrameInfo } from './helpers.js';
@@ -508,7 +508,8 @@ describe('S2 · 宿主能力闸（被检版本 > 宿主上限 ⇒ not-assessable
   });
 
   it('宿主能力常量与宿主包版本可见', () => {
-    expect(HOST_MAX_FILE_VERSION).toBe(HOST_V3 ? 3 : 0);
+    expect(HOST_MAX_FILE_VERSION).toBe(HOST_V3 ? SESSION_FORMAT_VERSION : 0);
+    if (HOST_V3) expect(HOST_MAX_FILE_VERSION).toBeGreaterThanOrEqual(3);
     const result = validateSessionLog(v3Log());
     expect(result.summary.hostMaxFileVersion).toBe(HOST_MAX_FILE_VERSION);
   });
@@ -637,12 +638,19 @@ describe('S1 · 迁移预检（官方升级路径，独立维度）', () => {
     expect(migrationVerdict(r).coverage.uncovered.join('|')).toMatch(/turn\/start/);
   });
 
-  it('v3（= 宿主当前格式）→ 迁移不适用', () => {
+  it('v3：宿主当前格式 = v3 → 迁移不适用；宿主已带 v3→v4 → 迁移适用（v3→v4 归未覆盖）', () => {
     if (!HOST_V3) return;                               // rc.7 上 v3 走 S2 闸，不适用
     const mig = migrationVerdict(validateSessionLog(logOf(HEADER_V3, [userMessage({ seq: 0 }), turnEnd({ seq: 1 })])));
-    expect(mig.applies).toBe(false);
-    expect(mig.ready).toBeNull();
-    expect(mig.reason).toMatch(/无需迁移/);
+    if (MIGRATION_TARGET_VERSION === 3) {
+      expect(mig.applies).toBe(false);
+      expect(mig.ready).toBeNull();
+      expect(mig.reason).toMatch(/无需迁移/);
+    } else {
+      expect(mig.targetFileVersion).toBe(MIGRATION_TARGET_VERSION);
+      expect(mig.applies).toBe(true);
+      expect(mig.assessmentScope).toBe('partial');
+      expect(mig.coverage.uncovered.join('|')).toMatch(/v3→v4/);
+    }
   });
 
   it('迁移预检不进 prewrite 的 ok（写前只看当前可否写入）', () => {
@@ -685,7 +693,7 @@ describe('S1 收窄：待迁移文件不给无条件绿 + assessmentScope + 退�
     }
   });
 
-  it('assessmentScope —— 待迁移(v0)=partial；已是当前格式(v3)=full（宿主支持 v3 时）', () => {
+  it('assessmentScope —— 待迁移(v0)=partial；v3 在 v3 宿主=full、在 v4 宿主=partial（待 v3→v4）', () => {
     const p0 = JSON.parse(spawnSync(process.execPath, [CLI, 'check', plainV0File(), '--json'], { encoding: 'utf8' }).stdout);
     expect(p0.migration.applies).toBe(true);
     expect(p0.assessmentScope).toBe('partial');
@@ -693,9 +701,12 @@ describe('S1 收窄：待迁移文件不给无条件绿 + assessmentScope + 退�
 
     const v3file = writeJsonl(HEADER_V3, [systemMessage({ seq: 0 }), userMessage({ seq: 1 }), turnEnd({ seq: 2 })]);
     const p3 = JSON.parse(spawnSync(process.execPath, [CLI, 'check', v3file, '--json'], { encoding: 'utf8' }).stdout);
-    if (HOST_V3) {
+    if (HOST_V3 && MIGRATION_TARGET_VERSION === 3) {
       expect(p3.migration.applies).toBe(false);
       expect(p3.assessmentScope).toBe('full');
+    } else if (HOST_V3) {
+      expect(p3.migration.applies).toBe(true);
+      expect(p3.assessmentScope).toBe('partial');
     } else {
       // rc.7：v3 文件不可评估（S2 闸）⇒ scope=none，而不是 full（不谎称完整评估）
       expect(p3.assessable).toBe(false);
