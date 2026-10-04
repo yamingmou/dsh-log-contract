@@ -1,3 +1,29 @@
+## [未发布] · 支持 DSH 0.2.x（会话格式 v4）
+
+> DSH 0.2.x 的 `@deepseek-ai/dsh-session` 把 `SESSION_FORMAT_VERSION` 升到 **4**。此前本包把 v4 文件当作
+> "未知版本"（H2），并按 v3 形状检查 `tool/result` / `system/message` ⇒ 宿主自己写出的合法 v4 日志
+> 在预写闸门里整份报 E6/E9，依赖本包的插件（如 dsh-retrace）的每一次写入都被拒绝（[#2](https://github.com/yamingmou/dsh-log-contract/issues/2)）。
+> **v0–v3 的判定不变**：所有改动都按被检文件的格式版本择路，只在 v4 上生效。
+
+### 契约
+- **H2**：已知格式版本扩为 0/1/2/3/4。
+- **E6（v4）**：`tool/result` 为 `role: 'tool'`，`message.toolCallId` 必须等于 `source.callId`，content 直接是内容块数组
+  （**不再**包 `tool-result` 块）；`isError` 若存在必须是布尔；`data.error` 存在时必须 `isError: true`；
+  `source.kind: 'plugin'` 在 v4 不再合法。依据：宿主运行时与官方 `dsh-session-format-v3-to-v4` 编解码器。
+- **E9（v4）**：`system/message` 的 source 为 `{ kind: 'system-prompt' }`（v3 仍为 `plugin`）。
+- **S1**：v4 表面类型增加 `developer/message`。
+- **版本推断**：无 header 版本时，出现 `system-prompt` source、`developer/message` 或 `role: 'tool'` 的 `tool/result` 即推断为 v4。
+- **迁移预检**：目标版本跟随宿主（v4 宿主上为 4）；v3→v4 迁移如实列为**未覆盖**（`scope: partial`）。
+
+### 行为探针
+- `p3` 改为 `p3-system-message-source`，按宿主格式版本断言；新增 `p7-tool-result-role`、`p8-developer-message-surface`。
+  v4 宿主上 8 条探针全部 verified，`fix --apply` 不会因漂移被拦。
+
+### 工程
+- 测试基线升到宿主 **0.2.0-rc.2** / 格式 **v4**；peer 范围 `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1`。
+- 新增 `test/semantics-v4.test.js`（含 dsh-retrace 两段式标记在 v4 日志上的预写用例）；新增"基线与 package.json 同步"测试。
+- devDependency 显式钉住 `@deepseek-ai/cordis@4.0.4`（满足 dsh-session 0.2.0-rc.2 的 peer）。
+
 ## [0.3.17] — 2026-09-16 · 新增帧形状规则（首帧必须恰好一行 header；多行日志不得压成单帧）
 
 ### 帧形状
