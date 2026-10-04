@@ -14,8 +14,8 @@
 > T3/T4 = 渲染层白屏事故复盘，T5 = malformed turn/end 事故复盘。
 >
 > **版本支持基线（本规则集验证过的版本；权威常量见 `lib/version-support.js` 的 TESTED_BASELINE）**：
-> 宿主 `@deepseek-ai/dsh-session@0.1.5-rc.1` ｜ 会话格式 **v3**（`SESSION_FORMAT_VERSION = 3`）｜
-> 声明范围 `^0.1.0-rc.7 || ^0.1.5-rc.1`（可安装 ≠ 逐个验证）｜ 已知格式 0/1/2/3
+> 宿主 `@deepseek-ai/dsh-session@0.2.0-rc.2` ｜ 会话格式 **v4**（`SESSION_FORMAT_VERSION = 4`）｜
+> 声明范围 `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1`（可安装 ≠ 逐个验证）｜ 已知格式 0/1/2/3/4
 > （0–2 由本包自带 vendored 词表 + `legacyFoldSurface` 支持，与宿主版本无关）。
 > **未验证版本**：宿主比基线新 → 运行时告警；文件格式未知/无法识别 → 报"未验证格式"并**按只读处理**
 > （`prewrite`/`fix` 拒绝，退出码 3）；文件版本 > 宿主上限 → `not-assessable`（不是 broken）。
@@ -54,7 +54,7 @@
 | T5 | error | engine | turn/end 必须带 data.reason.kind |
 | E7 | warning | persistence | ignorable 未知 type 合法性（带被忽略标记的未知事件须有消费者） |
 | E8 | warning | persistence | 事件信封键白名单（多余键：seed/restore 路径会拒） |
-| E9 | error | persistence | system/message 必须带 plugin source |
+| E9 | error | persistence | system/message 的 source 契约（v3 plugin / v4 system-prompt） |
 | E10 | error | persistence | request/header 的 data.header 字段约束 |
 | Z3 | warning | framing | 空会话文件（有 header 无事件）显式报出 |
 | P3 | warning | plugin | tool/call ↔ tool/result 配对完整性（考古 B1） |
@@ -84,8 +84,8 @@
 ### H2 — header 版本与必填字段
 
 - **层级**: persistence ｜ **严重度**: error
-- **出处**: @deepseek-ai/dsh-session lib/index.js:1110-1125；已知格式版本 0/1/2/3（App 2.0.9 内置 v0→v1→v2→v3 迁移，SESSION_FORMAT_VERSION=3）
-- **契约**: header.version 必须为已知受支持版本（0/1/2/3）；未知版本报 H2。id 为字符串；createdAt 为非负安全整数；cwd 若存在必须为绝对路径；origin 只能为 "subagent"。
+- **出处**: @deepseek-ai/dsh-session lib/index.js:1110-1125；已知格式版本 0/1/2/3/4（App 2.0.9 内置 v0→v1→v2→v3 迁移，SESSION_FORMAT_VERSION=3；DSH 0.2.x 追加 v3→v4，SESSION_FORMAT_VERSION=4）
+- **契约**: header.version 必须为已知受支持版本（0/1/2/3/4）；未知版本报 H2。id 为字符串；createdAt 为非负安全整数；cwd 若存在必须为绝对路径；origin 只能为 "subagent"。
 
 ### R1 — 每行必须是合法 JSON
 
@@ -150,14 +150,14 @@
 ### E6 — 消息类事件消息形状
 
 - **层级**: persistence ｜ **严重度**: error
-- **出处**: @deepseek-ai/dsh-session lib/index.js:1242-1266 (assertMessageEventShape)
-- **契约**: user/message、assistant/message、tool/result 必须携带具名 message（非空 id、正确 role、合法 source、content 数组；assistant 需 model source，tool/result 需 tool source 且 toolCallId 匹配）。
+- **出处**: @deepseek-ai/dsh-session lib/index.js:1242-1266 (assertMessageEventShape)；v4：dsh-session@0.2.0-rc.2 src/index.ts:331-381
+- **契约**: user/message、assistant/message、tool/result 必须携带具名 message（非空 id、正确 role、合法 source、content 数组；assistant 需 model source，tool/result 需 tool source 且 toolCallId 匹配）。v0–v3：tool/result role 为 user 且恰含一个 tool-result 块；v4：tool/result role 为 tool、不得含 tool-result 包装块、message.toolCallId 等于 source.callId，新增 developer/message（role developer），且任何消息 source.kind 不得为 plugin。
 
 ### S1 — surface 候选类型必须携带 surfaceOp
 
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session lib/index.js:312-317 (surfaceOpOf)
-- **契约**: user/message、assistant/message、tool/result 是 surface-eligible 类型，缺 surfaceOp 即违反契约。
+- **契约**: user/message、assistant/message、tool/result（v3 起含 system/message，v4 起含 developer/message）是 surface-eligible 类型，缺 surfaceOp 即违反契约。
 
 ### S2 — 非 surface 类型不得携带 surface 元数据
 
@@ -175,7 +175,7 @@
 
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session lib/index.js:300-303 (isReplaceOp)、:339-350 (replacementRange)
-- **契约**: replace 必须是精确的 {op:"replace", start, end}；start/end 必须存在于当前 surface 节点且 startIdx ≤ endIdx。
+- **契约**: replace 必须是精确的 {op:"replace", start, end}（v0–v2）或 {op:"replace", startSeq, endSeq}（v3/v4）；端点必须存在于当前 surface 节点且 startIdx ≤ endIdx。
 
 ### S5 — replace 的 sourceEventSeqs 必须完整覆盖被替换节点
 
@@ -243,11 +243,11 @@
 - **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:849-861（assertSessionEventEnvelope）+ :1063-1068（唯一调用点=seed 路径）；load 路径容忍见行为探针 p5
 - **契约**: 事件对象只允许 7 个信封键（type/seq/time/data/surfaceOp/sourceEventSeqs/ignorable）。实测反例指出"宿主拒、旧契约 0 违规"；行为探针进一步订正口径：**load 路径容忍、seed/restore 路径拒** ⇒ warning。
 
-### E9 — system/message 必须带 plugin source
+### E9 — system/message 的 source 契约（v3 plugin / v4 system-prompt）
 
 - **层级**: persistence ｜ **严重度**: error
-- **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:942-944（"must have plugin source"）；角色表 :917-926
-- **契约**: v3 新增的 system/message：role 必须为 system，source.kind 必须为 plugin 且 plugin 非空。实测（反例）：source.kind='user' 宿主拒、旧契约 0 违规 ⇒ 漏检。
+- **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:942-944（"must have plugin source"）；角色表 :917-926；v4：dsh-session@0.2.0-rc.2 src/index.ts:360-364（"must have system-prompt source"）
+- **契约**: v3 新增的 system/message：role 必须为 system，source.kind 必须为 plugin 且 plugin 非空。实测（反例）：source.kind='user' 宿主拒、旧契约 0 违规 ⇒ 漏检。v4（v3→v4 迁移把 @deepseek-ai/dsh-system-prompt 改写为生产者自有 kind）：source.kind 必须为 system-prompt。
 
 ### E10 — request/header 的 data.header 字段约束
 
