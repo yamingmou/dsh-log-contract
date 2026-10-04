@@ -65,8 +65,8 @@ export function buildContractsDoc(rules) {
 > T3/T4 = 渲染层白屏事故复盘，T5 = malformed turn/end 事故复盘。
 >
 > **版本支持基线（本规则集验证过的版本；权威常量见 \`lib/version-support.js\` 的 TESTED_BASELINE）**：
-> 宿主 \`@deepseek-ai/dsh-session@0.1.5-rc.1\` ｜ 会话格式 **v3**（\`SESSION_FORMAT_VERSION = 3\`）｜
-> 声明范围 \`^0.1.0-rc.7 || ^0.1.5-rc.1\`（可安装 ≠ 逐个验证）｜ 已知格式 0/1/2/3
+> 宿主 \`@deepseek-ai/dsh-session@0.2.0-rc.2\` ｜ 会话格式 **v4**（\`SESSION_FORMAT_VERSION = 4\`）｜
+> 声明范围 \`^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1\`（可安装 ≠ 逐个验证）｜ 已知格式 0/1/2/3/4
 > （0–2 由本包自带 vendored 词表 + \`legacyFoldSurface\` 支持，与宿主版本无关）。
 > **未验证版本**：宿主比基线新 → 运行时告警；文件格式未知/无法识别 → 报"未验证格式"并**按只读处理**
 > （\`prewrite\`/\`fix\` 拒绝，退出码 3）；文件版本 > 宿主上限 → \`not-assessable\`（不是 broken）。
