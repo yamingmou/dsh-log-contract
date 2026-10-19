@@ -257,6 +257,17 @@ turn/start 状态机规则（G4）原型在 281 个真实 v0 上 **0 误报**、
 
 ---
 
+## [0.3.18] — 2026-10-15 · 会话格式 v4 适配（issue #2 / PR#3）+ Windows 路径判定修复（issue #1）
+
+- **会话格式 v4（DSH 0.2.x）**：按格式版本分派规则，\`tool/result\` 的 \`role\`、\`system/message\` 的 \`source.kind\` 按 v4 语义判定
+  ⇒ 修复 v4 健康会话上的 E6/E9 误报（实测 8 份真实 v4：E6 2898→0、E9 22→0、H2 8→0）；v3 规则判据零改动（15 份真实 v3 日志违规集一致）
+  （贡献：PR#3 · 木马）
+- **Windows**：\`header.cwd\` 绝对路径判定改为平台感知（posix ∥ win32），修复 Windows 上对所有会话误报 H2（issue #1）
+- 预写闸：\`validateAppend()\` 在真实 v4 上通过（不再误拒），v3 形状仍按 v3 拒
+- 测试：246 passed / 2 skipped / 0 failed（含新增 v4 + H2 用例）
+
+---
+
 ## 0.3.6 — 2026-08-30 · T2 规则盲区修复（非 chunk 引用 + usage 前提）
 
 ### 事故（2026-08-30 第二层根因）
