@@ -50,7 +50,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 
 **「one log, two consumers, two verdicts」**：一条日志同时被人类与自动化程序消费，人眼容忍格式微调，程序解析依赖严格契约；格式一旦漂移，人看不出问题，程序直接崩溃或误报。
 
-**这里大多数规则都来自真实事故**——见下方 [⚡ 事故记录](#-事故记录)。事故派生的用例都有回归测试钉住：损坏的日志形态本工具必须报出，修复后的形态必须通过。其余规则来自对官方宿主源码的逐行核对（每条规则都带 `source`）。
+**这里大多数规则都来自会话日志中实际出现过的损坏形态**——见下方 [⚡ 案例记录](#-案例记录)。由这些案例派生的用例都有回归测试钉住：损坏的日志形态本工具必须报出，修复后的形态必须通过。其余规则来自对官方宿主源码的逐行核对（每条规则都带 `source`）。
 
 ---
 
@@ -69,9 +69,9 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 
 ---
 
-## ⚡ 事故记录 ——「生产级保证」不是口号
+## ⚡ 案例记录 ——「生产级保证」不是口号
 
-下面每一条都是一起来自生产会话的**真实事故**——正是这些案例促成了本工具。日期与形态真实，会话 id 与文件名省略。
+下面每一条都来自**生产会话中实际出现的日志损坏形态**——正是这些案例促成了本工具。日期与形态真实，会话 id 与文件名省略。
 
 | # | 日期 | 发生了什么 | 产出的规则/修复 |
 |---|---|---|---|
@@ -175,9 +175,9 @@ dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers --apply
 - `--remove-markers`：移除 retrace/message-editor marker 并全量重编号
   （seq/seq0/sourceEventSeqs/surfaceOp 同步）——用于大范围 marker 遮蔽历史、
   marker 漏盖 tool/result 导致的悬空 tool。
-- `--neutralize`：原地中和 turn-null marker（事故 #6）——type → `retrace/marker` +
+- `--neutralize`：原地中和 turn-null marker（案例 #6）——type → `retrace/marker` +
   `ignorable:true`，删 surfaceOp/sourceEventSeqs，seq/行数不变（会话驻留也安全）。
-- `--clip-crossstep`：裁剪跨 step sourceEventSeqs（事故 #6）——只保留同 turn/step 的 chunk 引用。
+- `--clip-crossstep`：裁剪跨 step sourceEventSeqs（案例 #6）——只保留同 turn/step 的 chunk 引用。
 - 手术安全协议：改前备份、改后全量复检（strictScan + check + foldSurface）、
   marker 只能遮蔽其之前的节点、marker 绝不能改成 append（M1 客户端崩溃）。
 - ⚠️ 若会话已被运行中的应用驻留内存，修复文件后需**重启应用**（强杀避免脏状态刷回）。
@@ -257,7 +257,7 @@ if (!verdict.ok) {
 ## 测试
 
 ```bash
-pnpm check && pnpm test    # 语法检查 + 契约文档漂移闸 + 全部单测（含事故回归用例）
+pnpm check && pnpm test    # 语法检查 + 契约文档漂移闸 + 全部单测（含案例回归用例）
 ```
 
 - **合成夹具**（入库）：合法会话 / seq 缺口 / 空 sourceEventSeqs / turn=null append / 未知 type / 坏 chunk 行 / 撕裂尾帧 / 未知 marker 前缀 / 自指 shadowed 等。
@@ -284,7 +284,7 @@ pnpm check && pnpm test    # 语法检查 + 契约文档漂移闸 + 全部单测
 
 - [x] **Phase 1（0.1.0）**：CLI 离线体检 + 写前校验 + 契约目录
 - [x] **Phase 1.5（0.2.0）**：`fix` 子命令（严格 seq 扫描 + W1/W2 wire 检查 + 移除 marker 重编号 + 官方帧格式重建）；CI 集成（`dsh-log-contract check` 作为 Harness 会话目录的定时守护）
-- [x] **0.3.x（2026-08-30 事故固化）**：T1 token-meter 配对 → 0.3.1 W1/W2 折叠位置修复 → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize`（turn-null marker 原地中和）→ 0.3.4 `fix --clip-crossstep`（跨 step 引用裁剪）→ 0.3.5 **T2/S9/I1 规则**（跨 step 源引用 / 物理序单调 / inbox 重放）
+- [x] **0.3.x（2026-08-30 案例固化）**：T1 token-meter 配对 → 0.3.1 W1/W2 折叠位置修复 → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize`（turn-null marker 原地中和）→ 0.3.4 `fix --clip-crossstep`（跨 step 引用裁剪）→ 0.3.5 **T2/S9/I1 规则**（跨 step 源引用 / 物理序单调 / inbox 重放）
 - [x] **0.3.6 → 0.3.15**：按被检文件版本择路的 v0–v3 规则（T3/T4/T5、L3–L5、E8/E9/E10）、宿主能力与迁移预检的退出码 `3`/`4`，以及如实报告"哪些版本**未**验证"的版本支持说明（详见 [CHANGELOG.md](CHANGELOG.md)）
 - [ ] Phase 2：运行时守护（订阅 session append 事件流实时校验，断裂即标记 `dsh/contract-violation` 事件，策略可配 告警/拦截）——DSH 插件形态
 - [ ] Phase 3：与 dsh-turn-guard / dsh-retrace 时间线联动
@@ -297,8 +297,8 @@ MIT © OfferKuai Team
 
 ## ⚠️ 升级到 0.3.17 —— 必须知道的行为变更（0.3.12 → 0.3.17）
 
-> **0.3.17 不含行为变更。** 它只重写了注释、测试标题、少量诊断文案与 README，让它们
-> 只描述产品与契约本身。所有判定结果、退出码与 `--json` 字段与 0.3.15 完全一致，
+> **0.3.17 不含行为变更。** 它只调整了注释、测试标题、少量诊断文案与 README 的措辞。
+> 所有判定结果、退出码与 `--json` 字段与 0.3.15 完全一致，
 > 因此从 0.3.12 升到 0.3.17 时，下面各条与原来完全一致。
 >
 > 0.3.15 同样只是文档层面的发布。

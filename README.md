@@ -60,8 +60,8 @@ humans and automated programs. Humans tolerate format drift; programs depend on
 strict contracts. Once the format drifts, humans see nothing wrong while programs
 crash or misreport.
 
-**Real incidents shaped most of the rules here** — see the [Incident log](#-incident-log)
-below. The incident-derived cases are pinned by regression tests: a corrupt log shape
+**Real log-corruption shapes found in production sessions shaped most of the rules here** —
+see the [Case log](#-case-log) below. The case-derived instances are pinned by regression tests: a corrupt log shape
 this tool must flag, and the repaired shape it must pass. The remaining rules come from
 line-by-line verification against the official Host source (each rule carries its
 `source`).
@@ -86,10 +86,10 @@ line-by-line verification against the official Host source (each rule carries it
 
 ---
 
-## ⚡ Incident log — why "production-grade" is not a slogan
+## ⚡ Case log — why "production-grade" is not a slogan
 
-Each entry below is a **real incident** from production sessions — the cases that
-made us build this tool. Dates and shapes are real; session ids and file names are
+Each entry below is a **real log-corruption shape** from production sessions — the cases that
+shaped this tool. Dates and shapes are real; session ids and file names are
 omitted.
 
 | # | Date | What happened | The rule / fix it produced |
@@ -201,10 +201,10 @@ dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers --apply
 - `--remove-markers`: remove retrace/message-editor markers and renumber everything
   (seq/seq0/sourceEventSeqs/surfaceOp in sync) — for large marker-shadowed history
   or markers that left dangling tools.
-- `--neutralize`: in-place neutralization of turn-null markers (incident #6) —
+- `--neutralize`: in-place neutralization of turn-null markers (case #6) —
   type → `retrace/marker` + `ignorable:true`, drops surfaceOp/sourceEventSeqs,
   seq/line count unchanged (safe while the session is resident).
-- `--clip-crossstep`: trim cross-step sourceEventSeqs (incident #6) — keep only
+- `--clip-crossstep`: trim cross-step sourceEventSeqs (case #6) — keep only
   same-turn/step chunk references.
 - Surgery safety protocol: back up first, re-verify after (strictScan + check +
   foldSurface); markers may only shadow earlier nodes; a marker must never become
@@ -326,7 +326,7 @@ boundary note in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 - [x] **Phase 1.5 (0.2.0)**: `fix` subcommand (strict seq scan + W1/W2 wire checks +
   marker removal with renumbering + official frame rebuild); CI integration
   (`dsh-log-contract check` as a scheduled guard over the Harness session dir)
-- [x] **0.3.x (2026-08-30 incident hardening)**: T1 token-meter pairing → 0.3.1 W1/W2
+- [x] **0.3.x (2026-08-30 case hardening)**: T1 token-meter pairing → 0.3.1 W1/W2
   fold-position fix → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize` (in-place
   turn-null neutralization) → 0.3.4 `fix --clip-crossstep` (cross-step clipping) →
   0.3.5 **T2/S9/I1 rules** (cross-step source refs / physical order / inbox replay)
@@ -346,8 +346,8 @@ MIT © OfferKuai Team
 
 ## ⚠️ Upgrading to 0.3.17 — behaviour changes you must know (0.3.12 → 0.3.17)
 
-> **0.3.17 changes no behaviour.** It rewrites comments, test titles, a few diagnostic strings and the
-> README so that they describe the product and its contract only. Every verdict, exit code and `--json`
+> **0.3.17 changes no behaviour.** It only adjusts the wording of comments, test titles, a few
+> diagnostic strings and the README. Every verdict, exit code and `--json`
 > field is unchanged from 0.3.15, so everything below applies unchanged when going from 0.3.12 to 0.3.17.
 >
 > 0.3.15 was a documentation-only release as well.
