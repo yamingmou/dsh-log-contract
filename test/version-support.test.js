@@ -5,6 +5,7 @@
  * 覆盖:测试基线常量、语义版本比较、宿主比基线新 ⇒ 告警、未验证格式 ⇒ 只读、
  * 无法识别格式 ⇒ 只读、已知旧格式 ⇒ 可评估（非只读）。
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { TESTED_BASELINE, compareVersions, detectSupport } from '../lib/version-support.js';
 import { validateSessionLog } from '../lib/validate.js';
@@ -14,11 +15,18 @@ import { HEADER, validSessionEvents, writeSession } from './helpers.js';
 describe('版本支持面:测试基线是常量,不是散落的注释', () => {
   it('基线声明了宿主包/版本、peer 范围、会话格式基线与已知格式集合', () => {
     expect(TESTED_BASELINE.hostPackage).toBe('@deepseek-ai/dsh-session');
-    expect(TESTED_BASELINE.hostVersion).toBe('0.1.5-rc.1');
+    expect(TESTED_BASELINE.hostVersion).toBe('0.2.0-rc.2');
     expect(TESTED_BASELINE.peerRange).toContain('0.1.0-rc.7');
     expect(TESTED_BASELINE.peerRange).toContain('0.1.5-rc.1');
-    expect(TESTED_BASELINE.sessionFormatVersion).toBe(3);
-    expect([...TESTED_BASELINE.knownFormatVersions]).toEqual([0, 1, 2, 3]);
+    expect(TESTED_BASELINE.peerRange).toContain('0.2.0-rc.1');
+    expect(TESTED_BASELINE.sessionFormatVersion).toBe(4);
+    expect([...TESTED_BASELINE.knownFormatVersions]).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('基线与 package.json 同步：peer 范围逐字相同、devDependency = 基线宿主', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    expect(pkg.peerDependencies['@deepseek-ai/dsh-session']).toBe(TESTED_BASELINE.peerRange);
+    expect(pkg.devDependencies['@deepseek-ai/dsh-session']).toBe(TESTED_BASELINE.hostVersion);
   });
 
   it('语义版本比较:预发布 < 正式版;rc 序号可比;不可解析 → null', () => {
@@ -41,10 +49,10 @@ describe('宿主版本检测:比基线新 ⇒ 明确告警(不是闷着按旧规
   });
 
   it('宿主比基线新 → newer-than-baseline + 告警文案点名版本与基线', () => {
-    const s = detectSupport({ header: { version: 3 }, events: [], hostVersion: '0.1.6-rc.1' });
+    const s = detectSupport({ header: { version: 3 }, events: [], hostVersion: '0.2.1-alpha.1' });
     expect(s.host.status).toBe('newer-than-baseline');
     expect(s.host.newerThanBaseline).toBe(true);
-    expect(s.warnings.join('\n')).toContain('0.1.6-rc.1');
+    expect(s.warnings.join('\n')).toContain('0.2.1-alpha.1');
     expect(s.warnings.join('\n')).toContain(TESTED_BASELINE.hostVersion);
     expect(s.warnings.join('\n')).toContain('未在该宿主上验证');
   });
@@ -57,10 +65,22 @@ describe('宿主版本检测:比基线新 ⇒ 明确告警(不是闷着按旧规
 });
 
 describe('被检文件格式检测:未验证 ⇒ 只读', () => {
-  it('v3(基线) → baseline、可写', () => {
-    const s = detectSupport({ header: { version: 3 }, events: [] });
-    expect(s.file).toMatchObject({ version: 3, source: 'header', status: 'baseline', known: true });
+  it('v4(基线) → baseline、可写', () => {
+    const s = detectSupport({ header: { version: 4 }, events: [] });
+    expect(s.file).toMatchObject({ version: 4, source: 'header', status: 'baseline', known: true });
     expect(s.readOnly).toBe(false);
+  });
+
+  it('v3(上一代当前格式) → legacy 档、可写（不再是 unverified）', () => {
+    const s = detectSupport({ header: { version: 3 }, events: [] });
+    expect(s.file).toMatchObject({ version: 3, source: 'header', status: 'legacy', known: true });
+    expect(s.readOnly).toBe(false);
+  });
+
+  it('无 header.version 但有 v4 判别形状（developer/message、role tool 的 tool/result）→ 推断 v4', () => {
+    expect(detectSupport({ header: null, events: [{ type: 'developer/message' }] }).file).toMatchObject({ version: 4, source: 'inferred' });
+    const toolV4 = { type: 'tool/result', data: { message: { role: 'tool' } } };
+    expect(detectSupport({ header: null, events: [{ type: 'system/message' }, toolV4] }).file).toMatchObject({ version: 4, source: 'inferred' });
   });
 
   it('v0/v2(旧格式,本包自带词表与本地折叠支持) → legacy、可写', () => {
