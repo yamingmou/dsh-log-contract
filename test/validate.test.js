@@ -190,6 +190,31 @@ describe('逐条违规规则', () => {
     }
   });
 
+  // Issue #1（外部报）：cwd 的"绝对路径"判据旧实现只认 POSIX `/` ⇒ Windows 会话**全量**误报 H2。
+  // 体检是离线/跨机只读的，不能按本机 process.platform 判；POSIX 与 Windows 形态都必须接受。
+  it('H2：header.cwd 接受 POSIX / Windows 盘符 / UNC 形态 → 不报 H2', () => {
+    const absoluteCwds = [
+      '/tmp',                              // POSIX
+      '/Users/max/opena',                  // POSIX（macOS 开发机实测形态）
+      'C:\\Users\\max\\opena',             // Windows 盘符 + 反斜杠
+      'C:/Users/max/opena',                // Windows 盘符 + 正斜杠
+      '\\\\server\\share\\sessions',       // Windows UNC（反斜杠）
+      '//server/share/sessions',           // Windows UNC（正斜杠）
+    ];
+    for (const cwd of absoluteCwds) {
+      const file = writeSession(validSessionEvents(), { header: { type: 'session', version: 4, id: 'x', createdAt: 1, cwd } });
+      expect(ids(validateSessionLog(loadSessionLog(file))), `cwd ${cwd}`).not.toContain('H2');
+    }
+  });
+
+  it('H2：header.cwd 仍拒绝相对路径 / 盘符相对 / 空串', () => {
+    const relativeCwds = ['Users/max', 'C:Users\\max', './tmp', '../tmp', '', 'a/b'];
+    for (const cwd of relativeCwds) {
+      const file = writeSession(validSessionEvents(), { header: { type: 'session', version: 4, id: 'x', createdAt: 1, cwd } });
+      expect(ids(validateSessionLog(loadSessionLog(file))), `cwd ${JSON.stringify(cwd)}`).toContain('H2');
+    }
+  });
+
   it('R1：中间行非 JSON → 违规', () => {
     const file = writeRawSession([JSON.stringify({ type: 'session', version: 0, id: 'x', createdAt: 1 }), 'garbage{{']);
     expect(ids(validateSessionLog(loadSessionLog(file)))).toContain('R1');
