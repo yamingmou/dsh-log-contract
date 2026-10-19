@@ -13,6 +13,7 @@
  *   contracts                     列出内置契约规则目录
  */
 import fs from 'node:fs';
+import { delimiter as pathDelimiter } from 'node:path';
 import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport } from '../lib/index.js';
 
 /**
@@ -39,8 +40,8 @@ const errOut = (text) => writeAllSync(2, text);
 const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log contract guard）
 
 用法：
-  dsh-log-contract check <session-log> [--json] [--max-details N] [--resume] [--fail-on-migration] [--no-fail-on-migration]
-      离线体检 + **迁移预检**（两个**独立维度**，互不蕴含）。session-log 支持 .jsonl 与 .jsonl.zstd。
+  dsh-log-contract check <session-log> [--json] [--max-details N] [--resume] [--fail-on-migration] [--no-fail-on-migration] [--archive-root DIR] [--ignorable-whitelist a,b]
+      离线体检 + **迁移预检** + **在位可还原（A1，独立维度）**。session-log 支持 .jsonl 与 .jsonl.zstd。
       ⚠️ 口径边界：本工具只判定它实现的规则集。「ok」/「可加载」/「可继续」/「可压缩」
       **不代表**会话"可用"，**不代表**可安全编辑，也**不代表**官方升级路径会接受
       （迁移是独立维度，覆盖边界见 contracts 输出与 lib/contracts.js 的 G 段）。
@@ -59,6 +60,13 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
       'partial' = **需要迁移**（version<3）：迁移维度只覆盖 2 条规则，另有 6 类未覆盖 ⇒
       **不构成"官方升级会接受"**；'none' = 本宿主能力不足以评估（文件版本 > 宿主上限）。
       机器应判 assessmentScope == "full" 才可把绿读作完整评估（partial/none 都不该）。
+      --archive-root DIR      A1「在位可还原」的归档根目录（可重复；也可用 env
+                      DSH_LOG_CONTRACT_ARCHIVE_ROOTS，按路径分隔符分隔）。**不提供 = 该维度
+                      不可判定（unverifiable），不冒充通过**。只认结构化指针
+                      （archiveRef/archive/externalized.*），⛔ 不从自由文本 grep 路径。
+      --ignorable-whitelist a,b
+                      G4 可忽略消费者白名单（精确 type 或以 / 结尾的前缀；也可用 env
+                      DSH_LOG_CONTRACT_IGNORABLE_WHITELIST）。已登记 ⇒ acceptedDrop 不阻断迁移。
       退出码：0 本工具认为可加载且无迁移阻断；1 有 error 级违规；3 不可在本宿主评估
               （被检文件版本 > 宿主支持上限，如 rc.7 宿主的 v3 文件——**不是** broken）；
               4 迁移预检 blocked（assessmentScope=partial 且 migration.ready=false；可用
@@ -202,11 +210,38 @@ function migrationLine(mig, partial = false) {
     s += `     [${v.id}] seq ${v.seq ?? '-'}${v.eventType ? ` (${v.eventType})` : ''} — ${String(v.message).slice(0, 130)}\n`;
   }
   if (n > 5) s += `     …另有 ${n - 5} 项\n`;
+  const drops = mig.acceptedDrops ?? { registered: [], unregistered: [] };
+  if (drops.registered.length > 0) {
+    s += `     声明式可忽略（G4 · 已登记 acceptedDrop，不阻断迁移）：${drops.registered.length} 项`;
+    const types = [...new Set(drops.registered.map((d) => d.eventType).filter(Boolean))];
+    if (types.length > 0) s += `（${types.slice(0, 5).join('、')}${types.length > 5 ? ' 等' : ''}）`;
+    s += '\n';
+  }
+  if (drops.unregistered.length > 0) {
+    s += `     ⛔ 声明可忽略但**未登记**（G4 warning，仍阻断迁移）：${drops.unregistered.length} 项——登记到 opts.ignorableWhitelist / DSH_LOG_CONTRACT_IGNORABLE_WHITELIST 后才移出阻断\n`;
+  }
   s += `     覆盖边界：已覆盖 ${mig.coverage.implemented.length} 条；未覆盖 ${mig.coverage.uncovered.length} 类官方迁移规则（未覆盖 ≠ 通过；判据 ${mig.coverage.note}）\n`;
   // 规格 (iii)：把未覆盖类名直接列出来，人不必开 --json 才知道边界。
   if (partial) {
     for (const [i, c] of (mig.coverage.uncovered ?? []).entries()) s += `       ${i + 1}. ${c}\n`;
   }
+  return s;
+}
+
+/**
+ * A1「在位可还原」独立维度（0.3.19 · 最小集 ⑤）。
+ * 未提供归档根 ⇒ `unverifiable`（不冒充通过）；提供后才给读数与违规。
+ */
+function archiveLines(archive) {
+  if (!archive) return '';
+  if (archive.verdict === 'unverifiable') {
+    return '   在位可还原（A1，独立维度）：— 未提供归档根目录（不可判定；加 `--archive-root DIR` 或 env DSH_LOG_CONTRACT_ARCHIVE_ROOTS 才评估）\n';
+  }
+  const rate = (archive.restorableRate * 100).toFixed(2);
+  let s = `   在位可还原（A1，独立维度，只认结构指针）：${archive.verdict === 'restorable' ? '✅' : '❌'} ${rate}%`
+    + `（指针 ${archive.pointers}，去重后 ${archive.effectivePointers ?? archive.pointers}：可还原 ${archive.restorable}`
+    + ` ／ relocated ${archive.relocated} ／ 缺失 ${archive.missing} ／ 行缺失 ${archive.lineMissing} ／ sha 不符 ${archive.shaMismatch} ／ 无法解析 ${archive.unresolved}）\n`;
+  if (archive.relocated > 0) s += '     ⚠️  relocated：绝对路径已失效但同名归档在归档根可解析（内容可找回，但不在位；re-home 未回写）\n';
   return s;
 }
 
@@ -220,7 +255,32 @@ function cmdCheck(args) {
   const noFailOnMigration = args.includes('--no-fail-on-migration');
   const maxDetailsIdx = args.indexOf('--max-details');
   const maxDetails = maxDetailsIdx >= 0 && args[maxDetailsIdx + 1] ? Number(args[maxDetailsIdx + 1]) : 8;
-  const file = args.find((a) => !a.startsWith('-'));
+  // 0.3.19：G4 白名单 / A1 归档根（可重复 `--archive-root DIR`，或 env 用 path.delimiter 分隔）。
+  const flagValues = (flag) => {
+    const vals = [];
+    for (let i = 0; i < args.length; i++) if (args[i] === flag && args[i + 1] !== undefined && !args[i + 1].startsWith('-')) vals.push(args[i + 1]);
+    return vals;
+  };
+  const archiveRoots = [
+    ...flagValues('--archive-root'),
+    ...(process.env.DSH_LOG_CONTRACT_ARCHIVE_ROOTS ? process.env.DSH_LOG_CONTRACT_ARCHIVE_ROOTS.split(pathDelimiter).filter(Boolean) : []),
+  ];
+  const whitelistRaw = [
+    ...flagValues('--ignorable-whitelist'),
+    ...(process.env.DSH_LOG_CONTRACT_IGNORABLE_WHITELIST ? [process.env.DSH_LOG_CONTRACT_IGNORABLE_WHITELIST] : []),
+  ];
+  const ignorableWhitelist = whitelistRaw.length > 0
+    ? whitelistRaw.flatMap((v) => String(v).split(',')).map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  // 取位置参数时排除所有带值开关的值（否则 `--archive-root /x` 的 /x 会被当成被检文件）。
+  const valuedFlags = new Set(['--max-details', '--archive-root', '--ignorable-whitelist']);
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a.startsWith('-')) { if (valuedFlags.has(a)) i++; continue; }
+    positional.push(a);
+  }
+  const file = positional[0];
   if (!file) fail(USAGE);
 
   let log;
@@ -229,7 +289,7 @@ function cmdCheck(args) {
   } catch (err) {
     fail(`读取失败：${err.message}`);
   }
-  const result = validateSessionLog(log);
+  const result = validateSessionLog(log, { archiveRoots, ignorableWhitelist });
   const { summary, violations, ok } = result;
   const notAssessable = result.assessable === false;
   const migration = result.migration ?? migrationVerdict(result);
@@ -244,7 +304,7 @@ function cmdCheck(args) {
   const exitCode = notAssessable ? 3 : (!ok ? 1 : (migGate ? 4 : 0));
 
   if (json) {
-    const payload = { file, ok, assessable: !notAssessable, assessmentScope: scope, host: hostCapability(), support: result.support ?? null, probes: result.probes ?? null, drift: result.drift ?? null, migration, summary, violations };
+    const payload = { file, ok, assessable: !notAssessable, assessmentScope: scope, host: hostCapability(), support: result.support ?? null, probes: result.probes ?? null, drift: result.drift ?? null, migration, summary, violations, archive: result.archive ?? null, ignorableDrops: result.ignorableDrops ?? null };
     if (notAssessable) payload.notAssessable = result.notAssessable;
     if (resume) payload.resume = resumeVerdict(result);
     out(JSON.stringify(payload, null, 2) + '\n');
@@ -280,6 +340,7 @@ function cmdCheck(args) {
     out(supportLines(result.support));
     out(driftLines(result.drift, result.probes));
     out(migrationLine(migration, partial));
+    out(archiveLines(result.archive));
     out(`\n   结论: ${icons[tier]}${migBlocked
       ? '（本工具规则集内）—— 但**迁移预检 blocked**：不得据此宣称"可升级"'
       : partial
@@ -295,6 +356,7 @@ function cmdCheck(args) {
   out(supportLines(result.support));
   out(driftLines(result.drift, result.probes));
   out(migrationLine(migration, partial));
+  out(archiveLines(result.archive));
   out('\n');
   printViolations(violations, maxDetails);
   out(`\n${ok
@@ -327,7 +389,10 @@ function cmdPrewrite(args) {
   } catch (err) {
     fail(`会话日志读取失败：${err.message}`);
   }
-  const baseline = validateSessionLog(log);
+  const prewriteWhitelist = process.env.DSH_LOG_CONTRACT_IGNORABLE_WHITELIST
+    ? process.env.DSH_LOG_CONTRACT_IGNORABLE_WHITELIST.split(',').map((x) => x.trim()).filter(Boolean)
+    : undefined;
+  const baseline = validateSessionLog(log, { ignorableWhitelist: prewriteWhitelist });
   // 版本支持面（2026-09-14 用户要求第 1 条）：**未验证格式 ⇒ 只读**，不得给出写入结论。
   if (baseline.support?.readOnly) {
     fail(`未验证的会话格式（来源 ${baseline.support.file.source}，版本 v${baseline.support.file.version}）——按只读处理，写前校验无法给出可信结论。`
@@ -343,7 +408,7 @@ function cmdPrewrite(args) {
   }
 
   // C2：把被检文件的 header 显式交给 prewriter（版本不再靠模块级全局；缺省也能自行推断）
-  const prewriter = createPreWriter({ events: log.events.map((e) => e.event), header: log.header });
+  const prewriter = createPreWriter({ events: log.events.map((e) => e.event), header: log.header, ignorableWhitelist: prewriteWhitelist });
   let result;
   if (Object.hasOwn(plan, 'append')) {
     result = prewriter.validateAppend(plan.append);
