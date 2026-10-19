@@ -22,7 +22,7 @@
 >
 > 严重度：**error** = 违反即会话不可加载/写入被拒（fail-loud）；**warning** = 合法但可疑。
 
-## 规则索引（共 46 条）
+## 规则索引（共 51 条）
 
 | id | 严重度 | 层级 | 规则 |
 |---|---|---|---|
@@ -34,7 +34,9 @@
 | E1 | error | persistence | 每个事件携带非负安全整数 seq |
 | E2 | error | persistence | seq 严格连续（单写入者假设） |
 | S9 | error | persistence | 文件物理序 seq 单调（多写入者交织现场特征） |
+| S10 | error | persistence | sourceEventSeqs 元素必须是（解码后的）非负整数；存储形态只允许官方区间对 |
 | I1 | error | engine | inbox seed 相对重放（fork 边界孤儿 spliced） |
+| I2 | error | persistence | seedLength = 继承事件条数（不是字节数）；parentSession ∧ seedLength∈{缺失,0} 合法 |
 | E3 | error | persistence | type 必须在已知词汇表内（或带 ignorable 标记） |
 | E4 | error | persistence | data 与 surface 元数据必须 JSON 无损 |
 | E5 | error | persistence | 禁用遗留词汇 |
@@ -62,6 +64,7 @@
 | M1 | error | engine | turn/step 为 null 的 assistant/message 只能 replace，不能 append |
 | P1 | warning | plugin | marker id 前缀必须被识别 |
 | P2 | error | plugin | marker 自身 seq 不得出现在自身 shadowed 集 |
+| P5 | error | plugin | carrier 两段配对：第 2 段 sourceEventSeqs 首元素 = 第 1 段（审计段）seq |
 | C1 | warning | concurrency | seq 缺口/倒退提示多写入者 |
 | Z1 | warning | framing | zstd 尾帧撕裂 |
 | Z2 | error | framing | zstd 帧解码失败 = 单帧全损 |
@@ -72,6 +75,8 @@
 | G1 | warning | migration | 迁移预检：v0 源文件的 subagent/descriptor.data.version 必须为 3 |
 | G2 | warning | migration | 迁移预检：v0 源文件不得含词表外的历史事件类型（含 ignorable） |
 | G3 | warning | migration | 迁移预检：v0 源 session/title 系列的 messageSeqs 必须引用更早的人类 user/message |
+| G4 | warning | migration | 未知历史事件声明式可忽略（ignorable:true + 白名单）——迁移不得硬拒 |
+| A1 | error | archive | 在位可还原只认结构化归档指针（archiveRef / archive / externalized.*） |
 
 ## 详细规则
 
@@ -123,11 +128,23 @@
 - **出处**: 2026-08-28 实锤（某真实会话）：文件物理序出现回退（大→小→更大）；单进程 appendCore 断言 seq==cursor+i 且按 id 串行化不可能写出
 - **契约**: 按文件物理行序要求展开后事件 seq 严格单调递增。E2 在排序后检查（loadSessionLog 会 sort），物理序倒退被掩盖；S9 在排序前按行序检查，非单调 = 多写入者/旧光标回放交织的直接现场证据，加载会被拒。
 
+### S10 — sourceEventSeqs 元素必须是（解码后的）非负整数；存储形态只允许官方区间对
+
+- **层级**: persistence ｜ **严重度**: error
+- **出处**: @deepseek-ai/dsh-session@0.2.0-rc.2 lib/index.js:963-999（encodeSeqRanges：连续 ≥3 才压缩成 `[start,end]`，即 v3+ JSONL 的存储形态）、:1000-1026（decodeSeqRanges/assertSeq：元素必须是非负安全整数，区间对只允许 `[start,end]` 且 start ≤ end、解码后严格递增）
+- **契约**: 所有事件的 `sourceEventSeqs`（**含非 surface 类型与 ignorable 未知插件事件**）原始存储形态只允许两种元素：非负安全整数、或官方区间对 `[start,end]`；经官方 `decodeSeqRanges` 解码后必须全部是非负安全整数。解码后仍为数组/非整数 = 契约违规（投影层/restore/重写路径会把它静默当成 seq，实测 v4test 即如此）⇒ 判红并给出该事件的 seq/行号。注意：`[a,b]` 本身是 v3+ 的**合法存储形态**（本机 760 份真实会话里 265 处，全部可解码），不得误报；判红点是「解码后仍非整数」与「非官方区间对形态」。
+
 ### I1 — inbox seed 相对重放（fork 边界孤儿 spliced）
 
 - **层级**: engine ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-agent lib/types/inbox.js:155-178 (apply/validate)；2026-08-28 实锤（某两个真实会话）：fork 边界 removedCount=1 孤儿
 - **契约**: 从 header.seedLength 起重放 agent/inbox/spliced，next-turn/next-step 双队列；start+removedCount 不得超过队列长、不得产生重复 pending id。fork 时"移除父待处理提示词"的 splice 假设父会话 inbox，子会话 seed 相对空 inbox 上非法 → resume 被拒（invalid persisted inbox splice）。
+
+### I2 — seedLength = 继承事件条数（不是字节数）；parentSession ∧ seedLength∈{缺失,0} 合法
+
+- **层级**: persistence ｜ **严重度**: error
+- **出处**: @deepseek-ai/dsh-session-format-v0-to-v1@0.2.0-rc.2 package/lib/index.js:1707（`seedLength` → `inheritedEventCount`，缺省 0）、:1720（`isSeeded = seedLength !== undefined`）、:1517-1520（"Session inheritedEventCount exceeds its event count" / "unseeded Session inheritedEventCount must be 0"）；v4 运行时头禁该字段：dsh-session@0.2.0-rc.2 lib/index.js:1040（"session header has invalid field \"seedLength\""）
+- **契约**: `header.seedLength` 的语义被钉死为**继承事件条数**（官方 `inheritedEventCount`），不是字节数、不是行数。判据：① 若存在必须是非负安全整数；② `seedLength > 展开后事件数` ⇒ error（官方解码/迁移直接抛 "inheritedEventCount exceeds its event count"）；③ 文件版本 ≥4 时该字段必须不存在（v4 运行时 header 校验拒）。**`parentSession` 有值 ∧ `seedLength` 缺失或 0 ⇒ 合法**：`parentSession` 只记血缘，是否 seeded 由 `seedLength` 字段是否存在决定（`isSeeded = seedLength !== undefined`；只有 unseeded 才要求 inheritedEventCount === 0）——实测本机 712/760 份真实 v3/v4 头带 `parentSession` 且无 `seedLength`（`isSeeded:false`）仍正常加载，不能判违规。真实读数（本机 29 份 v0 化石）：19 份带 `seedLength`（15 万／53 万／68 万／28 万／67 万量级），**全部 ≤ 展开后事件数**（约 69 万／59 万／72 万／39 万／317 万条），而同一文件的明文体积是 20.3–105.4 MB ⇒ `seedLength` 既不可能是字节数（差 1–2 个数量级），也不可能是行数（行数仅 1.3–7 万）⇒ 真实数据与"继承事件条数"一致，本机命中 0 例 `> 展开事件数`（判红分支是防"当字节数用"的护栏）。
 
 ### E3 — type 必须在已知词汇表内（或带 ignorable 标记）
 
@@ -291,6 +308,12 @@
 - **出处**: retrace 插件 lib/client.js:393（"event and never a surface node"）
 - **契约**: marker 的 sourceEventSeqs（= shadowedSeqs，驱动 CSS 隐藏）不得包含 marker 自身 seq——marker 节点由隐藏逻辑跳过，出现在 shadowed 集属于自指语义错误。
 
+### P5 — carrier 两段配对：第 2 段 sourceEventSeqs 首元素 = 第 1 段（审计段）seq
+
+- **层级**: plugin ｜ **严重度**: error
+- **出处**: 仓库既有两段载体形状（test/semantics-v4.test.js:108-121：`compaction/prune` 审计段 + `user/message` replace 载体）；2026-10-20 本机实测 760 份真实 v3/v4：884 个载体按现役写法（审计段 seq 在 `sourceEventSeqs[0]`，全部 user/message）；另有 1,519 个载体按**早期写法**（首元素 = 区间起点、不引用审计段 seq；user/message 1,022 + tool/result 497）⇒ 读侧必须两种都认；对照官方 compaction 的 `compaction/summary` 引用是另一形状（`[compaction/start, compaction/summary, …]`，15 例），不属本条
+- **契约**: 两段载体（第 1 段 = `compaction/prune` 审计段，带 `data.shadowedRange`/`shadowedSeqs`；第 2 段 = 紧随其后的 surface replace 载体）的配对规则：第 2 段 `sourceEventSeqs[0]` 必须等于第 1 段的 seq（现役写法），其余元素覆盖被遮蔽节点。**读侧容错（两种写法都认）**：① 现役 `[审计段 seq, ...被遮蔽节点]`；② 早期 `[区间起点, ...被遮蔽节点]`（不引用审计段 seq——实测真实语料 1,519 个载体即此写法，若判红会全成"孤儿"）。只有"审计段 seq 在中间位且首元素既非审计段也非区间起点"、或"紧邻审计段却既不引用它、首元素也不是区间起点"才报 error。**写侧**（prewrite）按现役写法严格校验：拟写载体若紧邻审计段，`sourceEventSeqs[0]` 必须是该审计段 seq，否则拒绝（早期写法在写侧被要求升级）。
+
 ### C1 — seq 缺口/倒退提示多写入者
 
 - **层级**: concurrency ｜ **严重度**: warning
@@ -350,4 +373,16 @@
 - **层级**: migration ｜ **严重度**: warning
 - **出处**: @deepseek-ai/dsh-session-format-v0-to-v1@0.1.5-rc.2 lib/index.js:2543-2556（assertTitleSources）：`session/title` 的 messageSeqs 为空 ⟺ source.kind === "user"；每个被引 seq 必须解析到 `user/message` 且其 `data.source.kind === "user"`，否则 "messageSeqs must cite earlier human user/message events" / "must be empty exactly for a user title"
 - **契约**: 文件版本 0 且事件为 session/title 或 session/title-llm-request：messageSeqs 必须是数组；session/title 的"空数组 ⟺ 用户标题"必须成立；每个被引 seq 必须是更早的 user/message 且 source.kind === "user"。违反 → 官方升级到当前格式时拒绝。**应用面说明**：官方 `assertTitleSources` 与 turn/start 状态机同在 `assertReleasedArtifactRelationships`，由 v1→v2 在**变换后的 v1/v2 artifact** 上调用（`dsh-session-format-v1-to-v2/lib/index.js:104`）；对 messageSeqs 这类按 seq 索引 + 类型/source 判定的引用，变换保序保类型 ⇒ 在原始 v0 上判是必要条件的近似，实测 281 真实 v0 上 0 误报。
+
+### G4 — 未知历史事件声明式可忽略（ignorable:true + 白名单）——迁移不得硬拒
+
+- **层级**: migration ｜ **严重度**: warning
+- **出处**: @deepseek-ai/dsh-session-format-v0-to-v1@0.2.0-rc.2 package/lib/index.js:1513-1535（assertReleasedArtifactCoordinates：`ignorableCurrent` 分支只在 allowLegacySteering=false 时生效；:1531 原文 "migration refuses unknown historical events even when ignorable"）、同处 `vocabularyNeutral` 参数（"whether unknown event types remain opaque"，未知类型按不透明事件保留的策略）
+- **契约**: 未知历史事件（不在本包 vendored v0 词表内）若带信封级 `ignorable:true`，契约层按**声明式可忽略**处置：允许按声明丢弃并登记为 `acceptedDrop`，**不得**让整条迁移硬拒（这正是"每新增一类插件事件就卡死整条迁移"的根因）。消费者白名单可注入：`opts.ignorableWhitelist` / `createPreWriter({ignorableWhitelist})` / 环境变量 `DSH_LOG_CONTRACT_IGNORABLE_WHITELIST`（逗号分隔；元素为精确 type 或以 `/` 结尾的前缀），默认 = 已知插件消费者 `retrace/`、`message-editor/`。**未登记**的未知 ignorable 事件仍报 G4 warning（⛔ 不静默），且保持迁移阻断。G2 仍**原样保留**为"官方 v0→v1 会拒"的事实预检，不放宽；本规则只把"已声明可忽略且已登记"的事件从迁移阻断移入 `acceptedDrops`。实测：本机 2 份真实 v0 化石含 `retrace/goal-marker`（ignorable），默认白名单命中 ⇒ acceptedDrops，迁移不再被它阻断。
+
+### A1 — 在位可还原只认结构化归档指针（archiveRef / archive / externalized.*）
+
+- **层级**: archive ｜ **严重度**: error
+- **出处**: 归档指针口径的外部实测（2026-10-20）：只认 `archiveRef`/`archive`/`externalized.*`，⛔ 不得从自由文本 grep 路径；两版文本口径实测全错（原版 78.26%、只认绝对路径 2.04%）；本机 763 份真实会话实测：结构化指针 273,571 个 → 按（目标,行）去重后 271,538 条记录，**可还原 271,538（100%）**、真实落空 0、行缺失 0、sha 不符 0；同批数据自由文本 `archive 第 N 行` 出现在 144,391 个事件里（口径差近 20 倍）
+- **契约**: 外置内容的"在位可还原"判定**只**从结构化字段取指针：`data.archiveRef` / `data.archive` / `data.externalized.archiveRef` / `data.externalized.archive`（校验元数据取同级 `archiveLine`/`sha256`）；⛔ **永不**从 `content`/`pointer`/散文模板等自由文本 grep 路径（实测两版全错：模板/示例会被算成引用，真实路径示例又被误计）。判据：目标文件存在 + `archiveLine` 行存在 + `sha256` 匹配 = 在位可还原；目标缺失/行缺失/sha 不符 = error；绝对路径失效但同名归档在归档根可解析 = `relocated` warning（re-home 未回写）。**按记录去重**：同一事件同时带 `archiveRef`(basename) 与 `archive`(绝对路径) 时按（目标,行）算一条记录——本机 2,033 个双字段指针即此类（其中 `/tmp` 绝对路径已失效者由 `archiveRef` 解析回 history 根，故真实落空 0，而不是把工具限制或旧路径算成内容缺失）。**独立维度**：需要归档根目录才能评估（`opts.archiveRoots` / `check --archive-root DIR`），未提供时结论为 `unverifiable`（不冒充通过，也不产生违规）。启用本维度后，真实缺失/行缺失/sha 不符是 **error**（红判据：在位可还原须 100%），会进 `ok` 与三档结论；`relocated` 只是 warning。
 
