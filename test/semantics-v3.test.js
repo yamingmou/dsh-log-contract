@@ -591,18 +591,37 @@ describe('S1 · 迁移预检（官方升级路径，独立维度）', () => {
     expect(result.violations.filter((v) => v.id === 'G1')).toHaveLength(0);
   });
 
-  it('G2：v0 源词表外 ignorable 事件 → 迁移 blocked；E3 豁免**不改**', () => {
+  it('G2：v0 源词表外 ignorable 事件 → G2 事实预检仍在，但**已登记**的可忽略事件不阻断迁移（G4）', () => {
     const result = validateSessionLog(logOf(HEADER, [userMessage({ seq: 0 }), unknownIgnorable({ seq: 1 }), turnEnd({ seq: 2 })]));
     expect(uniqueIds(result)).not.toContain('E3');      // 读取路径的 ignorable 豁免保持
     const g2 = result.violations.filter((v) => v.id === 'G2');
     expect(g2).toHaveLength(1);
     expect(g2[0].message).toMatch(/即使 ignorable|unknown historical/);
-    expect(migrationVerdict(result).ready).toBe(false);
+    expect(g2[0].ignorable).toBe(true);
+    expect(g2[0].ignorableRegistered).toBe(true);       // retrace/ 默认白名单
+    const mig = migrationVerdict(result);
+    expect(mig.ready).toBe(true);                       // 已登记 acceptedDrop ⇒ 不硬拒（G4）
+    expect(mig.acceptedDrops.registered).toHaveLength(1);
+    expect(mig.acceptedDrops.unregistered).toHaveLength(0);
   });
 
-  it('迁移预检覆盖边界显式：implemented 3 条、uncovered 非空、note 标注判据版本', () => {
+  it('G4：v0 源未登记的未知 ignorable 事件 → 仍阻断迁移（⛔ 不静默）', () => {
+    const unregistered = { type: 'third-party/unknown', seq: 1, time: 2, ignorable: true, data: { note: 'x' } };
+    const result = validateSessionLog(logOf(HEADER, [userMessage({ seq: 0 }), unregistered, turnEnd({ seq: 2 })]));
+    const g4 = result.violations.filter((v) => v.id === 'G4');
+    expect(g4).toHaveLength(1);
+    expect(g4[0].severity).toBe('warning');
+    const mig = migrationVerdict(result);
+    expect(mig.ready).toBe(false);
+    expect(mig.acceptedDrops.unregistered).toHaveLength(1);
+    // 注入白名单 ⇒ 同一文件不再阻断（显式登记机制）
+    const registered = validateSessionLog(logOf(HEADER, [userMessage({ seq: 0 }), unregistered, turnEnd({ seq: 2 })]), { ignorableWhitelist: ['third-party/'] });
+    expect(migrationVerdict(registered).ready).toBe(true);
+  });
+
+  it('迁移预检覆盖边界显式：implemented 4 条、uncovered 非空、note 标注判据版本', () => {
     const mig = migrationVerdict(validateSessionLog(logOf(HEADER, [userMessage({ seq: 0 }), turnEnd({ seq: 1 })])));
-    expect(mig.coverage.implemented.length).toBe(3);   // G1/G2 + G3(title messageSeqs)
+    expect(mig.coverage.implemented.length).toBe(4);   // G1/G2 + G3(title messageSeqs) + G4(声明式可忽略)
     expect(mig.coverage.uncovered.length).toBeGreaterThanOrEqual(4);
     expect(mig.coverage.note).toMatch(/0\.1\.5-rc\.2/);
     expect(mig.ready).toBe(true);                       // 该 v0 输入无 G 违规
