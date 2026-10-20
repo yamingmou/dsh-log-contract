@@ -59,7 +59,7 @@ strict contracts. Once the format drifts, humans see nothing wrong while program
 crash or misreport.
 
 **Real log-corruption shapes found in production sessions shaped most of the rules here** —
-see the [Case log](#-case-log) below. The case-derived instances are pinned by regression tests: a corrupt log shape
+see the [Case log](#case-log--why-production-grade-is-not-a-slogan) below. The case-derived instances are pinned by regression tests: a corrupt log shape
 this tool must flag, and the repaired shape it must pass. The remaining rules come from
 line-by-line verification against the official Host source (each rule carries its
 `source`).
@@ -110,7 +110,7 @@ Both the human-readable `check` output and the `--json` `support` field carry th
 version support: host @deepseek-ai/dsh-session@0.1.5-rc.1 (baseline 0.1.5-rc.1) | file format v3 (header, baseline)
 ```
 
-## 🆕 0.3.18 – 0.3.21 · DSH 0.2.x (session format v4) support
+## 🆕 0.3.18 – 0.3.24 · DSH 0.2.x (session format v4) support
 **Session format v4** (`@deepseek-ai/dsh-session` 0.2.x) is now validated by format-version dispatch
 rather than by relaxing the format gate:
 
@@ -367,8 +367,7 @@ Session format **v4** (host `dsh-session` 0.2.x) is supported by version dispatc
 `system/message` source); five rules were added (`G4` unknown-but-ignorable events, `S10` reference element
 types, `I2` `seedLength` semantics, `P5` carrier pairing, `A1` structured-only in-place restorability);
 large sessions (> [size]) are read line-wise and repaired with streaming frames; the Windows absolute-path
-check for `H2` is platform-aware. 0.3.22 adds a `contract/` + `adapters/dsh/` layering (behaviour unchanged;
-still **partial** — see the changelog's known-gap list). Verdicts, exit codes and `--json` fields are unchanged.
+check for `H2` is platform-aware. still **partial** — see the changelog's known-gap list). Verdicts, exit codes and `--json` fields are unchanged.
 
 > **0.3.17 changes no behaviour.** It only adjusts the wording of comments, test titles, a few
 > diagnostic strings and the README. Every verdict, exit code and `--json`
