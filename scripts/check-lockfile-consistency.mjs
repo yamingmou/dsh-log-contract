@@ -10,7 +10,9 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const argv = process.argv.slice(2)
+const rootIdx = argv.indexOf('--root')
+const ROOT = rootIdx >= 0 ? argv[rootIdx + 1] : join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkgPath = join(ROOT, 'package.json'), lockPath = join(ROOT, 'pnpm-lock.yaml')
 if (!existsSync(pkgPath) || !existsSync(lockPath)) { console.error('lockfile: 无法判定 —— 缺 package.json 或 pnpm-lock.yaml'); process.exit(2) }
 let pkg; try { pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) } catch (e) { console.error('lockfile: package.json 不可解析'); process.exit(2) }
@@ -33,7 +35,7 @@ const spec = new Map()
   }
 }
 if (spec.size < 3) { console.error(`lockfile: 无法判定 —— 只解析出 ${spec.size} 个 specifier（格式不识别）`); process.exit(2) }
-const sections = ['dependencies', 'peerDependencies', 'devDependencies']
+const sections = ['dependencies', 'devDependencies']  // peer 存解析版本，不做 specifier 逐字比对
 const bad = []
 for (const sec of sections) {
   for (const [name, want] of Object.entries(pkg[sec] || {})) {
