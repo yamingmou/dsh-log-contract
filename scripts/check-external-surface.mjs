@@ -54,6 +54,11 @@ const files = pkgFiles()
 if (!files) { console.error('external-surface: 无法判定 —— package.json 不可读'); process.exit(2) }
 const seen = new Set()
 for (const f of files) { if (f.startsWith('!')) continue; for (const file of expand(f)) seen.add(file) }
+// npm 一定会打包这些文件，与 files 白名单无关 ⇒ 必须无条件纳入
+for (const always of ['package.json', 'README.md', 'README.zh.md', 'CHANGELOG.md', 'LICENSE', 'HUMANS.txt', 'cordis.patch.yml']) {
+  const full = join(ROOT, always)
+  if (existsSync(full)) seen.add(full)
+}
 const MINF = Number(process.env.GATE_MIN_FILES || 5)
 if (seen.size < MINF) { console.error(`external-surface: 无法判定 —— 只解析出 ${seen.size} 个文件（下限 ${MINF}）（错目录/白名单失效）`); process.exit(2) }
 

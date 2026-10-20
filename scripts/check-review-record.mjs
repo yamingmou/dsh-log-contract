@@ -34,6 +34,20 @@ if (!existsSync(file)) {
     if (String(r.verdict || '').toLowerCase() !== 'pass') problems.push(`verdict 必须为 "pass"（实际 ${r.verdict ?? '缺失'}）`)
     if (!Array.isArray(r.evidence) || r.evidence.length === 0) problems.push('evidence 必须是非空数组（命令/读数/链接）')
     if (!r.date) problems.push('缺少 date')
+    // 绑定 gitHead：记录必须指向当前 HEAD（防止"改完代码再说已审过"）
+    try {
+      const { execFileSync } = await import('node:child_process')
+      const head = execFileSync('git', ['-C', process.cwd(), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+      if (!r.gitHead) problems.push('缺少 gitHead（必须绑定被审的提交）')
+      else if (r.gitHead !== head) problems.push(`gitHead 不匹配：记录 ${String(r.gitHead).slice(0,8)} ≠ HEAD ${head.slice(0,8)}`)
+    } catch { problems.push('无法读取 HEAD（无法绑定）') }
+    // reviewer 不能是占位/数字
+    if (r.reviewer && (/^[xX]+$/.test(String(r.reviewer)) || /^\d+$/.test(String(r.reviewer)))) problems.push('reviewer 像占位值（x/number）')
+    // 证据必须像可复算的命令
+    if (Array.isArray(r.evidence)) {
+      const ok = r.evidence.every((e) => typeof e === 'string' && /(node |npx |pnpm |git |npm |curl |gh )/.test(e))
+      if (!ok) problems.push('evidence 必须是可复算命令（含 node/npx/pnpm/git/npm/curl/gh 前缀）')
+    }
   }
 }
 if (problems.length && allowMissing && problems.every((p) => p.startsWith('缺少独立审核记录'))) {

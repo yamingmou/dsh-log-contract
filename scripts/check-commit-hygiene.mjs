@@ -25,7 +25,8 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 const wl = JSON.parse(readFileSync(join(ROOT, 'internal', 'wordlist.json'), 'utf8'))
 const words = Object.entries(wl).filter(([k]) => !k.startsWith('_')).flatMap(([, v]) => v)
 if (words.length < 20) { console.error('commit-hygiene: 无法判定 —— 词表异常'); process.exit(2) }
-const RE = new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')
+const regexes = Array.isArray(wl._regex) ? wl._regex : []
+const RE = new RegExp([...words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), ...regexes].join('|'), 'g')
 
 let commits
 try {
@@ -50,7 +51,7 @@ for (const line of commits.slice().reverse()) {
   // H4 过空
   if (subject && subject.trim().length < 6) warn.push(`H4 subject 过短 ${short}: "${subject}"`)
   // H3 改-撤来回
-  if (/^revert:|恢复|重新中性化/.test(subject) && /中性化|清理|去掉|移除/.test(prevSubject)) warn.push(`H3 改-撤来回 ${short}: "${prevSubject.slice(0, 32)}" → "${subject.slice(0, 32)}"`)
+  if (/^revert:|恢复|重新中性化/.test(subject) && /中性化|清理|去掉|移除/.test(prevSubject)) fail.push(`H3 改-撤来回 ${short}: "${prevSubject.slice(0, 32)}" → "${subject.slice(0, 32)}"`)
   prevSubject = subject
 }
 const result = { ok: fail.length === 0, range, commits: commits.length, fail, warn }
