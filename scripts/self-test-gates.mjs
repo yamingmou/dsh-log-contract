@@ -129,6 +129,33 @@ function makeSimplePkg(_unused, version = '0.0.2') {
   results.push({ gate: 'check-pkg-meta（缺 name/version）', expect: 1, got: r.code, ok: r.code !== 0 })
 }
 
+
+// 9) check-publish-entry：scripts 里直接 npm publish ⇒ 必须 exit 1
+{
+  const d = mkdtempSync(join(tmpdir(), 'gate-entry-'))
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+  execFileSync('git', ['init', '-q', d], { env })
+  cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
+  writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version: '0.0.1', scripts: { 'publish:naive': 'npm publish' } }, null, 2))
+  const r = run('check-publish-entry.mjs', [], d)
+  results.push({ gate: 'check-publish-entry（裸 npm publish）', expect: 1, got: r.code, ok: r.code === 1 })
+}
+// 10) check-mechanism-drift：对端机制件逻辑差异 ⇒ 必须 exit 1
+{
+  const d = mkdtempSync(join(tmpdir(), 'gate-drift-'))
+  const peer = mkdtempSync(join(tmpdir(), 'gate-drift-peer-'))
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+  execFileSync('git', ['init', '-q', d], { env })
+  cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
+  mkdirSync(join(peer, 'internal', 'scripts'), { recursive: true })
+  const src = readFileSync(join(ROOT, 'scripts', 'check-lockfile-consistency.mjs'), 'utf8')
+  writeFileSync(join(d, 'scripts', 'check-lockfile-consistency.mjs'), src)
+  // 对端：把一行逻辑改掉（非注释）
+  writeFileSync(join(peer, 'internal', 'scripts', 'check-lockfile-consistency.mjs'), src.replace('const MIN', 'const MIN_X').replace('spec.size < 3', 'spec.size < 4'))
+  const r = run('check-mechanism-drift.mjs', ['--peer', peer], d)
+  results.push({ gate: 'check-mechanism-drift（对端逻辑差异）', expect: 1, got: r.code, ok: r.code === 1 })
+}
+
 const bad = results.filter((r) => !r.ok)
 console.log('闸负对照自检：')
 for (const r of results) console.log(`  ${r.ok ? '✓' : '✗'} ${r.gate} ｜ 期望 exit ${r.expect}，实际 ${r.got}${r.sample ? ` ｜ ${r.sample}` : ''}`)
