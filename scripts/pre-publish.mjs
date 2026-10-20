@@ -10,6 +10,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
+import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -109,8 +110,8 @@ try {
 const fail = items.filter((i) => i.status === 'FAIL')
 const soft = items.filter((i) => i.status === 'WARN' || i.status === 'SKIP')
 const report = { version, at: new Date().toISOString(), gitHead: (runCmd('git', ['rev-parse', 'HEAD']).stdout || '').trim(), items, verdict: fail.length ? 'fail' : 'pass' }
-mkdirSync(join(ROOT, 'internal', 'release-reports'), { recursive: true })
-const rp = join(ROOT, 'internal', 'release-reports', `${version}-${Date.now()}.json`)
+mkdirSync(reportDir, { recursive: true })
+const reportDir = join(homedir(), '.dsh-gates', 'reports')
 writeFileSync(rp, JSON.stringify(report, null, 2))
 console.log(`发布前检查（版本 ${version}）：`)
 const mark = { PASS: '✓', FAIL: '✗', WARN: '⚠', SKIP: '·' }
