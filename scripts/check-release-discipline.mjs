@@ -46,6 +46,12 @@ function previousVersionCommit() {
 }
 
 const problems = []
+// npm latest 一致性（头注释早已声明、此前未实现）：本版本若已发布 ⇒ 不可再发
+let npmLatest = null
+try {
+  const { execFileSync: ex } = await import('node:child_process')
+  npmLatest = ex('npm', ['view', 'dsh-log-contract', 'version'], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] }).trim()
+} catch { npmLatest = null }
 let range = null
 let headPkg = null
 try {
@@ -56,6 +62,8 @@ try {
     process.exit(0)
   }
   range = `${base}..HEAD`
+  const files0 = changedFiles(range)
+  if (files0.length === 0) { console.error('release-discipline: 无法判定 —— 区间为空（--base 指向 HEAD？）'); process.exit(2) }
   const baseVer = pkgAt(base)?.version
   const headVer = headPkg?.version
   const files = changedFiles(range)
@@ -87,7 +95,11 @@ try {
   else {
     console.log(`release-discipline: 区间 ${range} ｜ 改动 ${files.length} 个文件 ｜ 版本 ${baseVer} → ${headVer}`)
     for (const w of warn) console.log(`  ↑ ${w}`)
-    if (problems.length === 0) console.log('release-discipline: ok —— 版本号使用符合纪律')
+    if (npmLatest) {
+    if (headVer === npmLatest) problems.push(`版本 ${headVer} 已是 npm latest —— 未升版本不得发布`)
+    else if (baseVer === npmLatest) console.log(`  提示：当前版本 ${headVer} 高于 npm latest ${npmLatest}，可发布`)
+  } else console.log('  提示：npm latest 未取得（离线）')
+  if (problems.length === 0) console.log('release-discipline: ok —— 版本号使用符合纪律')
     else { for (const p of problems) console.log(`  ✗ ${p}`) }
   }
   process.exit(problems.length === 0 ? 0 : 1)
