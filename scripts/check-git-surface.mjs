@@ -17,7 +17,10 @@ import { dirname, join } from 'node:path'
 const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(here, '..')
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return null } }
+const sh = (cmd, args) => {
+  try { return execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }) }
+  catch (e) { if (process.env.DEBUG_GH) console.error('gh 调用失败:', cmd, args.join(' '), '｜', (e.stderr || e.message || '').slice(0, 300)); return null }
+}
 
 const wlPath = join(ROOT, 'internal', 'wordlist.json')
 if (!existsSync(wlPath)) { console.error('git-surface: 无法判定 —— 缺 internal/wordlist.json（不允许静默弱化）'); process.exit(2) }
