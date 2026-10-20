@@ -32,8 +32,8 @@ function mkRepo() {
   execFileSync('git', ['-C', d, 'commit', '-qm', 'init'], { env })
   return { d, env }
 }
-function run(script, args, cwd) {
-  const r = spawnSync('node', [join(cwd, 'scripts', script), ...args], { cwd, encoding: 'utf8' })
+function run(script, args, cwd, env = {}) {
+  const r = spawnSync('node', [join(cwd, 'scripts', script), ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
 }
 // 1) git-surface：提交信息里带"裁决" ⇒ 必须 exit 1
@@ -42,7 +42,7 @@ function run(script, args, cwd) {
   writeFileSync(join(d, 'lib', 'b.js'), 'export const b = 2\n')
   execFileSync('git', ['-C', d, 'add', '-A'], { env })
   execFileSync('git', ['-C', d, 'commit', '-qm', 'feat: 按裁决执行'], { env })
-  const r = run('check-git-surface.mjs', [], d)
+  const r = run('check-git-surface.mjs', [], d, { GATE_MIN_FILES: '1' })
   results.push({ gate: 'git-surface（提交信息含 裁决）', expect: 1, got: r.code, ok: r.code === 1, sample: r.out.split('\n').find((l) => l.includes('裁决')) || '' })
 }
 // 2) external-surface：包内文件含内部词 ⇒ 必须 exit 1
@@ -55,7 +55,7 @@ function run(script, args, cwd) {
 }
 // 3) release-discipline：只改文档却升版本 ⇒ 必须 exit 1
 {
-  const { d, env } = makeSimplePkg([])
+  const { d, env } = makeSimplePkg([], '0.0.1')
   writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version: '0.0.2', files: ['lib/**'] }, null, 2))
   writeFileSync(join(d, 'CHANGELOG.md'), '## [0.0.2]\n\n- 只改文档\n\n## [0.0.1]\n\n- x\n')
   execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'docs: 0.0.2（只文档）'], { env })
@@ -68,15 +68,15 @@ function run(script, args, cwd) {
   const r = run('check-review-record.mjs', [], d)
   results.push({ gate: 'review-record（缺审核记录）', expect: 1, got: r.code, ok: r.code === 1 })
 }
-function makeSimplePkg() {
+function makeSimplePkg(_unused, version = '0.0.2') {
   const d = mkdtempSync(join(tmpdir(), 'gate-neg2-'))
   const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
   execFileSync('git', ['init', '-q', d], { env })
   cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
   cpSync(join(ROOT, 'internal'), join(d, 'internal'), { recursive: true })
   mkdirSync(join(d, 'lib'), { recursive: true }); writeFileSync(join(d, 'lib', 'a.js'), 'export const a=1\n')
-  writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version: '0.0.2', files: ['lib/**'] }, null, 2))
-  writeFileSync(join(d, 'CHANGELOG.md'), '## [0.0.2]\n\n- x\n\n## [0.0.1]\n\n- x\n')
+  writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version, files: ['lib/**'] }, null, 2))
+  writeFileSync(join(d, 'CHANGELOG.md'), `## [${version}]\n\n- x\n`)
   execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'init'], { env })
   return { d, env }
 }
