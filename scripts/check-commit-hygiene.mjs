@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const argv = process.argv.slice(2)
 const rangeIdx = argv.indexOf('--range')
-const range = rangeIdx >= 0 ? argv[rangeIdx + 1] : 'HEAD~30..HEAD'
+const range = rangeIdx >= 0 ? argv[rangeIdx + 1] : 'origin/main..HEAD'
 const asJson = argv.includes('--json')
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
 
@@ -32,7 +32,7 @@ try {
   // 记录分隔用 \x1e（body 可含换行）；字段分隔 \x1f
   commits = git('log', '--format=%H%x1f%s%x1f%b%x1e', range).split('\x1e').map((s) => s.replace(/^\n/, '')).filter(Boolean)
 } catch (e) { console.error('commit-hygiene: 无法判定 ——', e.message); process.exit(2) }
-if (!commits.length) { console.error('commit-hygiene: 无法判定 —— 区间无提交'); process.exit(2) }
+if (!commits.length) { console.log(`commit-hygiene: 区间 ${range} 无提交（没有要公开的提交）⇒ ok`); process.exit(0) }
 
 const fail = [], warn = []
 let prevSubject = ''
