@@ -25,13 +25,14 @@ for (const [mine, theirs] of PAIRS) {
   const a = join(ROOT, mine), b = join(PEER, theirs)
   if (!existsSync(a)) { problems.push(`本仓缺 ${mine}`); continue }
   if (!existsSync(b)) { console.error(`drift: 无法判定 —— 对端缺 ${b}`); process.exit(2) }
-  const al = readFileSync(a, 'utf8').split('\n'), bl = readFileSync(b, 'utf8').split('\n')
+  // 归一化：先剔除"已登记差异"行（同源注释 / ROOT 上跳），再逐行比较剩余内容
+  const norm = (s) => s.split('\n').filter((l) => !ALLOW_LINE.some((re) => re.test(l)))
+  const al = norm(readFileSync(a, 'utf8')), bl = norm(readFileSync(b, 'utf8'))
   compared++
   const n = Math.max(al.length, bl.length)
   for (let i = 0; i < n; i++) {
     const x = al[i] ?? '', y = bl[i] ?? ''
     if (x === y) continue
-    if (ALLOW_LINE.some((re) => re.test(x) || re.test(y))) continue
     problems.push(`${mine}:${i + 1} 与对端不一致 —— 本仓「${x.trim().slice(0, 60)}」 vs 对端「${y.trim().slice(0, 60)}」`)
   }
 }
