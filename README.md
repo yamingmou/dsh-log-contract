@@ -142,21 +142,21 @@ shaped this tool. Dates and shapes are real; session ids and file names are
 omitted.
 
 | # | Date | What happened | The rule / fix it produced |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | [n]-08-25 | A "restore hidden content" repair wrote a replace marker with **emptied `sourceEventSeqs`** → the session refused to load (`SessionPersistenceCorruptionError`); a second attempt changed the marker to **append** → the client engine crashed. Both were **violating writes that nothing caught**. | **S5** (sourceEventSeqs must cover shadowed nodes), **M1** (turn-null assistant/message can only be replace), pre-write validation |
 | 2 | [n]-08-27~28 | Interrupted/restarted turns replayed with a **stale in-memory cursor**, re-appending old seqs to the file tail (tail regression, duplicate batches); two writers interleaved → **file-physical order non-monotonic** (`[n] → [n] → [n]`). Sessions failed to load with `seq gap`. | **S9** (physical-order monotonic), fix `--tail-renumber` |
 | 3 | [n]-08-27~28 | **Fork-boundary orphan splice**: the fork's "remove parent's pending prompt" splice assumed the parent's inbox; the child's seed-relative replay has an empty inbox → `resume failed: invalid persisted inbox splice`. | **I1** (inbox seed-relative replay), fix `--neutralize-orphan` |
 | 4 | [n]-08-28 | An oversized session (**[n] tokens** vs the 1M window) could neither continue nor `/compact`; the trim budget estimator underpriced CJK by ~3.7×. | T1 (token-meter pairing) for compactability, `fix --trim-budget` guidance |
 | 5 | [n]-08-29 | **W1/W2 wire violations**: markers shadowed an assistant with tool_calls but left the tool results dangling → strict endpoints (`INVALID_REQUEST`) reject the session's request stream. | **W1 / W2** (wire message flow) |
 | 6 | [n]-08-30 | A single **turn-null marker** made the token-meter listener throw on **every** appended event (`consumedEvents` never advanced → full-prefix re-fold per event) → **30s / [n] log lines**, host event loop crushed, all sessions locked. Same session also had a **cross-step sourceEventSeqs** (steps 7/8/9 mixed in one assistant message) — offline checks were green, the live meter crashed. | **T1** (turn/step pairing), **T2** (cross-step source refs), `fix --neutralize`, `fix --clip-crossstep` |
-| 7 | [n]-08-31 | A log was compressed as a **single zstd frame** (or the header did not form its own frame) → different readers disagreed on record boundaries ⇒ **Z4/Z5** frame-shape rules (first frame = exactly one header line; body framed) |
-| 8 | [n]-08-31 | A log whose **last zstd frame was torn** mid-write could not be loaded at all, with no diagnosis ⇒ **Z1** + explicit "torn tail / in-flight write" reporting |
-| 9 | [n]-09-09 | On **session format v4**, `tool/result` uses `role: 'tool'` and `system/message` carries a `system-prompt` source → v3-shaped checks produced **thousands of false errors on healthy v4 logs** ⇒ version dispatch + **E6/E9** v4 semantics |
-| 10 | [n]-09-17 | On **Windows**, `header.cwd` was judged with POSIX-only rules → **every** session flagged by **H2** ⇒ platform-aware absolute-path check |
-| 11 | [n]-10-20 | A **> [size] session** crashed the reader (`ERR_STRING_TOO_LONG`) and repair built the whole text in memory ⇒ line-wise decode + streaming frame rebuild |
-| 12 | [n]-10-20 | Two-segment carrier references were written with the audit segment first while an earlier convention started at the range start → readers reported hundreds of **false orphan carriers** ⇒ **P5** write-side pairing + tolerant read-side |
-| 13 | [n]-10-20 | `seedLength` was read as a **byte size** by some consumers (it is the number of inherited events), and `parentSession` with missing/0 was treated as corruption ⇒ **I2** semantics pinned |
-| 14 | [n]-10-20 | An **unknown but explicitly ignorable** event type blocked an entire migration ⇒ **G4** declarative skip + allow-list |
+| 7 | [n]-08-31 | A log was compressed as a **single zstd frame** (or the header did not form its own frame) → different readers disagreed on record boundaries ⇒ **Z4/Z5** frame-shape rules (first frame = exactly one header line; body framed) |  |
+| 8 | [n]-08-31 | A log whose **last zstd frame was torn** mid-write could not be loaded at all, with no diagnosis ⇒ **Z1** + explicit "torn tail / in-flight write" reporting |  |
+| 9 | [n]-09-09 | On **session format v4**, `tool/result` uses `role: 'tool'` and `system/message` carries a `system-prompt` source → v3-shaped checks produced **thousands of false errors on healthy v4 logs** ⇒ version dispatch + **E6/E9** v4 semantics |  |
+| 10 | [n]-09-17 | On **Windows**, `header.cwd` was judged with POSIX-only rules → **every** session flagged by **H2** ⇒ platform-aware absolute-path check |  |
+| 11 | [n]-10-20 | A **> [size] session** crashed the reader (`ERR_STRING_TOO_LONG`) and repair built the whole text in memory ⇒ line-wise decode + streaming frame rebuild |  |
+| 12 | [n]-10-20 | Two-segment carrier references were written with the audit segment first while an earlier convention started at the range start → readers reported hundreds of **false orphan carriers** ⇒ **P5** write-side pairing + tolerant read-side |  |
+| 13 | [n]-10-20 | `seedLength` was read as a **byte size** by some consumers (it is the number of inherited events), and `parentSession` with missing/0 was treated as corruption ⇒ **I2** semantics pinned |  |
+| 14 | [n]-10-20 | An **unknown but explicitly ignorable** event type blocked an entire migration ⇒ **G4** declarative skip + allow-list |  |
 
 > **Takeaway**: these rules are not synthetic theory — each one is pinned by a
 > regression test that reproduces the corrupt shape it guards against. That is what
