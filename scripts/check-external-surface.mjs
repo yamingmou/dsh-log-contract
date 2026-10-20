@@ -54,7 +54,8 @@ const files = pkgFiles()
 if (!files) { console.error('external-surface: 无法判定 —— package.json 不可读'); process.exit(2) }
 const seen = new Set()
 for (const f of files) { if (f.startsWith('!')) continue; for (const file of expand(f)) seen.add(file) }
-if (seen.size < 5) { console.error(`external-surface: 无法判定 —— 只解析出 ${seen.size} 个文件（错目录/白名单失效）`); process.exit(2) }
+const MINF = Number(process.env.GATE_MIN_FILES || 5)
+if (seen.size < MINF) { console.error(`external-surface: 无法判定 —— 只解析出 ${seen.size} 个文件（下限 ${MINF}）（错目录/白名单失效）`); process.exit(2) }
 
 const hits = []
 for (const file of seen) {

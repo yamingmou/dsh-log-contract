@@ -56,7 +56,7 @@ function run(script, args, cwd, env = {}) {
   const { d, env } = makeSimplePkg([])
   writeFileSync(join(d, 'lib', 'c.js'), `// ${W_MECH} 与 ${pickWord('内部机制', 4) || ''}\n`)
   execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'x'], { env })
-  const r = run('check-external-surface.mjs', [], d)
+  const r = run('check-external-surface.mjs', [], d, { GATE_MIN_FILES: '1' })
   results.push({ gate: `external-surface（包内含 ${W_MECH}）`, expect: 1, got: r.code, ok: r.code === 1 })
 }
 // 3) release-discipline：只改文档却升版本 ⇒ 必须 exit 1
