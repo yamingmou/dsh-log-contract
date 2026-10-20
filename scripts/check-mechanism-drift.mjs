@@ -25,15 +25,18 @@ for (const [mine, theirs] of PAIRS) {
   const a = join(ROOT, mine), b = join(PEER, theirs)
   if (!existsSync(a)) { problems.push(`本仓缺 ${mine}`); continue }
   if (!existsSync(b)) { console.error(`drift: 无法判定 —— 对端缺 ${b}`); process.exit(2) }
-  // 归一化：先剔除"已登记差异"行（同源注释 / ROOT 上跳），再逐行比较剩余内容
-  const norm = (s) => s.split('\n').filter((l) => !ALLOW_LINE.some((re) => re.test(l)))
-  const al = norm(readFileSync(a, 'utf8')), bl = norm(readFileSync(b, 'utf8'))
+  // 归一化：剔除注释行与空白差异，再整体比较（允许注释/路径差异，不允许逻辑差异）
+  const norm = (s) => s.split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('//') && !l.startsWith('*') && !l.startsWith('/*') && !l.startsWith('#'))
+    .join('\n')
+  const A = norm(readFileSync(a, 'utf8')), B = norm(readFileSync(b, 'utf8'))
   compared++
-  const n = Math.max(al.length, bl.length)
-  for (let i = 0; i < n; i++) {
-    const x = al[i] ?? '', y = bl[i] ?? ''
-    if (x === y) continue
-    problems.push(`${mine}:${i + 1} 与对端不一致 —— 本仓「${x.trim().slice(0, 60)}」 vs 对端「${y.trim().slice(0, 60)}」`)
+  if (A !== B) {
+    const al = A.split('\n'), bl = B.split('\n')
+    let idx = 0
+    while (idx < al.length && idx < bl.length && al[idx] === bl[idx]) idx++
+    problems.push(`${mine}: 归一化后仍不一致（首个差异 第 ${idx + 1} 行）—— 本仓「${(al[idx] || '').slice(0, 60)}」 vs 对端「${(bl[idx] || '').slice(0, 60)}」`)
   }
 }
 console.log(`mechanism-drift: 比较 ${compared} 对 ｜ 未登记差异 ${problems.length}`)
