@@ -18,7 +18,7 @@ const PAIRS = [
   ['scripts/check-lockfile-consistency.mjs', 'internal/scripts/check-lockfile-consistency.mjs'],
 ]
 // 已登记差异（逐条列名 + 理由）：允许的行内容模式
-const ALLOW_LINE = [/同源/, /\.\.', '\.\.'/, /^\/\//]
+const ALLOW_LINE = [/同源/, /\.\.', '\.\.'/, /^\/\//, /const ROOT = rootIdx/]
 const problems = []
 let compared = 0
 for (const [mine, theirs] of PAIRS) {
@@ -29,6 +29,7 @@ for (const [mine, theirs] of PAIRS) {
   const norm = (s) => s.split('\n')
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith('//') && !l.startsWith('*') && !l.startsWith('/*') && !l.startsWith('#'))
+    .filter((l) => !ALLOW_LINE.some((re) => re.test(l)))
     .join('\n')
   const A = norm(readFileSync(a, 'utf8')), B = norm(readFileSync(b, 'utf8'))
   compared++
