@@ -1,0 +1,18 @@
+#!/bin/sh
+# pre-push：发布机制快闸（2026-10-20）
+# 跑：闸负对照自检 → GitHub 面对外信息 → 发版纪律（仅当版本变化）
+# 任何一道非 0 即拒绝推送；脚本缺失 ⇒ 拒绝（fail-closed）
+set -u
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT" || exit 1
+fail=0
+run() { echo "[pre-push] $1"; shift; if "$@"; then :; else echo "[pre-push] ✗ $1 未通过"; fail=1; fi; }
+
+for f in scripts/self-test-gates.mjs scripts/check-git-surface.mjs scripts/check-external-surface.mjs scripts/check-release-discipline.mjs; do
+  [ -f "$f" ] || { echo "[pre-push] ✗ 机制缺失：$f（fail-closed）"; exit 1; }
+done
+node scripts/self-test-gates.mjs >/dev/null 2>&1 || { echo "[pre-push] ✗ 闸负对照自检失败"; fail=1; }
+node scripts/check-git-surface.mjs   >/dev/null 2>&1 || { echo "[pre-push] ✗ GitHub 面检查未通过"; fail=1; }
+node scripts/check-external-surface.mjs >/dev/null 2>&1 || { echo "[pre-push] ✗ 对外信息检查未通过"; fail=1; }
+node scripts/check-release-discipline.mjs >/dev/null 2>&1 || { echo "[pre-push] ✗ 发版纪律未通过"; fail=1; }
+[ "$fail" = "0" ] && echo "[pre-push] 通过 ✅" || { echo "[pre-push] 已拒绝（见上）"; exit 1; }
