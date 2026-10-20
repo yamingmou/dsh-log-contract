@@ -86,7 +86,12 @@ if (repo && ghProbe) {
     }
   }
 }
-if (!ghOk) { console.error('git-surface: 无法判定 —— gh 面未取得（PR/issue/元数据未被扫描，fail-closed exit 2）'); process.exit(2) }
+if (!ghOk) {
+  // 生产语义：gh 面未取得 ⇒ fail-closed（exit 2）
+  // 例外：仅测试夹具可声明 GIT_SURFACE_ALLOW_NO_GH=1（此时只扫树+提交信息，并显式告警）
+  if (process.env.GIT_SURFACE_ALLOW_NO_GH === '1') console.error('git-surface: ⚠️ 测试模式：跳过 gh 面（只扫树+提交信息）')
+  else { console.error('git-surface: 无法判定 —— gh 面未取得（PR/issue/元数据未被扫描，fail-closed exit 2）'); process.exit(2) }
+}
 
 console.log(`git-surface: ref=${ref} ｜ 文件=${treeFiles.length} ｜ 提交=${msgs.length} ｜ gh=${ghOk ? 'ok' : '未取得'} ｜ 命中=${hits.length}`)
 for (const h of hits.slice(0, 15)) console.log(`  ✗ [${h.face}] ${h.file} — ${h.words.slice(0, 5).join(', ')}`)
