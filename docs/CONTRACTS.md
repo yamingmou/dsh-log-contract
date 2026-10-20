@@ -9,9 +9,9 @@
 > 与 `lib/prewrite.js`（写前校验）中有对应实现；离线体检（`lib/validate.js`）
 > 逐条执行并在最后用官方 `foldSurface` 终验（S8）。
 >
-> 规则来源：真实会话日志与契约缺口（持久化/客户端引擎/插件语义三层）+ 官方源码逐行核对
+> 规则来源：历史会话日志的实测事故与契约缺口（持久化/客户端引擎/插件语义三层）+ 官方源码逐行核对
 > （`@deepseek-ai/dsh-session`，各条出处见下）。后续规则随官方版本演进追加：
-> T3/T4 = 渲染层空白渲染与节点归属，T5 = malformed turn/end。
+> T3/T4 = 渲染层白屏事故复盘，T5 = malformed turn/end 事故复盘。
 >
 > **版本支持基线（本规则集验证过的版本；权威常量见 `lib/version-support.js` 的 TESTED_BASELINE）**：
 > 宿主 `@deepseek-ai/dsh-session@0.2.0-rc.2` ｜ 会话格式 **v4**（`SESSION_FORMAT_VERSION = 4`）｜
@@ -33,7 +33,7 @@
 | R3 | error | persistence | chunk 行展开后成员 seq/time 安全 |
 | E1 | error | persistence | 每个事件携带非负安全整数 seq |
 | E2 | error | persistence | seq 严格连续（单写入者假设） |
-| S9 | error | persistence | 文件物理序 seq 单调（多写入者交织特征） |
+| S9 | error | persistence | 文件物理序 seq 单调（多写入者交织现场特征） |
 | S10 | error | persistence | sourceEventSeqs 元素必须是（解码后的）非负整数；存储形态只允许官方区间对 |
 | I1 | error | engine | inbox seed 相对重放（fork 边界孤儿 spliced） |
 | I2 | error | persistence | seedLength = 继承事件条数（不是字节数）；parentSession ∧ seedLength∈{缺失,0} 合法 |
@@ -122,29 +122,29 @@
 - **出处**: @deepseek-ai/dsh-session lib/index.js:[n] (planSurfaceEvent "not contiguous")
 - **契约**: seq 必须从 0（或窗口 baseSeq）严格连续递增。缺口/倒退 = 违反单写入者假设（多实例共享存储并发写的痕迹），加载时直接 throw。
 
-### S9 — 文件物理序 seq 单调（多写入者交织特征）
+### S9 — 文件物理序 seq 单调（多写入者交织现场特征）
 
 - **层级**: persistence ｜ **严重度**: error
-- **出处**: 观测形状：多写入者交织时文件物理序可能出现回退（大→小→更大）；单进程 append 断言 seq==cursor+i 且按 id 串行化，不可能写出该形状
-- **契约**: 按文件物理行序要求展开后事件 seq 严格单调递增。E2 在排序后检查（loadSessionLog 会 sort），物理序倒退被掩盖；S9 在排序前按行序检查，非单调 = 多写入者/旧光标回放交织的直接特征证据，加载会被拒。
+- **出处**: [n]-08-28 实锤（某真实会话）：文件物理序出现回退（大→小→更大）；单进程 appendCore 断言 seq==cursor+i 且按 id 串行化不可能写出
+- **契约**: 按文件物理行序要求展开后事件 seq 严格单调递增。E2 在排序后检查（loadSessionLog 会 sort），物理序倒退被掩盖；S9 在排序前按行序检查，非单调 = 多写入者/旧光标回放交织的直接现场证据，加载会被拒。
 
 ### S10 — sourceEventSeqs 元素必须是（解码后的）非负整数；存储形态只允许官方区间对
 
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session@0.2.0-rc.2 lib/index.js:[n]-[n]（encodeSeqRanges：连续 ≥3 才压缩成 `[start,end]`，即 v3+ JSONL 的存储形态）、:[n]-[n]（decodeSeqRanges/assertSeq：元素必须是非负安全整数，区间对只允许 `[start,end]` 且 start ≤ end、解码后严格递增）
-- **契约**: 所有事件的 `sourceEventSeqs`（**含非 surface 类型与 ignorable 未知插件事件**）原始存储形态只允许两种元素：非负安全整数、或官方区间对 `[start,end]`；经官方 `decodeSeqRanges` 解码后必须全部是非负安全整数。解码后仍为数组/非整数 = 契约违规（投影层/restore/重写路径会把它静默当成 seq）⇒ 判红并给出该事件的 seq/行号。注意：`[a,b]` 本身是 v3+ 的**合法存储形态**（真实日志中该形态可正常解码），不得误报；判红点是「解码后仍非整数」与「非官方区间对形态」。
+- **契约**: 所有事件的 `sourceEventSeqs`（**含非 surface 类型与 ignorable 未知插件事件**）原始存储形态只允许两种元素：非负安全整数、或官方区间对 `[start,end]`；经官方 `decodeSeqRanges` 解码后必须全部是非负安全整数。解码后仍为数组/非整数 = 契约违规（投影层/restore/重写路径会把它静默当成 seq，实测 v4test 即如此）⇒ 判红并给出该事件的 seq/行号。注意：`[a,b]` 本身是 v3+ 的**合法存储形态**（本机 [n] 份真实会话里 [n] 处，全部可解码），不得误报；判红点是「解码后仍非整数」与「非官方区间对形态」。
 
 ### I1 — inbox seed 相对重放（fork 边界孤儿 spliced）
 
 - **层级**: engine ｜ **严重度**: error
-- **出处**: @deepseek-ai/dsh-agent lib/types/inbox.js:[n]-[n] (apply/validate)；fork 边界 removedCount=1 的孤儿 splice 形状即此形态
+- **出处**: @deepseek-ai/dsh-agent lib/types/inbox.js:[n]-[n] (apply/validate)；[n]-08-28 实锤（某两个真实会话）：fork 边界 removedCount=1 孤儿
 - **契约**: 从 header.seedLength 起重放 agent/inbox/spliced，next-turn/next-step 双队列；start+removedCount 不得超过队列长、不得产生重复 pending id。fork 时"移除父待处理提示词"的 splice 假设父会话 inbox，子会话 seed 相对空 inbox 上非法 → resume 被拒（invalid persisted inbox splice）。
 
 ### I2 — seedLength = 继承事件条数（不是字节数）；parentSession ∧ seedLength∈{缺失,0} 合法
 
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session-format-v0-to-v1@0.2.0-rc.2 package/lib/index.js:[n]（`seedLength` → `inheritedEventCount`，缺省 0）、:[n]（`isSeeded = seedLength !== undefined`）、:[n]-[n]（"Session inheritedEventCount exceeds its event count" / "unseeded Session inheritedEventCount must be 0"）；v4 运行时头禁该字段：dsh-session@0.2.0-rc.2 lib/index.js:[n]（"session header has invalid field \"seedLength\""）
-- **契约**: `header.seedLength` 的语义被钉死为**继承事件条数**（官方 `inheritedEventCount`），不是字节数、不是行数。判据：① 若存在必须是非负安全整数；② `seedLength > 展开后事件数` ⇒ error（官方解码/迁移直接抛 "inheritedEventCount exceeds its event count"）；③ 文件版本 ≥4 时该字段必须不存在（v4 运行时 header 校验拒）。**`parentSession` 有值 ∧ `seedLength` 缺失或 0 ⇒ 合法**：`parentSession` 只记血缘，是否 seeded 由 `seedLength` 字段是否存在决定（`isSeeded = seedLength !== undefined`；只有 unseeded 才要求 inheritedEventCount === 0）——真实日志中头带 `parentSession` 且无 `seedLength`（`isSeeded:false`）的会话仍正常加载，不能判违规。`seedLength` 与展开后事件条数一致，且明显小于明文体积与行数（可排除字节数/行数语义）；`> 展开事件数` 的判红分支是防"当字节数用"的护栏。
+- **契约**: `header.seedLength` 的语义被钉死为**继承事件条数**（官方 `inheritedEventCount`），不是字节数、不是行数。判据：① 若存在必须是非负安全整数；② `seedLength > 展开后事件数` ⇒ error（官方解码/迁移直接抛 "inheritedEventCount exceeds its event count"）；③ 文件版本 ≥4 时该字段必须不存在（v4 运行时 header 校验拒）。**`parentSession` 有值 ∧ `seedLength` 缺失或 0 ⇒ 合法**：`parentSession` 只记血缘，是否 seeded 由 `seedLength` 字段是否存在决定（`isSeeded = seedLength !== undefined`；只有 unseeded 才要求 inheritedEventCount === 0）——实测本机 [n]/[n] 份真实 v3/v4 头带 `parentSession` 且无 `seedLength`（`isSeeded:false`）仍正常加载，不能判违规。真实读数（本机 29 份 v0 化石）：19 份带 `seedLength`（15 万／53 万／68 万／28 万／67 万量级），**全部 ≤ 展开后事件数**（约 69 万／59 万／72 万／39 万／[n] 万条），而同一文件的明文体积是 20.3–[size] ⇒ `seedLength` 既不可能是字节数（差 1–2 个数量级），也不可能是行数（行数仅 1.3–7 万）⇒ 真实数据与"继承事件条数"一致，本机命中 0 例 `> 展开事件数`（判红分支是防"当字节数用"的护栏）。
 
 ### E3 — type 必须在已知词汇表内（或带 ignorable 标记）
 
@@ -197,8 +197,8 @@
 ### S5 — replace 的 sourceEventSeqs 必须完整覆盖被替换节点
 
 - **层级**: persistence ｜ **严重度**: error
-- **出处**: @deepseek-ai/dsh-session lib/index.js:[n]-[n] (assertProvenance)
-- **契约**: ★ 写前校验核心规则：sourceEventSeqs 必须包含每一个被替换（shadowed）的 surface 节点，缺一个 = 会话加载被拒（SessionPersistenceCorruptionError）。清空 sourceEventSeqs 即违反此规则。
+- **出处**: @deepseek-ai/dsh-session lib/index.js:[n]-[n] (assertProvenance)；复盘事故第 1 次尝试
+- **契约**: ★ 写前校验核心规则：sourceEventSeqs 必须包含每一个被替换（shadowed）的 surface 节点，缺一个 = 会话加载被拒（SessionPersistenceCorruptionError）。[n]-08-25 事故第 1 次尝试（清空 sourceEventSeqs）正是违反此规则。
 
 ### S6 — sourceEventSeqs 自身约束
 
@@ -228,54 +228,54 @@
 
 - **层级**: engine ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-token-meter lib/index.js:[n]-[n] (_estimateProviderAssistant，:[n] belongs to another step)
-- **契约**: token meter 重建 provider 输出时，逐条检查 assistant/message 的 sourceEventSeqs：指向 assistant/chunk 的引用必须与消息同 turn/step，且 seq 更早、不重复；跨 step 引用 → 官方抛 belongs to another step → 每次事件追加都重抛（consumedEvents 不前进）→ 输出放大拖垮 host。T1 只查 step 配对不查源引用，此条补盲区；修复用 fix --clip-crossstep。
+- **契约**: token meter 重建 provider 输出时，逐条检查 assistant/message 的 sourceEventSeqs：指向 assistant/chunk 的引用必须与消息同 turn/step，且 seq 更早、不重复；跨 step 引用 → 官方抛 belongs to another step → 每次事件追加都重抛（consumedEvents 不前进）→ 刷屏压垮 host（[n]-08-30 实测：某真实会话的 chunk 源引用跨 step 7/8/9）。T1 只查 step 配对不查源引用，此条补盲区；修复用 fix --clip-crossstep。
 
 ### T3 — step 节点 key 唯一（同 turn 内 step/start 的 step 号不得复用）
 
 - **层级**: engine ｜ **严重度**: error
-- **出处**: client render key = turn:step; duplicate keys cause a render deadlock (observed in real logs)
-- **契约**: 客户端渲染消息列表从事件流构建节点，节点 key = data.turn:data.step。同 turn 内两个 step/start 的 step 号相同 → key 冲突 → React 渲染死循环 → 空白渲染（正常轮与编辑块复用同 step 号即触发；同类冲突可成批出现在同一日志）。修复：同 turn 内 step 递增、整块重编号（含块内 chunk/tool/assistant）。
+- **出处**: 复盘 [n]-09-02 渲染层白屏事故：客户端渲染节点 key = turn:step，冲突 → React 渲染死循环（由离线自查脚本判出）
+- **契约**: 客户端渲染消息列表从事件流构建节点，节点 key = data.turn:data.step。同 turn 内两个 step/start 的 step 号相同 → key 冲突 → React 渲染死循环 → 白屏/不展示（实测：同一 turn 内两个 step/start 复用 step 95/1，一个来自正常轮、一个来自编辑块；后续全量扫描又发现多个同型冲突）。修复：同 turn 内 step 递增、整块重编号（含块内 chunk/tool/assistant）。
 
 ### T4 — step/消息本体 turn 缺失（null/undefined）→ 渲染死循环
 
 - **层级**: engine ｜ **严重度**: error
-- **出处**: 观测形状：编辑块的 step/start + marker + step/end 连续若干行 turn 全为 null（客户端渲染状态机无法归属）
-- **契约**: 客户端渲染状态机对 turn=null 的 step/start|step/end|assistant/message 无法归属任何 turn → 渲染死循环 → 空白渲染「载入历史」（编辑块 turn 全为 null 即触发）。user/message 天然无 turn 不查；chunk 坐标可缺失不查。step/消息本体必须带真实 turn 号。
+- **出处**: 复盘 [n]-09-01 D8 事故：retrace 0.4.17 编辑块 turn:null（离线自查脚本判致命）
+- **契约**: 客户端渲染状态机对 turn=null 的 step/start|step/end|assistant/message 无法归属任何 turn → 渲染死循环 → 白屏「载入历史」（实测：编辑块的 step/start + marker + step/end 连续若干行 turn 全为 null）。user/message 天然无 turn 不查；chunk 坐标可缺失不查。step/消息本体必须带真实 turn 号。
 
 ### T5 — turn/end 必须带 data.reason.kind
 
 - **层级**: engine ｜ **严重度**: error
-- **出处**: 官方 dsh-agent-loop lib/index.js:[n]（turn/end = {turn, reason:{kind}}）；缺 reason.kind 的 turn/end 形状即 malformed
-- **契约**: 官方 validation 强制 turn/end 的 data.reason.kind 存在（kind ∈ completed|max-tokens|blocked|aborted|error|interrupted）。缺失 = malformed → 官方 SessionPersistenceCorruptionError → 会话加载失败。观测形状：信封 turn/end 漏 reason → 每次编辑后加载失败。
+- **出处**: 官方 dsh-agent-loop lib/index.js:[n]（turn/end = {turn, reason:{kind}}）；malformed turn/end 事故（[n]-09-02，由离线自查脚本判出）
+- **契约**: 官方 validation 强制 turn/end 的 data.reason.kind 存在（kind ∈ completed|max-tokens|blocked|aborted|error|interrupted）。缺失 = malformed → 官方 SessionPersistenceCorruptionError → 会话加载失败。实测：retrace 情形③信封 turn/end 漏 reason → 每次编辑后加载失败（已修 0.4.18）。
 
 ### E7 — ignorable 未知 type 合法性（带被忽略标记的未知事件须有消费者）
 
 - **层级**: persistence ｜ **严重度**: warning
-- **出处**: E3 ignorable 无合法性校验 = 后门
+- **出处**: 实测 [n]-09-09 T2（E3 ignorable 无合法性校验 = 后门）
 - **契约**: 未知 type + ignorable:true 被读路径接纳但无人消费 = 静默垃圾。排除已知消费者白名单（retrace/marker、retrace/goal-marker、message-editor/ 前缀等 retrace 客户端消费的插件 marker）后，其余 ignorable 未知事件报 warning。
 
 ### E8 — 事件信封键白名单（多余键：seed/restore 路径会拒）
 
 - **层级**: persistence ｜ **严重度**: warning
 - **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:[n]-[n]（assertSessionEventEnvelope）+ :[n]-[n]（唯一调用点=seed 路径）；load 路径容忍见行为探针 p5
-- **契约**: 事件对象只允许 7 个信封键（type/seq/time/data/surfaceOp/sourceEventSeqs/ignorable）。行为探针订正语义：**load 路径容忍、seed/restore 路径拒** ⇒ warning。
+- **契约**: 事件对象只允许 7 个信封键（type/seq/time/data/surfaceOp/sourceEventSeqs/ignorable）。实测反例指出"宿主拒、旧契约 0 违规"；行为探针进一步订正口径：**load 路径容忍、seed/restore 路径拒** ⇒ warning。
 
 ### E9 — system/message 的 source 契约（v3 plugin / v4 system-prompt）
 
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:[n]-[n]（"must have plugin source"）；角色表 :[n]-[n]；v4：dsh-session@0.2.0-rc.2 src/index.ts:[n]-[n]（"must have system-prompt source"）
-- **契约**: v3 新增的 system/message：role 必须为 system，source.kind 必须为 plugin 且 plugin 非空。反例：source.kind='user' 宿主拒、旧契约漏检。v4（v3→v4 迁移把 @deepseek-ai/dsh-system-prompt 改写为生产者自有 kind）：source.kind 必须为 system-prompt。
+- **契约**: v3 新增的 system/message：role 必须为 system，source.kind 必须为 plugin 且 plugin 非空。实测（反例）：source.kind='user' 宿主拒、旧契约 0 违规 ⇒ 漏检。v4（v3→v4 迁移把 @deepseek-ai/dsh-system-prompt 改写为生产者自有 kind）：source.kind 必须为 system-prompt。
 
 ### E10 — request/header 的 data.header 字段约束
 
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:[n]-[n]（validateSessionEventData：omit header.system / omit empty tools / omit empty adapterDefaults）
-- **契约**: request/header 必须省略 header.system（系统提示改走 system/message）、空 tools、空 adapterDefaults。反例：带 header.system 的写入宿主拒、旧契约漏检。
+- **契约**: request/header 必须省略 header.system（系统提示改走 system/message）、空 tools、空 adapterDefaults。实测（反例）：带 header.system 的写入宿主拒、旧契约 0 违规 ⇒ 漏检。
 
 ### Z3 — 空会话文件（有 header 无事件）显式报出
 
 - **层级**: framing ｜ **严重度**: warning
-- **出处**: 事件流为空（无事件）时的显式报出：空态不在任何有内容规则的覆盖下
+- **出处**: 实测 [n]-09-09 T3（36 条规则全来自有内容事故,空态无覆盖）
 - **契约**: 有 header 但零事件 = 异常空会话（新建即空或写入未落盘）。空态不在任何有内容规则的覆盖下,显式 warning 供人判断。
 
 ### P3 — tool/call ↔ tool/result 配对完整性（考古 B1）
@@ -293,13 +293,13 @@
 ### M1 — turn/step 为 null 的 assistant/message 只能 replace，不能 append
 
 - **层级**: engine ｜ **严重度**: error
-- **出处**: 客户端引擎：append 的 turn/step-less assistant/message 触发渲染崩溃（rt.js:[n]）；实证 data.turn/data.step：正常消息为数字、插件 marker 为 null
+- **出处**: 复盘事故第 2 次尝试（rt.js:[n] 崩溃）；实证 data.turn/data.step：正常消息为数字、插件 marker 为 null
 - **契约**: data.turn/data.step 为 null 的 assistant/message（如插件 marker）只能以 replace 承载（走插件 marker 定义）；作为 append 会落进核心 assistant-step 定义，因 turn=null 发布 location data 导致客户端引擎崩溃。
 
 ### P1 — marker id 前缀必须被识别
 
 - **层级**: plugin ｜ **严重度**: warning
-- **出处**: retrace 插件 RENAME RULE（lib/client.js:29-44）
+- **出处**: retrace 插件 RENAME RULE（lib/client.js:29-44）；复盘事故
 - **契约**: assistant/message 替换事件的 message.id 以 retrace- / message-editor- 为已知前缀。未知前缀 = 改名后未登记遗留前缀，旧 marker 的隐藏语义会断裂（软兼容丢失）。
 
 ### P2 — marker 自身 seq 不得出现在自身 shadowed 集
@@ -311,8 +311,8 @@
 ### P5 — carrier 两段配对：第 2 段 sourceEventSeqs 首元素 = 第 1 段（审计段）seq
 
 - **层级**: plugin ｜ **严重度**: error
-- **出处**: 仓库既有两段载体形状（test/semantics-v4.test.js:[n]-[n]：`compaction/prune` 审计段 + `user/message` replace 载体）；真实日志中两种写法并存：审计段 seq 在 `sourceEventSeqs[0]`（现行写法）、首元素 = 区间起点且不引用审计段 seq（早期写法）⇒ 读侧必须两种都认；官方 compaction 的 `compaction/summary` 引用是另一形状（`[compaction/start, compaction/summary, …]`），不属本条
-- **契约**: 两段载体（第 1 段 = `compaction/prune` 审计段，带 `data.shadowedRange`/`shadowedSeqs`；第 2 段 = 紧随其后的 surface replace 载体）的配对规则：第 2 段 `sourceEventSeqs[0]` 必须等于第 1 段的 seq（现役写法），其余元素覆盖被遮蔽节点。**读侧容错（两种写法都认）**：① 现役 `[审计段 seq, ...被遮蔽节点]`；② 早期 `[区间起点, ...被遮蔽节点]`（不引用审计段 seq；真实日志中存在该写法，若判红会全成"孤儿"）。只有"审计段 seq 在中间位且首元素既非审计段也非区间起点"、或"紧邻审计段却既不引用它、首元素也不是区间起点"才报 error。**写侧**（prewrite）按现役写法严格校验：拟写载体若紧邻审计段，`sourceEventSeqs[0]` 必须是该审计段 seq，否则拒绝（早期写法在写侧被要求升级）。
+- **出处**: 仓库既有两段载体形状（test/semantics-v4.test.js:[n]-[n]：`compaction/prune` 审计段 + `user/message` replace 载体）；[n]-10-20 本机实测 [n] 份真实 v3/v4：[n] 个载体按现役写法（审计段 seq 在 `sourceEventSeqs[0]`，全部 user/message）；另有 [n] 个载体按**早期写法**（首元素 = 区间起点、不引用审计段 seq；user/message [n] + tool/result [n]）⇒ 读侧必须两种都认；对照官方 compaction 的 `compaction/summary` 引用是另一形状（`[compaction/start, compaction/summary, …]`，15 例），不属本条
+- **契约**: 两段载体（第 1 段 = `compaction/prune` 审计段，带 `data.shadowedRange`/`shadowedSeqs`；第 2 段 = 紧随其后的 surface replace 载体）的配对规则：第 2 段 `sourceEventSeqs[0]` 必须等于第 1 段的 seq（现役写法），其余元素覆盖被遮蔽节点。**读侧容错（两种写法都认）**：① 现役 `[审计段 seq, ...被遮蔽节点]`；② 早期 `[区间起点, ...被遮蔽节点]`（不引用审计段 seq——实测真实语料 [n] 个载体即此写法，若判红会全成"孤儿"）。只有"审计段 seq 在中间位且首元素既非审计段也非区间起点"、或"紧邻审计段却既不引用它、首元素也不是区间起点"才报 error。**写侧**（prewrite）按现役写法严格校验：拟写载体若紧邻审计段，`sourceEventSeqs[0]` 必须是该审计段 seq，否则拒绝（早期写法在写侧被要求升级）。
 
 ### C1 — seq 缺口/倒退提示多写入者
 
@@ -336,18 +336,18 @@
 
 - **层级**: framing ｜ **严重度**: error
 - **出处**: 宿主 assertZstdHeaderFrame（0.1.5-rc.2 lib/index.js:[n]）：首帧非"恰好一行"即抛
-- **契约**: 官方写盘形状是 header **独占第一帧**。首帧装多行时宿主抛错，且抛点在 listArtifacts **遍历全库**、无 per-session 容错 ⇒ **整个客户端起不来**（把整份日志重压成单帧写回即触发）。
+- **契约**: 官方写盘形状是 header **独占第一帧**。首帧装多行时宿主抛错，且抛点在 listArtifacts **遍历全库**、无 per-session 容错 ⇒ **整个客户端起不来**（[n]-09-16 真机事故：有人把整份日志重压成单帧写回）。
 
 ### Z5 — 多行日志不得压成单帧
 
 - **层级**: framing ｜ **严重度**: error
-- **出处**: 官方形状：header 第一帧 + 事件逐帧追加
+- **出处**: 官方形状：header 第一帧 + 事件批次逐帧追加
 - **契约**: 把整份日志重压成 1 帧会同时触发 Z4；任何"重写会话"的路径都必须**保形**（逐帧解、逐帧回写，或走宿主写入器），不得整体重压缩。
 
 ### W1 — wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后
 
 - **层级**: engine ｜ **严重度**: error
-- **出处**: 严格端点（如 MiMo）对悬空 tool 直接 INVALID_REQUEST（Messages with role "tool" must be a response to a preceding message with "tool_calls"）；marker 遮蔽 assistant(tool_calls) 而未盖住 tool/result、或中断回合重放重复 tool/result 写在 marker 之后都会产生
+- **出处**: [n]-08-27 实锤：MiMo 等严格端点对悬空 tool 直接 INVALID_REQUEST（Messages with role "tool" must be a response to a preceding message with "tool_calls"）；marker 遮蔽 assistant(tool_calls) 而未盖住 tool/result、或中断回合重放重复 tool/result 写在 marker 之后都会产生
 - **契约**: 按 surface 折叠顺序展开 wire 消息流：每个 role=tool 消息必须消费一个仍未满足的 assistant tool-call；不足 = 悬空（provider 拒绝）。常见来源：marker 范围漏盖 tool/result、重放重复事件。
 
 ### W2 — wire 流：user 文本不得插在 tool_calls 与其 tool 结果之间
@@ -372,17 +372,17 @@
 
 - **层级**: migration ｜ **严重度**: warning
 - **出处**: @deepseek-ai/dsh-session-format-v0-to-v1@0.1.5-rc.2 lib/index.js:[n]-[n]（assertTitleSources）：`session/title` 的 messageSeqs 为空 ⟺ source.kind === "user"；每个被引 seq 必须解析到 `user/message` 且其 `data.source.kind === "user"`，否则 "messageSeqs must cite earlier human user/message events" / "must be empty exactly for a user title"
-- **契约**: 文件版本 0 且事件为 session/title 或 session/title-llm-request：messageSeqs 必须是数组；session/title 的"空数组 ⟺ 用户标题"必须成立；每个被引 seq 必须是更早的 user/message 且 source.kind === "user"。违反 → 官方升级到当前格式时拒绝。**应用面说明**：官方 `assertTitleSources` 与 turn/start 状态机同在 `assertReleasedArtifactRelationships`，由 v1→v2 在**变换后的 v1/v2 artifact** 上调用（`dsh-session-format-v1-to-v2/lib/index.js:[n]`）；对 messageSeqs 这类按 seq 索引 + 类型/source 判定的引用，变换保序保类型 ⇒ 在原始 v0 上判是必要条件的近似。
+- **契约**: 文件版本 0 且事件为 session/title 或 session/title-llm-request：messageSeqs 必须是数组；session/title 的"空数组 ⟺ 用户标题"必须成立；每个被引 seq 必须是更早的 user/message 且 source.kind === "user"。违反 → 官方升级到当前格式时拒绝。**应用面说明**：官方 `assertTitleSources` 与 turn/start 状态机同在 `assertReleasedArtifactRelationships`，由 v1→v2 在**变换后的 v1/v2 artifact** 上调用（`dsh-session-format-v1-to-v2/lib/index.js:[n]`）；对 messageSeqs 这类按 seq 索引 + 类型/source 判定的引用，变换保序保类型 ⇒ 在原始 v0 上判是必要条件的近似，实测 [n] 真实 v0 上 0 误报。
 
 ### G4 — 未知历史事件声明式可忽略（ignorable:true + 白名单）——迁移不得硬拒
 
 - **层级**: migration ｜ **严重度**: warning
 - **出处**: @deepseek-ai/dsh-session-format-v0-to-v1@0.2.0-rc.2 package/lib/index.js:[n]-[n]（assertReleasedArtifactCoordinates：`ignorableCurrent` 分支只在 allowLegacySteering=false 时生效；:[n] 原文 "migration refuses unknown historical events even when ignorable"）、同处 `vocabularyNeutral` 参数（"whether unknown event types remain opaque"，未知类型按不透明事件保留的策略）
-- **契约**: 未知历史事件（不在本包 vendored v0 词表内）若带信封级 `ignorable:true`，契约层按**声明式可忽略**处置：允许按声明丢弃并登记为 `acceptedDrop`，**不得**让整条迁移硬拒（这正是"每新增一类插件事件就卡死整条迁移"的根因）。消费者白名单可注入：`opts.ignorableWhitelist` / `createPreWriter({ignorableWhitelist})` / 环境变量 `DSH_LOG_CONTRACT_IGNORABLE_WHITELIST`（逗号分隔；元素为精确 type 或以 `/` 结尾的前缀），默认 = 已知插件消费者 `retrace/`、`message-editor/`。**未登记**的未知 ignorable 事件仍报 G4 warning（⛔ 不静默），且保持迁移阻断。G2 仍**原样保留**为"官方 v0→v1 会拒"的事实预检，不放宽；本规则只把"已声明可忽略且已登记"的事件从迁移阻断移入 `acceptedDrops`。真实 v0 日志中 `retrace/goal-marker`（ignorable）经默认白名单命中 ⇒ acceptedDrops，迁移不再被它阻断。
+- **契约**: 未知历史事件（不在本包 vendored v0 词表内）若带信封级 `ignorable:true`，契约层按**声明式可忽略**处置：允许按声明丢弃并登记为 `acceptedDrop`，**不得**让整条迁移硬拒（这正是"每新增一类插件事件就卡死整条迁移"的根因）。消费者白名单可注入：`opts.ignorableWhitelist` / `createPreWriter({ignorableWhitelist})` / 环境变量 `DSH_LOG_CONTRACT_IGNORABLE_WHITELIST`（逗号分隔；元素为精确 type 或以 `/` 结尾的前缀），默认 = 已知插件消费者 `retrace/`、`message-editor/`。**未登记**的未知 ignorable 事件仍报 G4 warning（⛔ 不静默），且保持迁移阻断。G2 仍**原样保留**为"官方 v0→v1 会拒"的事实预检，不放宽；本规则只把"已声明可忽略且已登记"的事件从迁移阻断移入 `acceptedDrops`。实测：本机 2 份真实 v0 化石含 `retrace/goal-marker`（ignorable），默认白名单命中 ⇒ acceptedDrops，迁移不再被它阻断。
 
 ### A1 — 在位可还原只认结构化归档指针（archiveRef / archive / externalized.*）
 
 - **层级**: archive ｜ **严重度**: error
-- **出处**: 归档指针只认结构化字段（`archiveRef`/`archive`/`externalized.*`），⛔ 不得从自由文本 grep 路径（文本提取会把模板/示例误算成引用、漏掉真实指针）；按（目标,行）去重后逐条校验可还原性
-- **契约**: 外置内容的"在位可还原"判定**只**从结构化字段取指针：`data.archiveRef` / `data.archive` / `data.externalized.archiveRef` / `data.externalized.archive`（校验元数据取同级 `archiveLine`/`sha[n]`）；⛔ **永不**从 `content`/`pointer`/散文模板等自由文本 grep 路径（文本 grep 会把模板/示例误算成引用、漏掉真实指针）。判据：目标文件存在 + `archiveLine` 行存在 + `sha[n]` 匹配 = 在位可还原；目标缺失/行缺失/sha 不符 = error；绝对路径失效但同名归档在归档根可解析 = `relocated` warning（re-home 未回写）。**按记录去重**：同一事件同时带 `archiveRef`(basename) 与 `archive`(绝对路径) 时按（目标,行）算一条记录——同一记录同时带 `archiveRef`(basename) 与 `archive`(绝对路径) 时按（目标,行）算一条记录；绝对路径失效时由 `archiveRef` 在归档根解析（不计为内容缺失）。**独立维度**：需要归档根目录才能评估（`opts.archiveRoots` / `check --archive-root DIR`），未提供时结论为 `unverifiable`（不冒充通过，也不产生违规）。启用本维度后，真实缺失/行缺失/sha 不符是 **error**（红判据：在位可还原须 [n]%），会进 `ok` 与三档结论；`relocated` 只是 warning。
+- **出处**: 归档指针口径的外部实测（[n]-10-20）：只认 `archiveRef`/`archive`/`externalized.*`，⛔ 不得从自由文本 grep 路径；两版文本口径实测全错（原版 78.26%、只认绝对路径 2.04%）；本机 [n] 份真实会话实测：结构化指针 [n] 个 → 按（目标,行）去重后 [n] 条记录，**可还原 [n]（[n]%）**、真实落空 0、行缺失 0、sha 不符 0；同批数据自由文本 `archive 第 N 行` 出现在 [n] 个事件里（口径差近 20 倍）
+- **契约**: 外置内容的"在位可还原"判定**只**从结构化字段取指针：`data.archiveRef` / `data.archive` / `data.externalized.archiveRef` / `data.externalized.archive`（校验元数据取同级 `archiveLine`/`sha[n]`）；⛔ **永不**从 `content`/`pointer`/散文模板等自由文本 grep 路径（实测两版全错：模板/示例会被算成引用，真实路径示例又被误计）。判据：目标文件存在 + `archiveLine` 行存在 + `sha[n]` 匹配 = 在位可还原；目标缺失/行缺失/sha 不符 = error；绝对路径失效但同名归档在归档根可解析 = `relocated` warning（re-home 未回写）。**按记录去重**：同一事件同时带 `archiveRef`(basename) 与 `archive`(绝对路径) 时按（目标,行）算一条记录——本机 [n] 个双字段指针即此类（其中 `/tmp` 绝对路径已失效者由 `archiveRef` 解析回 history 根，故真实落空 0，而不是把工具限制或旧路径算成内容缺失）。**独立维度**：需要归档根目录才能评估（`opts.archiveRoots` / `check --archive-root DIR`），未提供时结论为 `unverifiable`（不冒充通过，也不产生违规）。启用本维度后，真实缺失/行缺失/sha 不符是 **error**（红判据：在位可还原须 [n]%），会进 `ok` 与三档结论；`relocated` 只是 warning。
 

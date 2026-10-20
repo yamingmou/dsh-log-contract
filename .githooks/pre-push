@@ -1,8 +1,0 @@
-#!/bin/sh
-# 本地 pre-push 门：语法检查 + 契约文档漂移 + 契约层纯净度（含正/负对照自检）。
-# 启用：git config core.hooksPath .githooks（详见 README「本地 Git 钩子」一节）。
-# 注意：钩子不会因 clone 自动生效；CI 才是权威门。
-set -e
-echo "[pre-push] pnpm check"
-pnpm check
-echo "[pre-push] ok"

@@ -94,13 +94,6 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
   测试基线：@deepseek-ai/dsh-session@0.1.5-rc.1 ｜ 会话格式 v3（已知 0/1/2/3；peer ^0.1.0-rc.7 || ^0.1.5-rc.1）
 ```
 
-## 🧱 架构 —— 契约层 + 平台适配器
-校验被拆成**平台无关的契约层**（`contract/`）与**平台适配器**（`adapters/dsh/`）：不变量、判定模型与规则注册表共享；
-编排入口是 `contract/runner.js`（`runContract`）；`lib/validate.js` 只是薄壳组合根。
-
-边界由机器强制：`contract/` 不得出现平台词汇、不得依赖适配器或实现层（`pnpm check:strict`，CI 与可选 pre-push 钩子同跑）。
-公开 API、51 条规则与判定结果均不变。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-
 ## 🆕 0.3.18 – 0.3.21 · 支持 DSH 0.2.x（会话格式 v4）
 **会话格式 v4**（`@deepseek-ai/dsh-session` 0.2.x）改为**按格式版本分派规则**，而不是放宽格式闸门：
 
@@ -137,7 +130,6 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 | 4 | [n]-08-28 | 超限会话（**[n] tokens** vs 1M 窗口）既无法继续也无法 `/compact`；裁剪预算估算对中文低估 ~3.7×。 | T1（token-meter 配对，保障可压缩）、`fix --trim-budget` 预算指引 |
 | 5 | [n]-08-29 | **W1/W2 wire 违规**：marker 遮蔽了带 tool_calls 的 assistant 但漏盖 tool 结果 → 悬空 tool，严格端点 `INVALID_REQUEST` 拒绝请求流。 | **W1 / W2**（wire 消息流） |
 | 6 | [n]-08-30 | 单个 **turn-null marker** 让 token-meter 监听器在**每条**追加事件上抛错（`consumedEvents` 不前进 → 每事件全前缀重折）→ **30 秒 / [n] 行日志**、host 事件循环被压垮、全部会话锁定。同会话还有**跨 step sourceEventSeqs**（step 7/8/9 混进一条 assistant 消息）——离线 check 全绿、实机 meter 崩溃。 | **T1**（turn/step 配对）、**T2**（跨 step 源引用）、`fix --neutralize`、`fix --clip-crossstep` |
-
 | 7 | [n]-08-31 | 日志被压成**单个 zstd 帧**（或 header 未单独成帧）→ 不同读取器对记录边界理解不一致 ⇒ **Z4/Z5** 帧形状规则（首帧必须恰好一行 header；正文分帧） |
 | 8 | [n]-08-31 | **尾帧在写入中被撕裂**的日志完全无法加载、且没有诊断 ⇒ **Z1** + 明确报「尾帧撕裂 / 写入中」 |
 | 9 | [n]-09-09 | **会话格式 v4** 下 `tool/result` 改用 `role:'tool'`、`system/message` 带 `system-prompt` 来源 → v3 语义的检查在**健康 v4 日志**上产出**数千条误报** ⇒ 版本分派 + **E6/E9** v4 语义 |
@@ -146,6 +138,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 | 12 | [n]-10-20 | 两段式载体引用有的把「审计段」写在前面、早期约定从区间起点开始 → 读取侧报出**数百个假孤儿载体** ⇒ **P5** 写侧成对 + 读侧容错 |
 | 13 | [n]-10-20 | `seedLength` 被部分消费方当作**字节数**（其语义是「继承事件条数」），且 `parentSession` 配缺失/0 被当成损坏 ⇒ **I2** 语义钉死 |
 | 14 | [n]-10-20 | 一种**未知但显式可忽略**的事件类型让整条迁移卡死 ⇒ **G4** 声明式跳过 + 白名单 |
+
 
 > **结论**：这些规则不是合成理论——每一条都有回归测试复现它守护的那种损坏形态。这就是这里「生产级」的含义。
 
@@ -325,9 +318,9 @@ git config --get core.hooksPath       # 验证：应输出 .githooks
 
 ---
 
-## ⚠️ 升级说明（0.3.12 → 0.3.23）
+## ⚠️ 升级说明（0.3.12 → 0.3.24）
 
-### 0.3.18 → 0.3.23 一段话说清
+### 0.3.18 → 0.3.24 一段话说清
 
 **会话格式 v4**（宿主 `dsh-session` 0.2.x）改为按版本分派判定（`tool/result` 的 role、`system/message` 的来源）；
 新增五条规则（`G4` 未知但可忽略事件、`S10` 引用元素类型、`I2` `seedLength` 语义、`P5` 载体配对、`A1` 只认结构化字段的在位可还原）；

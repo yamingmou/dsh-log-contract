@@ -231,42 +231,14 @@ turn/start 状态机规则（G4）原型在 [n] 个真实 v0 上 **0 误报**、
 
 ---
 
-## [0.3.23] — [n]-10-20 · README 重排与案例记录补全（无代码变更）
+## [0.3.24] — [n]-10-20 · README 重排与案例记录补全（无代码变更）
 
-- README（中/英）**章节重排**：版本支持 / 架构 / v4 支持前置到使用说明之前，License 收尾（此前这些节被追加在 License 之后，顺序不可读）
-- **案例记录补到 14 条**：补上 0.3.16–0.3.23 期间的真实形态（帧形状 Z4/Z5、尾帧撕裂 Z1、v4 形状漂移 E6/E9、Windows H2、>[size] [internal]、载体配对 P5、`seedLength` 语义 I2、可忽略未知事件 G4），仍为脱敏表述（无会话 id / 文件名）
-- 升级说明更新为 **0.3.12 → 0.3.23**，一段话概括 v4 支持与五条新规则
-- 无代码/判定变更：[n]→[n] 测试仅来自已有的闸门用例（本版不含新代码）
-
----
-
-## [0.3.22] — [n]-10-20 · 分层重构（patch，行为不变）：契约层 + 平台适配器
-
-**性质：行为等价的分层重构，不是已验证的跨平台抽象。** 公开 API（70 项）、51 条规则的 id/severity/layer、
-判定结果与退出码全部不变；[n] 份真实 v3 会话违规签名差异 0（[n]=[n]）。
-
-**结构（新增）**
-- `contract/`：判定与严重度模型、不变量（28）、规则描述符 schema、规则注册表、记录 schema
-- `adapters/dsh/`：事件形状、格式版本 v0–v4 路由、zstd 帧、surface/fold、迁移、宿主探针、词表；51 条规则数据在此
-- 依赖方向 `adapters → contract`；`package.json#exports` 新增 `./contract`、`./adapters/dsh`
-
-**机制（可internal）**
-- `scripts/check-core-purity.mjs` v3：`contract/**` 零平台词汇/零适配器或实现依赖；解析真实 import（含包自引用、动态/拼接导入）、
-  构造绕过（`String.fromCharCode`/base64/模板插值）、全文件类型、`adapters/*` 动态扫描面、入口 fail-closed；内建 18 条正负对照
-- `scripts/check-narrative.mjs`：公开面叙事闸（32 文件），`pnpm check` 默认 fail，`prepublishOnly` 再跑 `--strict`
-- 每条规则声明 `invariant:`；每个不变量至少被一条规则引用（机读映射测试，+7 用例）
-- 规则 `description:` 文本中性化（仅人读文案；判定/严重度/退出码不变）
-
-**测试**：[n] passed / 2 skipped（[n] 基线零回归 + 7 条映射断言）；干净 clone [n]/2
-
-**已知缺口（batch 4，未完成，勿宣称跨平台可用）**
-- `contract/` 仍会发出平台规则 id（14 处）；`A1` 的在位可还原指针形状（`archiveLine`/`archiveRoot`/`sha[n]`/`externalized`）仍在 contract
-- 28 个不变量中仅 9 个在 contract 有可执行实现；不变量接口返回形状未统一
-- 无平台无关编排入口：唯一入口 `lib/validate.js` 仍含 [n] 行平台编排；`lib/repair.js`/`prewrite.js`/`archaeology.js` 未下沉
-- `check-core-purity --future` 词表实测 17 处（全在 A1），随 A1 下沉后并入正式词表
+- README（中/英）章节重排：版本支持与 v4 支持前置到使用说明之前，License 收尾
+- 案例记录补到 14 条：补上 0.3.16–0.3.23 期间的真实损坏形态（帧形状、尾帧撕裂、v4 形状漂移、Windows 路径判定、>[size] [internal]、载体配对、seedLength 语义、可忽略未知事件），仍为脱敏表述
+- 升级说明更新为 0.3.12 → 0.3.24
+- 判定逻辑、规则集、退出码均不变
 
 ---
-
 
 ## [0.3.21] — [n]-10-20 · README 补写（0.3.18–0.3.20 的能力与兼容性）
 

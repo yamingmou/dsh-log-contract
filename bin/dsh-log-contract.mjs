@@ -42,7 +42,7 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
 用法：
   dsh-log-contract check <session-log> [--json] [--max-details N] [--resume] [--fail-on-migration] [--no-fail-on-migration] [--archive-root DIR] [--ignorable-whitelist a,b]
       离线体检 + **迁移预检** + **在位可还原（A1，独立维度）**。session-log 支持 .jsonl 与 .jsonl.zstd。
-      ⚠️ 判据边界：本工具只判定它实现的规则集。「ok」/「可加载」/「可继续」/「可压缩」
+      ⚠️ 口径边界：本工具只判定它实现的规则集。「ok」/「可加载」/「可继续」/「可压缩」
       **不代表**会话"可用"，**不代表**可安全编辑，也**不代表**官方升级路径会接受
       （迁移是独立维度，覆盖边界见 contracts 输出与 lib/contracts.js 的 G 段）。
       --json          输出机器可读 JSON 报告（含 host / assessable / assessmentScope / migration 字段）
@@ -73,14 +73,14 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
               --no-fail-on-migration 退出该档）。
 
   dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--neutralize-legacy-markers] [--clip-crossstep] [--drop-failed-turns] [--trim-last N] [--compact-last N] [--tail-renumber D] [--neutralize-orphan] [--extract-turn N] [--keep-ranges a-b,c-d] [--apply] [--backup-dir DIR] [--json]
-      诊断 + 修复。先做严格 seq 连续扫描 + 契约体检
+      诊断 + 修复（[n]-08 事故固化方案）。先做严格 seq 连续扫描 + 契约体检
       （含 W1/W2 wire 级悬空 tool 检查），再按需修复：
       --remove-markers 移除 retrace/message-editor marker 并全量重编号
                        （用于大范围遮蔽历史 / marker 漏盖 tool/result）
       --clip-crossstep 裁剪 assistant/message 的跨 step sourceEventSeqs（token-meter 不再抛 belongs to another step）
       --neutralize     原地中和 turn-null marker（type→retrace/marker +
                        ignorable:true，删 surfaceOp/sourceEventSeqs，seq/行数不变）
-                       —— token-meter 不再刷屏，会话驻留也安全
+                       —— token-meter 不再刷屏，会话驻留也安全（[n]-08-30 事故）
       --neutralize-legacy-markers
                        **一次性根治历史载体债**：只中和
                        assistant/message + data.editor 形态的历史 retrace marker
@@ -447,7 +447,7 @@ function cmdPrewrite(args) {
 }
 
 function cmdContracts() {
-  out('dsh-log-contract 契约规则目录（spec：官方源码逐行核对）\n\n');
+  out('dsh-log-contract 契约规则目录（spec：官方源码逐行核对 + 实测事故固化）\n\n');
   for (const r of CONTRACT_RULES) {
     const flags = [
       r.candidate ? '候选规则' : null,

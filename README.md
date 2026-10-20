@@ -110,22 +110,6 @@ Both the human-readable `check` output and the `--json` `support` field carry th
 version support: host @deepseek-ai/dsh-session@0.1.5-rc.1 (baseline 0.1.5-rc.1) | file format v3 (header, baseline)
 ```
 
-## 🧱 Architecture — contract layer + platform adapter
-Validation is split into a **platform-agnostic contract layer** (`contract/`) and a **platform adapter**
-(`adapters/dsh/`): invariants, verdict model and the rule registry are shared; event shapes, format
-versions (v0–v4), zstd framing and surface semantics live in the adapter. Adding another host platform is intended to
-mean writing one adapter; the split is extracted and enforced today, while the adapter-facing API
-The platform-neutral orchestration entry is `contract/runner.js` (`runContract`); `lib/validate.js` is a thin composition root.
-
-The boundary is machine-enforced: `contract/` may contain no platform vocabulary and no adapter/implementation
-imports (`pnpm check:strict`, also in CI and the optional pre-push hook). The public API, rule set (51 rules)
-and verdicts are unchanged.
-
-**Current status: partial.** The split is extracted and machine-enforced, but a second adapter is **not yet
-drop-in**: the contract layer still emits platform rule ids for some invariants, and there is no
-The platform-neutral orchestration entry is `contract/runner.js` (`runContract`); `lib/validate.js` is a thin composition root.
-See "Known gaps" in the changelog for the tracked follow-up list. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
 ## 🆕 0.3.18 – 0.3.21 · DSH 0.2.x (session format v4) support
 **Session format v4** (`@deepseek-ai/dsh-session` 0.2.x) is now validated by format-version dispatch
 rather than by relaxing the format gate:
@@ -375,9 +359,9 @@ boundary note in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 
 ---
 
-## ⚠️ Upgrading — behaviour notes (0.3.12 → 0.3.23)
+## ⚠️ Upgrading — behaviour notes (0.3.12 → 0.3.24)
 
-### 0.3.18 → 0.3.23 in one paragraph
+### 0.3.18 → 0.3.24 in one paragraph
 
 Session format **v4** (host `dsh-session` 0.2.x) is supported by version dispatch (`tool/result` role,
 `system/message` source); five rules were added (`G4` unknown-but-ignorable events, `S10` reference element
