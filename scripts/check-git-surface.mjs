@@ -57,6 +57,7 @@ for (let i = 0; i + 2 < msgs.length; i += 3) {
 let ghOk = false
 const repo = sh('git', ['-C', ROOT, 'config', '--get', 'remote.origin.url'])?.trim().match(/github\.com[:/]([^/]+)\/([^/.]+)/)
 const ghProbe = repo ? sh('gh', ['api', 'repos/' + repo[1] + '/' + repo[2], '--jq', '.full_name']) : null
+if (repo && !ghProbe) console.error('git-surface: gh 探测失败 repo=' + repo[1] + '/' + repo[2] + '（gh 未认证或无网络）')
 if (repo && ghProbe) {
   const [owner, name] = [repo[1], repo[2]]
   const pr = sh('gh', ['api', `repos/${owner}/${name}/pulls?state=all&per_page=100`, '--jq', '.[]|"\(.title) \(.body // "")"'])
