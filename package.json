@@ -26,8 +26,7 @@
     "docs/**/*.md",
     "README.md",
     "LICENSE",
-    "README.zh.md",
-    "!docs/发布流水线-机制.md"
+    "README.zh.md"
   ],
   "scripts": {
     "check": "node scripts/check-syntax.mjs && node scripts/gen-contracts-doc.mjs --check",
