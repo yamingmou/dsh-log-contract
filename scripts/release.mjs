@@ -91,7 +91,6 @@ for (let i = 0; i < 12; i++) {
   console.log(`  … registry 尚未可见，第 ${i + 1}/12 次，等 20s`); await new Promise((r) => setTimeout(r, 20000))
 }
 if (!reg) fail('registry 读取失败')
-const __unused = JSON.parse(cap('node', ['-e', `0`])).replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1'))
 if (!reg.versions[version]) fail(`registry 里查不到 ${version}`)
 const url = reg.versions[version].dist.tarball
 const dir = mkdtempSync(join(tmpdir(), 'rel-check-'))

@@ -83,6 +83,7 @@ try {
       const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       FORMS.push([`词表·${label}`, new RegExp(words.map(esc).join('|'))])
     }
+    if (Array.isArray(wl._regex) && wl._regex.length) FORMS.push(['词表·_regex', new RegExp(wl._regex.join('|'))])
     console.log('external-surface: 已载入单一词表 internal/wordlist.json')
   }
 } catch (e) { console.log('external-surface: 词表载入失败，使用内置规则：', e.message) }
