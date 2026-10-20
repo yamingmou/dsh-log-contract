@@ -36,7 +36,8 @@ const scan = (text) => { const m = String(text).match(RE); return m ? [...new Se
 const ref = (() => { try { git('rev-parse', '--verify', 'origin/main') ; return 'origin/main' } catch { return 'HEAD' } })()
 let treeFiles
 try { treeFiles = git('ls-tree', '-r', '--name-only', ref).split('\n').filter(Boolean) } catch (e) { console.error('git-surface: 无法判定 —— 取不到树', e.message); process.exit(2) }
-if (treeFiles.length < 20) { console.error(`git-surface: 无法判定 —— ${ref} 只有 ${treeFiles.length} 个文件（疑似浅克隆/错 ref）`); process.exit(2) }
+const MIN = Number(process.env.GATE_MIN_FILES || 20)
+if (treeFiles.length < MIN) { console.error(`git-surface: 无法判定 —— ${ref} 只有 ${treeFiles.length} 个文件（下限 ${MIN}）（疑似浅克隆/错 ref）`); process.exit(2) }
 
 const hits = []
 // ① 树
