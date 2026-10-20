@@ -25,10 +25,11 @@ let words = []
 try {
   const wl = JSON.parse(readFileSync(wlPath, 'utf8'))
   for (const [k, v] of Object.entries(wl)) if (!k.startsWith('_') && Array.isArray(v)) for (const w of v) words.push(w)
+  const regexes = Array.isArray(wl._regex) ? wl._regex : []
 } catch (e) { console.error('git-surface: 词表不可解析 ——', e.message); process.exit(2) }
 if (words.length < 20) { console.error(`git-surface: 无法判定 —— 词表仅 ${words.length} 条（疑似损坏）`); process.exit(2) }
 const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const RE = new RegExp(words.map(esc).join('|'), 'g')
+const RE = new RegExp([...words.map(esc), ...regexes].join('|'), 'g')
 const scan = (text) => { const m = String(text).match(RE); return m ? [...new Set(m)] : [] }
 
 const ref = (() => { try { git('rev-parse', '--verify', 'origin/main') ; return 'origin/main' } catch { return 'HEAD' } })()
