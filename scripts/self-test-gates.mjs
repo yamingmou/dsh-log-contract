@@ -8,7 +8,7 @@
  * 用法：node scripts/self-test-gates.mjs [--json]
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { cpSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { cpSync, mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,6 +16,12 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(here, '..')
 const results = []
+// 内部词一律从词表运行时读取 —— 本文件自身不得含内部词（否则被自己的闸判红）
+const WL = JSON.parse(readFileSync(join(ROOT, 'internal', 'wordlist.json'), 'utf8'))
+const pickWord = (cat, i = 0) => (WL[cat] || [])[i]
+const W_PROCESS = pickWord('内部流程', 0)      // 例：裁决类
+const W_MECH = pickWord('内部机制', 0)          // 例：三折类
+
 function mkRepo() {
   const d = mkdtempSync(join(tmpdir(), 'gate-neg-'))
   const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
@@ -41,17 +47,17 @@ function run(script, args, cwd, env = {}) {
   const { d, env } = mkRepo()
   writeFileSync(join(d, 'lib', 'b.js'), 'export const b = 2\n')
   execFileSync('git', ['-C', d, 'add', '-A'], { env })
-  execFileSync('git', ['-C', d, 'commit', '-qm', 'feat: 按裁决执行'], { env })
+  execFileSync('git', ['-C', d, 'commit', '-qm', `feat: 按${W_PROCESS}执行`], { env })
   const r = run('check-git-surface.mjs', [], d, { GATE_MIN_FILES: '1' })
-  results.push({ gate: 'git-surface（提交信息含 裁决）', expect: 1, got: r.code, ok: r.code === 1, sample: r.out.split('\n').find((l) => l.includes('裁决')) || '' })
+  results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}）`, expect: 1, got: r.code, ok: r.code === 1, sample: r.out.split('\n').find((l) => l.includes(W_PROCESS)) || '' })
 }
 // 2) external-surface：包内文件含内部词 ⇒ 必须 exit 1
 {
   const { d, env } = makeSimplePkg([])
-  writeFileSync(join(d, 'lib', 'c.js'), '// 三段式折叠 与 私有能力\n')
+  writeFileSync(join(d, 'lib', 'c.js'), `// ${W_MECH} 与 ${pickWord('内部机制', 4) || ''}\n`)
   execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'x'], { env })
   const r = run('check-external-surface.mjs', [], d)
-  results.push({ gate: 'external-surface（包内含内部词）', expect: 1, got: r.code, ok: r.code === 1 })
+  results.push({ gate: `external-surface（包内含 ${W_MECH}）`, expect: 1, got: r.code, ok: r.code === 1 })
 }
 // 3) release-discipline：只改文档却升版本 ⇒ 必须 exit 1
 {
