@@ -19,14 +19,17 @@ const lock = readFileSync(lockPath, 'utf8')
 const spec = new Map()
 {
   const lines = lock.split('\n')
-  let cur = null
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i]
-    const specM = l.match(/^\s*specifier:\s*(.+?)\s*$/)
-    if (specM) { if (cur) spec.set(cur, specM[1].replace(/^['"]|['"]$/g, '')); continue }
-    const keyM = l.match(/^\s{2,6}(@?[\w@./-]+):\s*$/)
-    if (keyM) { cur = keyM[1]; continue }
-    if (/^\S/.test(l) || /^\s{0,1}[a-zA-Z]/.test(l)) { if (!/^\s*specifier:/.test(l)) { /* 顶层块开始，保留 cur 以便紧跟 specifier */ } }
+    const sm = lines[i].match(/^(\s*)specifier:\s*(.+?)\s*$/)
+    if (!sm) continue
+    const indent = sm[1].length
+    // 向上找最近的、缩进小于 specifier 的键行 = 包名
+    let name = null
+    for (let j = i - 1; j >= 0 && j > i - 30; j--) {
+      const km = lines[j].match(/^(\s*)(['"]?)(@?[\w@./-]+)\2:\s*$/)
+      if (km && km[1].length < indent) { name = km[3]; break }
+    }
+    if (name) spec.set(name, sm[2].replace(/^['"]|['"]$/g, ''))
   }
 }
 if (spec.size < 3) { console.error(`lockfile: 无法判定 —— 只解析出 ${spec.size} 个 specifier（格式不识别）`); process.exit(2) }
