@@ -56,7 +56,8 @@ for (let i = 0; i + 2 < msgs.length; i += 3) {
 // ③ PR/issue + 元数据（gh 不可用时明确标注"未取得"，不计入通过）
 let ghOk = false
 const repo = sh('git', ['-C', ROOT, 'config', '--get', 'remote.origin.url'])?.trim().match(/github\.com[:/]([^/]+)\/([^/.]+)/)
-if (repo && sh('bash', ['-lc', 'command -v gh'])) {
+const ghProbe = repo ? sh('gh', ['api', 'repos/' + repo[1] + '/' + repo[2], '--jq', '.full_name']) : null
+if (repo && ghProbe) {
   const [owner, name] = [repo[1], repo[2]]
   const pr = sh('gh', ['api', `repos/${owner}/${name}/pulls?state=all&per_page=100`, '--jq', '.[]|"\(.title) \(.body // "")"'])
   const is = sh('gh', ['api', `repos/${owner}/${name}/issues?state=all&per_page=100`, '--jq', '.[]|"\(.title) \(.body // "")"'])
