@@ -31,7 +31,7 @@
   "scripts": {
     "check": "node scripts/check-syntax.mjs && node scripts/gen-contracts-doc.mjs --check",
     "test": "vitest run",
-    "prepublishOnly": "node scripts/check-pkg-meta.mjs && node scripts/prepublish-gate.mjs && pnpm check && pnpm test",
+    "prepublishOnly": "node scripts/check-pkg-meta.mjs && node internal/scripts/prepublish-gate.mjs && pnpm check && pnpm test",
     "surface:check": "node scripts/check-external-surface.mjs",
     "review:check": "node scripts/check-review-record.mjs",
     "release:check": "node scripts/check-release-discipline.mjs && node scripts/check-external-surface.mjs && node scripts/check-review-record.mjs",
