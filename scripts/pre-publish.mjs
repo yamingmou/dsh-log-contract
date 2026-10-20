@@ -114,8 +114,8 @@ try {
 const fail = items.filter((i) => i.status === 'FAIL')
 const soft = items.filter((i) => i.status === 'WARN' || i.status === 'SKIP')
 const report = { version, at: new Date().toISOString(), gitHead: (runCmd('git', ['rev-parse', 'HEAD']).stdout || '').trim(), items, verdict: fail.length ? 'fail' : 'pass' }
-mkdirSync(reportDir, { recursive: true })
 const reportDir = join(homedir(), '.dsh-gates', 'reports')
+mkdirSync(reportDir, { recursive: true })
 writeFileSync(rp, JSON.stringify(report, null, 2))
 console.log(`发布前检查（版本 ${version}）：`)
 const mark = { PASS: '✓', FAIL: '✗', WARN: '⚠', SKIP: '·' }
