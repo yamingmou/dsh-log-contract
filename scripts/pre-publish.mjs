@@ -33,6 +33,8 @@ else add('工作区干净', 'PASS')
 const gates = [
   ['锁文件一致', 'scripts/check-lockfile-consistency.mjs'],
   ['发布泄漏闸（两包口径）', 'internal/scripts/prepublish-gate.mjs'],
+  ['发布入口唯一性', 'scripts/check-publish-entry.mjs'],
+  ['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs'],
   ['提交卫生', 'scripts/check-commit-hygiene.mjs'],
   ['发版纪律', 'scripts/check-release-discipline.mjs'],
   ['对外信息（发布集）', 'scripts/check-external-surface.mjs'],
@@ -44,7 +46,16 @@ for (const [name, script] of gates) {
   if (!existsSync(join(ROOT, script))) { add(name, 'FAIL', `脚本缺失 ${script}（fail-closed）`); continue }
   if (name === '提交卫生') {
     const br = (runCmd('git', ['branch', '--show-current']).stdout || '').trim()
-    if (br !== 'main') { add(name, 'SKIP', `内部分支 ${br}：不用于公开发布`); continue }
+    const r = runNode(script)
+    const out = ((r.stdout || '') + (r.stderr || '')).trim()
+    if (br !== 'main') {
+      // 内部分支的提交不会公开 —— 但**不允许静默**：违规条数必须显式列出（WARN，不判 FAIL）
+      const m = out.match(/违规\s*(\d+)/)
+      add(name, r.status === 0 ? 'PASS' : 'WARN', `内部分支 ${br}（不公开）｜${m ? `违规 ${m[1]} 条` : '有违规'}｜${(out.split('\n').find((l) => l.includes('✗')) || '').trim().slice(0, 90)}`)
+      continue
+    }
+    add(name, r.status === 0 ? 'PASS' : 'FAIL', r.status === 0 ? '' : out.split('\n').slice(-2).join(' ｜ ').slice(0, 160))
+    continue
   }
   const r = runNode(script)
   const out = ((r.stdout || '') + (r.stderr || '')).trim().split('\n')
@@ -96,11 +107,12 @@ try {
 }
 
 const fail = items.filter((i) => i.status === 'FAIL')
+const soft = items.filter((i) => i.status === 'WARN' || i.status === 'SKIP')
 const report = { version, at: new Date().toISOString(), gitHead: (runCmd('git', ['rev-parse', 'HEAD']).stdout || '').trim(), items, verdict: fail.length ? 'fail' : 'pass' }
 mkdirSync(join(ROOT, 'internal', 'release-reports'), { recursive: true })
 const rp = join(ROOT, 'internal', 'release-reports', `${version}-${Date.now()}.json`)
 writeFileSync(rp, JSON.stringify(report, null, 2))
 console.log(`发布前检查（版本 ${version}）：`)
 for (const i of items) console.log(`  ${i.status === 'PASS' ? '✓' : i.status === 'SKIP' ? '·' : '✗'} ${i.name}${i.detail ? ` — ${i.detail}` : ''}`)
-console.log(`\n${fail.length ? `✗ ${fail.length} 项未通过 ⇒ 不可发布` : '✅ 全部通过 ⇒ 可发布'} ｜ 报告 ${rp.replace(ROOT + '/', '')}`)
+console.log(`\n${fail.length ? `✗ ${fail.length} 项未通过 ⇒ 不可发布` : '✅ 全部 PASS ⇒ 可发布'}${soft.length ? ` ｜ ⚠️ ${soft.length} 项 WARN/SKIP（不等同通过）` : ''} ｜ 报告 ${rp.replace(ROOT + '/', '')}`)
 process.exit(fail.length ? 1 : 0)
