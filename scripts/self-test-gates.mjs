@@ -95,6 +95,40 @@ function makeSimplePkg(_unused, version = '0.0.2') {
   results.push({ gate: 'commit-hygiene（空提交）', expect: 1, got: r.code, ok: r.code === 1 })
 }
 
+
+// 6) lockfile-consistency：package.json 声明与 lock specifier 不一致 ⇒ 必须 exit 1
+{
+  const d = mkdtempSync(join(tmpdir(), 'gate-lock-'))
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+  execFileSync('git', ['init', '-q', d], { env })
+  cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
+  writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version: '0.0.1', dependencies: { 'some-dep': '^1.0.0' } }, null, 2))
+  writeFileSync(join(d, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      some-dep:\n        specifier: ^0.9.0\n        version: 0.9.0\n")
+  const r = run('check-lockfile-consistency.mjs', [], d)
+  results.push({ gate: 'lockfile-consistency（声明 ^1.0.0 vs lock ^0.9.0）', expect: 1, got: r.code, ok: r.code === 1 })
+}
+// 7) check-syntax：文件有语法错 ⇒ 必须 exit 1
+{
+  const d = mkdtempSync(join(tmpdir(), 'gate-syn-'))
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+  execFileSync('git', ['init', '-q', d], { env })
+  cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
+  mkdirSync(join(d, 'lib'), { recursive: true })
+  writeFileSync(join(d, 'lib', 'bad.mjs'), 'export const = ;\n')
+  const r = run('check-syntax.mjs', [], d)
+  results.push({ gate: 'check-syntax（语法错文件）', expect: 1, got: r.code, ok: r.code !== 0 })
+}
+// 8) check-pkg-meta：缺 name/version ⇒ 必须非 0
+{
+  const d = mkdtempSync(join(tmpdir(), 'gate-meta-'))
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+  execFileSync('git', ['init', '-q', d], { env })
+  cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
+  writeFileSync(join(d, 'package.json'), JSON.stringify({ files: ['lib/**'] }, null, 2))
+  const r = run('check-pkg-meta.mjs', [], d)
+  results.push({ gate: 'check-pkg-meta（缺 name/version）', expect: 1, got: r.code, ok: r.code !== 0 })
+}
+
 const bad = results.filter((r) => !r.ok)
 console.log('闸负对照自检：')
 for (const r of results) console.log(`  ${r.ok ? '✓' : '✗'} ${r.gate} ｜ 期望 exit ${r.expect}，实际 ${r.got}${r.sample ? ` ｜ ${r.sample}` : ''}`)
