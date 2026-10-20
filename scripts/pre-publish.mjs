@@ -41,6 +41,10 @@ const gates = [
 ]
 for (const [name, script] of gates) {
   if (!existsSync(join(ROOT, script))) { add(name, 'FAIL', `脚本缺失 ${script}（fail-closed）`); continue }
+  if (name === '提交卫生') {
+    const br = (runCmd('git', ['branch', '--show-current']).stdout || '').trim()
+    if (br !== 'main') { add(name, 'SKIP', `内部分支 ${br}：不用于公开发布`); continue }
+  }
   const r = runNode(script)
   const out = ((r.stdout || '') + (r.stderr || '')).trim().split('\n')
   add(name, r.status === 0 ? 'PASS' : 'FAIL', r.status === 0 ? '' : out.slice(-2).join(' ｜ ').slice(0, 160))
