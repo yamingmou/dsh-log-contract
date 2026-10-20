@@ -35,7 +35,6 @@ plugin marker semantics).
 ---
 
 ## Where it sits in the business layer
-
 > **dsh-log-contract is the core capability component of [dsh-retrace](https://github.com/yamingmou/dsh-retrace)** (the business layer's "doctor" module): it **checks and repairs** session logs so every recall/edit/rollback lands on a legal log — pre-write validation (`prewrite`) rejects error-level violations **before** anything is written.
 >
 > **About `/compact` (stated honestly)**: what this tool guarantees is that **new writes** stop creating token-meter pairing debt — since two-segment atomic pairs (marker + paired segment) landed, new markers pass T1 by construction. **Legacy** (single-segment) markers are still **known design debt**: pre-write validation downgrades their T1 violation to a warning (`legacyMarkerKindOf` in `lib/prewrite.js`, which applies to **historical markers only**), so such sessions need **one check + cleanup before compaction** (`check` to locate → `fix --remove-markers`; the plugin side calls this "the doctor"). Otherwise the T1 self-check blocks `/compact`.
@@ -54,14 +53,13 @@ DSH (see the [dsh-retrace repository](https://github.com/yamingmou/dsh-retrace))
 ---
 
 ## Why it exists
-
 **"one log, two consumers, two verdicts"**: one log is consumed by both
 humans and automated programs. Humans tolerate format drift; programs depend on
 strict contracts. Once the format drifts, humans see nothing wrong while programs
 crash or misreport.
 
 **Real log-corruption shapes found in production sessions shaped most of the rules here** —
-see the [Case log](#-case-log) below. The case-derived instances are pinned by regression tests: a corrupt log shape
+see the [Case log](#case-log--why-production-grade-is-not-a-slogan) below. The case-derived instances are pinned by regression tests: a corrupt log shape
 this tool must flag, and the repaired shape it must pass. The remaining rules come from
 line-by-line verification against the official Host source (each rule carries its
 `source`).
@@ -69,7 +67,6 @@ line-by-line verification against the official Host source (each rule carries it
 ---
 
 ## Three-layer contract (the model)
-
 > 30+ rules across the layers below (`contracts` lists them all, each with its
 > official source reference).
 
@@ -86,29 +83,7 @@ line-by-line verification against the official Host source (each rule carries it
 
 ---
 
-## ⚡ Case log — why "production-grade" is not a slogan
-
-Each entry below is a **real log-corruption shape** from production sessions — the cases that
-shaped this tool. Dates and shapes are real; session ids and file names are
-omitted.
-
-| # | Date | What happened | The rule / fix it produced |
-|---|---|---|---|
-| 1 | 2026-08-25 | A "restore hidden content" repair wrote a replace marker with **emptied `sourceEventSeqs`** → the session refused to load (`SessionPersistenceCorruptionError`); a second attempt changed the marker to **append** → the client engine crashed. Both were **violating writes that nothing caught**. | **S5** (sourceEventSeqs must cover shadowed nodes), **M1** (turn-null assistant/message can only be replace), pre-write validation |
-| 2 | 2026-08-27~28 | Interrupted/restarted turns replayed with a **stale in-memory cursor**, re-appending old seqs to the file tail (tail regression, duplicate batches); two writers interleaved → **file-physical order non-monotonic** (`734056 → 733539 → 735470`). Sessions failed to load with `seq gap`. | **S9** (physical-order monotonic), fix `--tail-renumber` |
-| 3 | 2026-08-27~28 | **Fork-boundary orphan splice**: the fork's "remove parent's pending prompt" splice assumed the parent's inbox; the child's seed-relative replay has an empty inbox → `resume failed: invalid persisted inbox splice`. | **I1** (inbox seed-relative replay), fix `--neutralize-orphan` |
-| 4 | 2026-08-28 | An oversized session (**1,052,557 tokens** vs the 1M window) could neither continue nor `/compact`; the trim budget estimator underpriced CJK by ~3.7×. | T1 (token-meter pairing) for compactability, `fix --trim-budget` guidance |
-| 5 | 2026-08-29 | **W1/W2 wire violations**: markers shadowed an assistant with tool_calls but left the tool results dangling → strict endpoints (`INVALID_REQUEST`) reject the session's request stream. | **W1 / W2** (wire message flow) |
-| 6 | 2026-08-30 | A single **turn-null marker** made the token-meter listener throw on **every** appended event (`consumedEvents` never advanced → full-prefix re-fold per event) → **30s / 10,008 log lines**, host event loop crushed, all sessions locked. Same session also had a **cross-step sourceEventSeqs** (steps 7/8/9 mixed in one assistant message) — offline checks were green, the live meter crashed. | **T1** (turn/step pairing), **T2** (cross-step source refs), `fix --neutralize`, `fix --clip-crossstep` |
-
-> **Takeaway**: these rules are not synthetic theory — each one is pinned by a
-> regression test that reproduces the corrupt shape it guards against. That is what
-> "production-grade" means here.
-
----
-
 ## Version support (host / session format)
-
 **Tested baseline (the versions this rule set was verified against)**:
 
 | Item | Baseline | Note |
@@ -135,8 +110,61 @@ Both the human-readable `check` output and the `--json` `support` field carry th
 version support: host @deepseek-ai/dsh-session@0.1.5-rc.1 (baseline 0.1.5-rc.1) | file format v3 (header, baseline)
 ```
 
-## Installation
+## 🆕 0.3.18 – 0.3.24 · DSH 0.2.x (session format v4) support
+**Session format v4** (`@deepseek-ai/dsh-session` 0.2.x) is now validated by format-version dispatch
+rather than by relaxing the format gate:
 
+- `tool/result` is validated with the v4 shape (`role: 'tool'`, no `tool-result` wrapper block)
+- `system/message` accepts v4's `source.kind: 'system-prompt'`
+- validation for v3 and earlier is **unchanged** (identical verdicts on 408 real v3 sessions before/after)
+- the format gate still rejects **unknown** future versions (`readOnly`); v5+ remains unassessable by design
+
+**New rules (51 total):**
+
+| Rule | Checks |
+|---|---|
+| `G4` | unknown historical events may be declaratively skipped (`ignorable: true`; allow-list injectable) |
+| `S10` | `sourceEventSeqs` elements: non-negative integers after decoding (official interval pairs allowed in storage) |
+| `I2` | `seedLength` means *number of inherited events* (not bytes); `parentSession` + missing/0 is legal |
+| `P5` | two-segment carrier pairing: 2nd segment's first seq == 1st segment seq (read side accepts the legacy order) |
+| `A1` | "in-place restorable" is judged from structured fields only (`archiveRef` / `archive` / `externalized.*`) — never from free text |
+
+**Large sessions:** reading is line-wise (no whole-file stringification ⇒ no `ERR_STRING_TOO_LONG` above ~536 MB),
+and repair rebuilds `.jsonl.zstd` with streaming frames (header frame + chunked body frames, per-frame checksum + round-trip).
+
+**Windows:** the `header.cwd` absolute-path check in `H2` is platform-aware (`win32` and `posix` both accepted).
+
+**Compatibility:** Node ≥ 22; `@deepseek-ai/dsh-session` `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1`; session formats v0–v4.
+
+## Case log — why "production-grade" is not a slogan
+Each entry below is a **real log-corruption shape** from production sessions — the cases that
+shaped this tool. Dates and shapes are real; session ids and file names are
+omitted.
+
+| # | Date | What happened | The rule / fix it produced |
+| --- | --- | --- | --- |
+| 1 | 2026-08-25 | A "restore hidden content" repair wrote a replace marker with **emptied `sourceEventSeqs`** → the session refused to load (`SessionPersistenceCorruptionError`); a second attempt changed the marker to **append** → the client engine crashed. Both were **violating writes that nothing caught**. | **S5** (sourceEventSeqs must cover shadowed nodes), **M1** (turn-null assistant/message can only be replace), pre-write validation |
+| 2 | 2026-08-27~28 | Interrupted/restarted turns replayed with a **stale in-memory cursor**, re-appending old seqs to the file tail (tail regression, duplicate batches); two writers interleaved → **file-physical order non-monotonic** (`734056 → 733539 → 735470`). Sessions failed to load with `seq gap`. | **S9** (physical-order monotonic), fix `--tail-renumber` |
+| 3 | 2026-08-27~28 | **Fork-boundary orphan splice**: the fork's "remove parent's pending prompt" splice assumed the parent's inbox; the child's seed-relative replay has an empty inbox → `resume failed: invalid persisted inbox splice`. | **I1** (inbox seed-relative replay), fix `--neutralize-orphan` |
+| 4 | 2026-08-28 | An oversized session (**1,052,557 tokens** vs the 1M window) could neither continue nor `/compact`; the trim budget estimator underpriced CJK by ~3.7×. | T1 (token-meter pairing) for compactability, `fix --trim-budget` guidance |
+| 5 | 2026-08-29 | **W1/W2 wire violations**: markers shadowed an assistant with tool_calls but left the tool results dangling → strict endpoints (`INVALID_REQUEST`) reject the session's request stream. | **W1 / W2** (wire message flow) |
+| 6 | 2026-08-30 | A single **turn-null marker** made the token-meter listener throw on **every** appended event (`consumedEvents` never advanced → full-prefix re-fold per event) → **30s / 10,008 log lines**, host event loop crushed, all sessions locked. Same session also had a **cross-step sourceEventSeqs** (steps 7/8/9 mixed in one assistant message) — offline checks were green, the live meter crashed. | **T1** (turn/step pairing), **T2** (cross-step source refs), `fix --neutralize`, `fix --clip-crossstep` |
+| 7 | 2026-08-31 | A log was compressed as a **single zstd frame** (or the header did not form its own frame) → different readers disagreed on record boundaries ⇒ **Z4/Z5** frame-shape rules (first frame = exactly one header line; body framed) |  |
+| 8 | 2026-08-31 | A log whose **last zstd frame was torn** mid-write could not be loaded at all, with no diagnosis ⇒ **Z1** + explicit "torn tail / in-flight write" reporting |  |
+| 9 | 2026-09-09 | On **session format v4**, `tool/result` uses `role: 'tool'` and `system/message` carries a `system-prompt` source → v3-shaped checks produced **thousands of false errors on healthy v4 logs** ⇒ version dispatch + **E6/E9** v4 semantics |  |
+| 10 | 2026-09-17 | On **Windows**, `header.cwd` was judged with POSIX-only rules → **every** session flagged by **H2** ⇒ platform-aware absolute-path check |  |
+| 11 | 2026-10-20 | A **> 500 MB session** crashed the reader (`ERR_STRING_TOO_LONG`) and repair built the whole text in memory ⇒ line-wise decode + streaming frame rebuild |  |
+| 12 | 2026-10-20 | Two-segment carrier references were written with the audit segment first while an earlier convention started at the range start → readers reported hundreds of **false orphan carriers** ⇒ **P5** write-side pairing + tolerant read-side |  |
+| 13 | 2026-10-20 | `seedLength` was read as a **byte size** by some consumers (it is the number of inherited events), and `parentSession` with missing/0 was treated as corruption ⇒ **I2** semantics pinned |  |
+| 14 | 2026-10-20 | An **unknown but explicitly ignorable** event type blocked an entire migration ⇒ **G4** declarative skip + allow-list |  |
+
+> **Takeaway**: these rules are not synthetic theory — each one is pinned by a
+> regression test that reproduces the corrupt shape it guards against. That is what
+> "production-grade" means here.
+
+---
+
+## Installation
 ```bash
 pnpm add -D dsh-log-contract   # or npm install
 pnpm dlx dsh-log-contract --help
@@ -157,7 +185,6 @@ with the Harness read path).
 ---
 
 ## CLI
-
 ### 1. Offline health check
 
 ```bash
@@ -262,7 +289,6 @@ are flagged in `check`.
 ---
 
 ## Node API (embed pre-write validation in your script)
-
 ```js
 import { loadSessionLog, validateSessionLog, createPreWriter } from 'dsh-log-contract';
 
@@ -289,7 +315,6 @@ if (!verdict.ok) {
 ---
 
 ## Tests
-
 ```bash
 pnpm check && pnpm test    # syntax check + contract-doc drift gate + all unit tests
 ```
@@ -301,6 +326,20 @@ pnpm check && pnpm test    # syntax check + contract-doc drift gate + all unit t
 > **Scope of the published package**: it contains the runtime code and documentation only.
 > Local maintainer tooling is not part of the public repository, so `pnpm check` and `pnpm test`
 > work from a clean clone.
+
+## Local git hooks (opt-in)
+The repository ships `.githooks/pre-push` (runs `pnpm check` before pushing), but it is
+**not active automatically on clone** — point Git at it explicitly:
+
+```bash
+git config core.hooksPath .githooks   # enable
+git config --get core.hooksPath       # verify: should print .githooks
+```
+
+Skip only for emergencies: `git push --no-verify`. Uninstall: `git config --unset core.hooksPath`.
+
+> Hooks are local convenience, not a trust boundary: CI (`.github/workflows/ci.yml`) runs
+> `pnpm check` / `pnpm check:strict` / `pnpm test`, so clones without hooks stay gated.
 
 Verdict by **log shape** — what the tool must say about each defect class, not about
 any particular file:
@@ -320,31 +359,15 @@ boundary note in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 
 ---
 
-## Roadmap
+## ⚠️ Upgrading — behaviour notes (0.3.12 → 0.3.24)
 
-- [x] **Phase 1 (0.1.0)**: CLI offline check + pre-write validation + contract catalog
-- [x] **Phase 1.5 (0.2.0)**: `fix` subcommand (strict seq scan + W1/W2 wire checks +
-  marker removal with renumbering + official frame rebuild); CI integration
-  (`dsh-log-contract check` as a scheduled guard over the Harness session dir)
-- [x] **0.3.x (2026-08-30 case hardening)**: T1 token-meter pairing → 0.3.1 W1/W2
-  fold-position fix → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize` (in-place
-  turn-null neutralization) → 0.3.4 `fix --clip-crossstep` (cross-step clipping) →
-  0.3.5 **T2/S9/I1 rules** (cross-step source refs / physical order / inbox replay)
-- [x] **0.3.6 → 0.3.15**: per-version rule routing for v0–v3 (T3/T4/T5, L3–L5, E8/E9/E10),
-  exit codes `3`/`4` for the host-capability and migration gates, and a version-support
-  report that says what was *not* verified (see [CHANGELOG.md](CHANGELOG.md))
-- [ ] Phase 2: runtime guard (subscribe to the session append stream, validate live,
-  mark violations as `dsh/contract-violation`, policy configurable alert/block) —
-  DSH plugin form
-- [ ] Phase 3: link with dsh-turn-guard / dsh-retrace timeline
+### 0.3.18 → 0.3.24 in one paragraph
 
-## License
-
-MIT © OfferKuai Team
-
----
-
-## ⚠️ Upgrading to 0.3.17 — behaviour changes you must know (0.3.12 → 0.3.17)
+Session format **v4** (host `dsh-session` 0.2.x) is supported by version dispatch (`tool/result` role,
+`system/message` source); five rules were added (`G4` unknown-but-ignorable events, `S10` reference element
+types, `I2` `seedLength` semantics, `P5` carrier pairing, `A1` structured-only in-place restorability);
+large sessions (> 500 MB) are read line-wise and repaired with streaming frames; the Windows absolute-path
+check for `H2` is platform-aware. still **partial** — see the changelog's known-gap list). Verdicts, exit codes and `--json` fields are unchanged.
 
 > **0.3.17 changes no behaviour.** It only adjusts the wording of comments, test titles, a few
 > diagnostic strings and the README. Every verdict, exit code and `--json`
@@ -379,3 +402,25 @@ the migration dimension is only partially covered.
 The rule set is **not** the official upgrade chain's acceptance condition. `assessmentScope=partial` means
 "the part this tool looked at is clean" — it does **not** mean the official upgrade will accept the file.
 Read `coverage.uncovered` for the known gaps.
+
+## Roadmap
+- [x] **Phase 1 (0.1.0)**: CLI offline check + pre-write validation + contract catalog
+- [x] **Phase 1.5 (0.2.0)**: `fix` subcommand (strict seq scan + W1/W2 wire checks +
+  marker removal with renumbering + official frame rebuild); CI integration
+  (`dsh-log-contract check` as a scheduled guard over the Harness session dir)
+- [x] **0.3.x (2026-08-30 case hardening)**: T1 token-meter pairing → 0.3.1 W1/W2
+  fold-position fix → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize` (in-place
+  turn-null neutralization) → 0.3.4 `fix --clip-crossstep` (cross-step clipping) →
+  0.3.5 **T2/S9/I1 rules** (cross-step source refs / physical order / inbox replay)
+- [x] **0.3.6 → 0.3.15**: per-version rule routing for v0–v3 (T3/T4/T5, L3–L5, E8/E9/E10),
+  exit codes `3`/`4` for the host-capability and migration gates, and a version-support
+  report that says what was *not* verified (see [CHANGELOG.md](CHANGELOG.md))
+- [ ] Phase 2: runtime guard (subscribe to the session append stream, validate live,
+  mark violations as `dsh/contract-violation`, policy configurable alert/block) —
+  DSH plugin form
+- [ ] Phase 3: link with dsh-turn-guard / dsh-retrace timeline
+
+## License
+MIT © OfferKuai Team
+
+---
