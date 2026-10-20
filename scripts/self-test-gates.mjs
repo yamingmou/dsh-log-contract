@@ -42,7 +42,7 @@ function run(script, args, cwd, env = {}) {
   const r = spawnSync('node', [join(cwd, 'scripts', script), ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
 }
-// 1) git-surface：提交信息里带"裁决" ⇒ 必须 exit 1
+// 1) git-surface：提交信息里带内部流程词 ⇒ 必须 exit 1
 {
   const { d, env } = mkRepo()
   writeFileSync(join(d, 'lib', 'b.js'), 'export const b = 2\n')
@@ -51,7 +51,7 @@ function run(script, args, cwd, env = {}) {
   const r = run('check-git-surface.mjs', [], d, { GATE_MIN_FILES: '1' })
   results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}）`, expect: 1, got: r.code, ok: r.code === 1, sample: r.out.split('\n').find((l) => l.includes(W_PROCESS)) || '' })
 }
-// 2) external-surface：包内文件含内部词 ⇒ 必须 exit 1
+// 2) external-surface：包内文件含内部机制词 ⇒ 必须 exit 1
 {
   const { d, env } = makeSimplePkg([])
   writeFileSync(join(d, 'lib', 'c.js'), `// ${W_MECH} 与 ${pickWord('内部机制', 4) || ''}\n`)
