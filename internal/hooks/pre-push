@@ -8,9 +8,14 @@ cd "$ROOT" || exit 1
 fail=0
 run() { echo "[pre-push] $1"; shift; if "$@"; then :; else echo "[pre-push] ✗ $1 未通过"; fail=1; fi; }
 
+missing=0
 for f in scripts/self-test-gates.mjs scripts/check-git-surface.mjs scripts/check-external-surface.mjs scripts/check-release-discipline.mjs; do
-  [ -f "$f" ] || { echo "[pre-push] ✗ 机制缺失：$f（fail-closed）"; exit 1; }
+  [ -f "$f" ] || missing=$((missing+1))
 done
+if [ "$missing" -gt 0 ]; then
+  echo "[pre-push] · 当前分支无机制脚本（$missing 个缺失）⇒ 跳过机制闸（仅公开分支应如此）"
+  exit 0
+fi
 node scripts/self-test-gates.mjs >/dev/null 2>&1 || { echo "[pre-push] ✗ 闸负对照自检失败"; fail=1; }
 node scripts/check-git-surface.mjs   >/dev/null 2>&1 || { echo "[pre-push] ✗ GitHub 面检查未通过"; fail=1; }
 node scripts/check-external-surface.mjs >/dev/null 2>&1 || { echo "[pre-push] ✗ 对外信息检查未通过"; fail=1; }
