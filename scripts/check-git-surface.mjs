@@ -22,10 +22,11 @@ const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'ut
 const wlPath = join(ROOT, 'internal', 'wordlist.json')
 if (!existsSync(wlPath)) { console.error('git-surface: 无法判定 —— 缺 internal/wordlist.json（不允许静默弱化）'); process.exit(2) }
 let words = []
+let regexes = []
 try {
   const wl = JSON.parse(readFileSync(wlPath, 'utf8'))
   for (const [k, v] of Object.entries(wl)) if (!k.startsWith('_') && Array.isArray(v)) for (const w of v) words.push(w)
-  const regexes = Array.isArray(wl._regex) ? wl._regex : []
+  regexes = Array.isArray(wl._regex) ? wl._regex : []
 } catch (e) { console.error('git-surface: 词表不可解析 ——', e.message); process.exit(2) }
 if (words.length < 20) { console.error(`git-surface: 无法判定 —— 词表仅 ${words.length} 条（疑似损坏）`); process.exit(2) }
 const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
