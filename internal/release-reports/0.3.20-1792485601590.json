@@ -1,0 +1,98 @@
+{
+  "version": "0.3.20",
+  "at": "2026-10-20T08:40:01.568Z",
+  "gitHead": "3b59418c111f1f0b9e1819aa0c3e321b4678185d",
+  "items": [
+    {
+      "name": "工作区干净",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "锁文件一致",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "发布泄漏闸（两包口径）",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "发布入口唯一性",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "两仓机制件漂移",
+      "status": "FAIL",
+      "detail": "  ✗ scripts/check-lockfile-consistency.mjs:11 与对端不一致 —— 本仓「import { fileURLToPath } from 'node:url'」 vs 对端「import { join, dirname } from 'node:path'」 ｜   ✗ scri"
+    },
+    {
+      "name": "提交卫生",
+      "status": "WARN",
+      "detail": "内部分支 local/process（不公开）｜违规 13 条｜✗ H1 空提交 88fc409f feat(health): 定期巡检脚本 health-scan.mjs — 健康监控/定期巡检层"
+    },
+    {
+      "name": "发版纪律",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "对外信息（发布集）",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "GitHub 面对外信息",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "闸负对照自检",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "独立审核记录",
+      "status": "FAIL",
+      "detail": "✗ 缺少独立审核记录：reviews/0.3.20.json ｜ review-record: 未通过（版本 0.3.20）"
+    },
+    {
+      "name": "包元数据",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "语法",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "契约文档一致",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "全量测试",
+      "status": "SKIP",
+      "detail": "--skip-tests"
+    },
+    {
+      "name": "CHANGELOG 条目",
+      "status": "PASS",
+      "detail": "版本 0.3.20"
+    },
+    {
+      "name": "版本未被发布过",
+      "status": "FAIL",
+      "detail": "该版本已在 npm"
+    },
+    {
+      "name": "独立审核记录内容",
+      "status": "FAIL",
+      "detail": "缺 reviews/0.3.20.json"
+    }
+  ],
+  "verdict": "fail"
+}
