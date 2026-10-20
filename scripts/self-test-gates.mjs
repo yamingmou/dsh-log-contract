@@ -86,6 +86,15 @@ function makeSimplePkg(_unused, version = '0.0.2') {
   execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'init'], { env })
   return { d, env }
 }
+
+// 5) commit-hygiene：空提交 ⇒ 必须 exit 1
+{
+  const { d, env } = mkRepo()
+  execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'chore: 空提交（负对照）'], { env })
+  const r = run('check-commit-hygiene.mjs', ['--range', 'HEAD~1..HEAD'], d)
+  results.push({ gate: 'commit-hygiene（空提交）', expect: 1, got: r.code, ok: r.code === 1 })
+}
+
 const bad = results.filter((r) => !r.ok)
 console.log('闸负对照自检：')
 for (const r of results) console.log(`  ${r.ok ? '✓' : '✗'} ${r.gate} ｜ 期望 exit ${r.expect}，实际 ${r.got}${r.sample ? ` ｜ ${r.sample}` : ''}`)
