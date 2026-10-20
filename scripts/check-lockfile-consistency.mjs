@@ -15,19 +15,18 @@ const pkgPath = join(ROOT, 'package.json'), lockPath = join(ROOT, 'pnpm-lock.yam
 if (!existsSync(pkgPath) || !existsSync(lockPath)) { console.error('lockfile: 无法判定 —— 缺 package.json 或 pnpm-lock.yaml'); process.exit(2) }
 let pkg; try { pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) } catch (e) { console.error('lockfile: package.json 不可解析'); process.exit(2) }
 const lock = readFileSync(lockPath, 'utf8')
-// 解析 pnpm-lock v9：形如 "  pkg:\n    specifier: ^x\n    version: ..."
+// 兼容 pnpm-lock v6/v9：任意缩进的 `<name>:` 块内出现 `specifier: <range>`
 const spec = new Map()
-const re = /^\s{2}(@?[^\s:]+):\s*$/gm
-let m
-const lines = lock.split('\n')
-for (let i = 0; i < lines.length; i++) {
-  const mm = lines[i].match(/^  (\S+):\s*$/)
-  if (!mm) continue
-  const name = mm[1].replace(/^['"]|['"]$/g, '')
-  for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-    const sm = lines[j].match(/^\s{4}specifier:\s*(.+?)\s*$/)
-    if (sm) { spec.set(name, sm[1].replace(/^['"]|['"]$/g, '')); break }
-    if (/^\s{2}\S/.test(lines[j])) break
+{
+  const lines = lock.split('\n')
+  let cur = null
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]
+    const specM = l.match(/^\s*specifier:\s*(.+?)\s*$/)
+    if (specM) { if (cur) spec.set(cur, specM[1].replace(/^['"]|['"]$/g, '')); continue }
+    const keyM = l.match(/^\s{2,6}(@?[\w@./-]+):\s*$/)
+    if (keyM) { cur = keyM[1]; continue }
+    if (/^\S/.test(l) || /^\s{0,1}[a-zA-Z]/.test(l)) { if (!/^\s*specifier:/.test(l)) { /* 顶层块开始，保留 cur 以便紧跟 specifier */ } }
   }
 }
 if (spec.size < 3) { console.error(`lockfile: 无法判定 —— 只解析出 ${spec.size} 个 specifier（格式不识别）`); process.exit(2) }
