@@ -102,8 +102,8 @@ function makeSimplePkg(_unused, version = '0.0.2') {
   const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
   execFileSync('git', ['init', '-q', d], { env })
   cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
-  writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version: '0.0.1', dependencies: { 'some-dep': '^1.0.0' } }, null, 2))
-  writeFileSync(join(d, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      some-dep:\n        specifier: ^0.9.0\n        version: 0.9.0\n")
+  writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version: '0.0.1', dependencies: { 'dep-a': '^1.0.0', 'dep-b': '^2.0.0', 'dep-c': '^3.0.0' } }, null, 2))
+  writeFileSync(join(d, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      dep-a:\n        specifier: ^1.0.0\n        version: 1.0.0\n      dep-b:\n        specifier: ^2.0.0\n        version: 2.0.0\n      dep-c:\n        specifier: ^0.9.0\n        version: 0.9.0\n")
   const r = run('check-lockfile-consistency.mjs', [], d)
   results.push({ gate: 'lockfile-consistency（声明 ^1.0.0 vs lock ^0.9.0）', expect: 1, got: r.code, ok: r.code === 1 })
 }
