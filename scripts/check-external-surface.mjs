@@ -20,12 +20,11 @@ const rootIdx = argv.indexOf('--root')
 const ROOT = rootIdx >= 0 ? argv[rootIdx + 1] : process.cwd()
 const asJson = argv.includes('--json')
 
-let FORMS = [
-  ['内部治理叙事', /裁定|派工单|放行件|私有树|投影树|共同体|插件线|修复线|体检线|comm-\d{3,}|A\d\s*[-–]\s*A\d/],
-  ['机制类词汇', /三折|三段式|三件套|头缓存|水位线?|断裂点|抢在自动压缩前|折叠三件套/],
-  ['本机落点', /\/Users\/[A-Za-z0-9._-]+|~\/dsh-v\d|\/private\/tmp|C:\\\\Users\\\\/],
-  ['会话/事件标识', /session-[0-9a-f]{8}-[0-9a-f]{4}/],
-  ['暴露性绝对路径断言', /绝对路径.*示例[:：]\s*\//],
+const FORMS = [
+  // 形态类规则（不含内部词）；内部词一律来自 internal/wordlist.json
+  ['本机落点', /\/Users\/[A-Za-z0-9._-]{3,}|~\/dsh-v\d|\/private\/tmp/],
+  ['会话标识', /session-[0-9a-f]{8}-[0-9a-f]{4}/],
+  ['疑似事件坐标', /\bseq\s*[:=]\s*\d{5,}/],
 ]
 
 function pkgFiles() {
