@@ -1,0 +1,78 @@
+{
+  "version": "0.3.20",
+  "at": "2026-10-20T05:39:34.993Z",
+  "gitHead": "1af580f4beb8280a58181e300afb2b3054426396",
+  "items": [
+    {
+      "name": "工作区干净",
+      "status": "FAIL",
+      "detail": "未提交 2 处"
+    },
+    {
+      "name": "锁文件一致",
+      "status": "FAIL",
+      "detail": "lockfile: 无法判定 —— 只解析出 0 个 specifier（格式不识别）"
+    },
+    {
+      "name": "发版纪律",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "对外信息（发布集）",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "GitHub 面对外信息",
+      "status": "FAIL",
+      "detail": "  ✗ [提交信息] feat(relea — publish-leaks ｜ git-surface: ⚠️ gh 面未取得（不计入通过）"
+    },
+    {
+      "name": "闸负对照自检",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "独立审核记录",
+      "status": "FAIL",
+      "detail": "✗ 缺少独立审核记录：reviews/0.3.20.json ｜ review-record: 未通过（版本 0.3.20）"
+    },
+    {
+      "name": "包元数据",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "语法",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "契约文档一致",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "全量测试",
+      "status": "SKIP",
+      "detail": "--skip-tests"
+    },
+    {
+      "name": "CHANGELOG 条目",
+      "status": "PASS",
+      "detail": "版本 0.3.20"
+    },
+    {
+      "name": "版本未被发布过",
+      "status": "FAIL",
+      "detail": "该版本已在 npm"
+    },
+    {
+      "name": "独立审核记录内容",
+      "status": "FAIL",
+      "detail": "缺 reviews/0.3.20.json"
+    }
+  ],
+  "verdict": "fail"
+}
