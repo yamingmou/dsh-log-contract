@@ -156,6 +156,17 @@ function makeSimplePkg(_unused, version = '0.0.2') {
   results.push({ gate: 'check-mechanism-drift（对端逻辑差异）', expect: 1, got: r.code, ok: r.code === 1 })
 }
 
+
+// 6) mechanism-freshness：篡改手册 ⇒ 必须 exit 1
+{
+  const { d } = mkRepo()
+  const { writeFileSync: wf, readFileSync: rf } = await import('node:fs')
+  const { join: j } = await import('node:path')
+  wf(j(d, 'internal', '机制方法手册-v3.md'), 'old content\n')
+  const r = run('check-mechanism-freshness.mjs', [], d)
+  results.push({ gate: 'mechanism-freshness（手册过期）', expect: 1, got: r.code, ok: r.code === 1 })
+}
+
 const bad = results.filter((r) => !r.ok)
 console.log('闸负对照自检：')
 for (const r of results) console.log(`  ${r.ok ? '✓' : '✗'} ${r.gate} ｜ 期望 exit ${r.expect}，实际 ${r.got}${r.sample ? ` ｜ ${r.sample}` : ''}`)
