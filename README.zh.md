@@ -29,7 +29,6 @@
 ---
 
 ## 它在业务层里的位置
-
 > **dsh-log-contract 是 [dsh-retrace](https://github.com/yamingmou/dsh-retrace) 的核心能力组件**（业务层的「医生」模块）：负责会话日志的**体检与修复**——让每一次撤回/编辑/回退都落在合法日志上，写前校验（`prewrite`）会把 error 级违约**拦在落盘之前**。
 >
 > **关于 `/compact`（如实表述）**：本工具保证的是**新写入**不再制造 token-meter 配对债——自两段原子成对（marker + 配对段）起，新 marker 天然通过 T1。**历史**（单段）marker 仍属**已知设计债**：写前校验对它的 T1 违规降级为 warning（`lib/prewrite.js` 的 `legacyMarkerKindOf` 白名单，**只适用于历史 marker**），因此这类会话**压缩（`/compact`）前需要先跑一次体检 + 清理**（`check` 定位 → `fix --remove-markers`；插件侧即「医生」），否则 T1 自检会拦住压缩。
@@ -47,15 +46,13 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 ---
 
 ## 为什么需要它
-
 **「one log, two consumers, two verdicts」**：一条日志同时被人类与自动化程序消费，人眼容忍格式微调，程序解析依赖严格契约；格式一旦漂移，人看不出问题，程序直接崩溃或误报。
 
-**这里大多数规则都来自会话日志中实际出现过的损坏形态**——见下方 [⚡ 案例记录](#-案例记录)。由这些案例派生的用例都有回归测试钉住：损坏的日志形态本工具必须报出，修复后的形态必须通过。其余规则来自对官方宿主源码的逐行核对（每条规则都带 `source`）。
+**这里大多数规则都来自会话日志中实际出现过的损坏形态**——见下方 [⚡ 案例记录](#案例记录--生产级保证不是口号)。由这些案例派生的用例都有回归测试钉住：损坏的日志形态本工具必须报出，修复后的形态必须通过。其余规则来自对官方宿主源码的逐行核对（每条规则都带 `source`）。
 
 ---
 
 ## 三层契约（判定模型）
-
 > 30+ 条规则，覆盖以下三层（`contracts` 列出全部，每条附官方源码出处）。
 
 | 层 | 规则 | 守护什么 |
@@ -69,25 +66,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 
 ---
 
-## ⚡ 案例记录 ——「生产级保证」不是口号
-
-下面每一条都来自**生产会话中实际出现的日志损坏形态**——正是这些案例促成了本工具。日期与形态真实，会话 id 与文件名省略。
-
-| # | 日期 | 发生了什么 | 产出的规则/修复 |
-|---|---|---|---|
-| 1 | 2026-08-25 | 一次「恢复被隐藏内容」的修复写了**清空 `sourceEventSeqs`** 的 replace marker → 会话加载被拒（`SessionPersistenceCorruptionError`）；第二次尝试把 marker 改成 **append** → 客户端引擎崩溃。两次都是**违约写入没被拦**。 | **S5**（sourceEventSeqs 必须覆盖被替换节点）、**M1**（turn-null 的 assistant/message 只能 replace）、写前校验 |
-| 2 | 2026-08-27~28 | 中断/暂停的轮次恢复时按**过期内存光标**重放，把旧 seq 追加到文件尾（尾部回归、重复批次）；两个写入者交织 → **文件物理序非单调**（`734056 → 733539 → 735470`）。会话 `seq gap` 加载失败。 | **S9**（物理序单调）、fix `--tail-renumber` |
-| 3 | 2026-08-27~28 | **fork 边界孤儿 spliced**：fork 的「移除父待处理提示词」splice 假设父会话 inbox；子会话 seed 相对重放里 inbox 为空 → `resume failed: invalid persisted inbox splice`。 | **I1**（inbox seed 相对重放）、fix `--neutralize-orphan` |
-| 4 | 2026-08-28 | 超限会话（**1,052,557 tokens** vs 1M 窗口）既无法继续也无法 `/compact`；裁剪预算估算对中文低估 ~3.7×。 | T1（token-meter 配对，保障可压缩）、`fix --trim-budget` 预算指引 |
-| 5 | 2026-08-29 | **W1/W2 wire 违规**：marker 遮蔽了带 tool_calls 的 assistant 但漏盖 tool 结果 → 悬空 tool，严格端点 `INVALID_REQUEST` 拒绝请求流。 | **W1 / W2**（wire 消息流） |
-| 6 | 2026-08-30 | 单个 **turn-null marker** 让 token-meter 监听器在**每条**追加事件上抛错（`consumedEvents` 不前进 → 每事件全前缀重折）→ **30 秒 / 10,008 行日志**、host 事件循环被压垮、全部会话锁定。同会话还有**跨 step sourceEventSeqs**（step 7/8/9 混进一条 assistant 消息）——离线 check 全绿、实机 meter 崩溃。 | **T1**（turn/step 配对）、**T2**（跨 step 源引用）、`fix --neutralize`、`fix --clip-crossstep` |
-
-> **结论**：这些规则不是合成理论——每一条都有回归测试复现它守护的那种损坏形态。这就是这里「生产级」的含义。
-
----
-
 ## 版本支持（宿主 / 会话格式）
-
 **测试基线（本规则集验证过的版本）**：
 
 | 项 | 基线 | 说明 |
@@ -115,8 +94,57 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
   测试基线：@deepseek-ai/dsh-session@0.1.5-rc.1 ｜ 会话格式 v3（已知 0/1/2/3；peer ^0.1.0-rc.7 || ^0.1.5-rc.1）
 ```
 
-## 安装
+## 🆕 0.3.18 – 0.3.24 · 支持 DSH 0.2.x（会话格式 v4）
+**会话格式 v4**（`@deepseek-ai/dsh-session` 0.2.x）改为**按格式版本分派规则**，而不是放宽格式闸门：
 
+- `tool/result` 按 v4 形状校验（`role: 'tool'`、无 `tool-result` 包裹块）
+- `system/message` 接受 v4 的 `source.kind: 'system-prompt'`
+- **v3 及更早的判据零改动**（408 份真实 v3 会话前后判定完全一致）
+- 格式闸门仍**拒绝未知的未来版本**（`readOnly`）；v5+ 按设计保持"不可评估"
+
+**新增规则（共 51 条）：**
+
+| 规则 | 判据 |
+|---|---|
+| `G4` | 未知历史事件可**声明式跳过**（`ignorable: true`；白名单可注入） |
+| `S10` | `sourceEventSeqs` 元素：**解码后**必须为非负整数（存储层允许官方区间对） |
+| `I2` | `seedLength` = **继承事件条数**（非字节）；`parentSession` 存在且缺失/0 属合法 |
+| `P5` | 两段 carrier 配对：第 2 段首元素 = 第 1 段 seq（读侧兼容早期写法） |
+| `A1` | 「在位可还原」**只认结构化字段**（`archiveRef`/`archive`/`externalized.*`），不从自由文本推断 |
+
+**大会话**：读取改为**按行解码**（不再整文件字符串化 ⇒ 约 536MB 以上不再抛 `ERR_STRING_TOO_LONG`）；
+修复采用**流式帧重建** `.jsonl.zstd`（header 帧 + 正文分块多帧，逐帧 checksum + roundtrip 校验）。
+
+**Windows**：`H2` 的 `header.cwd` 绝对路径判断改为**平台感知**（`win32` 与 `posix` 都认）。
+
+**兼容性**：Node ≥ 22；`@deepseek-ai/dsh-session` `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1`；会话格式 v0–v4。
+
+## 案例记录 ——「生产级保证」不是口号
+下面每一条都来自**生产会话中实际出现的日志损坏形态**——正是这些案例促成了本工具。日期与形态真实，会话 id 与文件名省略。
+
+| # | 日期 | 发生了什么 | 产出的规则/修复 |
+| --- | --- | --- | --- |
+| 1 | 2026-08-25 | 一次「恢复被隐藏内容」的修复写了**清空 `sourceEventSeqs`** 的 replace marker → 会话加载被拒（`SessionPersistenceCorruptionError`）；第二次尝试把 marker 改成 **append** → 客户端引擎崩溃。两次都是**违约写入没被拦**。 | **S5**（sourceEventSeqs 必须覆盖被替换节点）、**M1**（turn-null 的 assistant/message 只能 replace）、写前校验 |
+| 2 | 2026-08-27~28 | 中断/暂停的轮次恢复时按**过期内存光标**重放，把旧 seq 追加到文件尾（尾部回归、重复批次）；两个写入者交织 → **文件物理序非单调**（`734056 → 733539 → 735470`）。会话 `seq gap` 加载失败。 | **S9**（物理序单调）、fix `--tail-renumber` |
+| 3 | 2026-08-27~28 | **fork 边界孤儿 spliced**：fork 的「移除父待处理提示词」splice 假设父会话 inbox；子会话 seed 相对重放里 inbox 为空 → `resume failed: invalid persisted inbox splice`。 | **I1**（inbox seed 相对重放）、fix `--neutralize-orphan` |
+| 4 | 2026-08-28 | 超限会话（**1,052,557 tokens** vs 1M 窗口）既无法继续也无法 `/compact`；裁剪预算估算对中文低估 ~3.7×。 | T1（token-meter 配对，保障可压缩）、`fix --trim-budget` 预算指引 |
+| 5 | 2026-08-29 | **W1/W2 wire 违规**：marker 遮蔽了带 tool_calls 的 assistant 但漏盖 tool 结果 → 悬空 tool，严格端点 `INVALID_REQUEST` 拒绝请求流。 | **W1 / W2**（wire 消息流） |
+| 6 | 2026-08-30 | 单个 **turn-null marker** 让 token-meter 监听器在**每条**追加事件上抛错（`consumedEvents` 不前进 → 每事件全前缀重折）→ **30 秒 / 10,008 行日志**、host 事件循环被压垮、全部会话锁定。同会话还有**跨 step sourceEventSeqs**（step 7/8/9 混进一条 assistant 消息）——离线 check 全绿、实机 meter 崩溃。 | **T1**（turn/step 配对）、**T2**（跨 step 源引用）、`fix --neutralize`、`fix --clip-crossstep` |
+| 7 | 2026-08-31 | 日志被压成**单个 zstd 帧**（或 header 未单独成帧）→ 不同读取器对记录边界理解不一致 ⇒ **Z4/Z5** 帧形状规则（首帧必须恰好一行 header；正文分帧） |  |
+| 8 | 2026-08-31 | **尾帧在写入中被撕裂**的日志完全无法加载、且没有诊断 ⇒ **Z1** + 明确报「尾帧撕裂 / 写入中」 |  |
+| 9 | 2026-09-09 | **会话格式 v4** 下 `tool/result` 改用 `role:'tool'`、`system/message` 带 `system-prompt` 来源 → v3 语义的检查在**健康 v4 日志**上产出**数千条误报** ⇒ 版本分派 + **E6/E9** v4 语义 |  |
+| 10 | 2026-09-17 | **Windows** 上 `header.cwd` 用 POSIX 规则判定 → **所有**会话被 **H2** 误报 ⇒ 平台感知的绝对路径判定 |  |
+| 11 | 2026-10-20 | **超过 500MB 的会话**让读取器崩溃（`ERR_STRING_TOO_LONG`），修复时又把全文拼进内存 ⇒ 按行解码 + 流式帧重建 |  |
+| 12 | 2026-10-20 | 两段式载体引用有的把「审计段」写在前面、早期约定从区间起点开始 → 读取侧报出**数百个假孤儿载体** ⇒ **P5** 写侧成对 + 读侧容错 |  |
+| 13 | 2026-10-20 | `seedLength` 被部分消费方当作**字节数**（其语义是「继承事件条数」），且 `parentSession` 配缺失/0 被当成损坏 ⇒ **I2** 语义钉死 |  |
+| 14 | 2026-10-20 | 一种**未知但显式可忽略**的事件类型让整条迁移卡死 ⇒ **G4** 声明式跳过 + 白名单 |  |
+
+
+> **结论**：这些规则不是合成理论——每一条都有回归测试复现它守护的那种损坏形态。这就是这里「生产级」的含义。
+
+---
+
+## 安装
 ```bash
 pnpm add -D dsh-log-contract   # 或 npm install
 pnpm dlx dsh-log-contract --help
@@ -134,7 +162,6 @@ pnpm dlx dsh-log-contract --help
 ---
 
 ## CLI 用法
-
 ### 1. 离线体检
 
 ```bash
@@ -228,7 +255,6 @@ dsh-log-contract audit-report <session-log>
 ---
 
 ## Node API（写前校验嵌入你的脚本）
-
 ```js
 import { loadSessionLog, validateSessionLog, createPreWriter } from 'dsh-log-contract';
 
@@ -255,7 +281,6 @@ if (!verdict.ok) {
 ---
 
 ## 测试
-
 ```bash
 pnpm check && pnpm test    # 语法检查 + 契约文档漂移闸 + 全部单测（含案例回归用例）
 ```
@@ -264,6 +289,19 @@ pnpm check && pnpm test    # 语法检查 + 契约文档漂移闸 + 全部单测
 
 > **发布包范围**：只含运行时代码与文档。维护者本地工具不在公开仓内，
 > 因此 `pnpm check` / `pnpm test` 在干净的克隆里即可通过。
+
+## 本地 Git 钩子（可选，需手动安装）
+仓库提供 `.githooks/pre-push`（推送前跑 `pnpm check`），但它**不会因为 clone 自动生效**——必须显式指向：
+
+```bash
+git config core.hooksPath .githooks   # 启用
+git config --get core.hooksPath       # 验证：应输出 .githooks
+```
+
+跳过仅限紧急情况：`git push --no-verify`。卸载：`git config --unset core.hooksPath`。
+
+> 钩子是本地便利，不是信任边界：CI（`.github/workflows/ci.yml`）会跑 `pnpm check` /
+> `pnpm check:strict` / `pnpm test`，未安装钩子的克隆同样受门禁约束。
 
 按**日志形态**给出的判定——本工具对每类缺陷该说什么，而不是对某个具体文件：
 
@@ -280,23 +318,13 @@ pnpm check && pnpm test    # 语法检查 + 契约文档漂移闸 + 全部单测
 
 ---
 
-## Roadmap
+## ⚠️ 升级说明（0.3.12 → 0.3.24）
 
-- [x] **Phase 1（0.1.0）**：CLI 离线体检 + 写前校验 + 契约目录
-- [x] **Phase 1.5（0.2.0）**：`fix` 子命令（严格 seq 扫描 + W1/W2 wire 检查 + 移除 marker 重编号 + 官方帧格式重建）；CI 集成（`dsh-log-contract check` 作为 Harness 会话目录的定时守护）
-- [x] **0.3.x（2026-08-30 案例固化）**：T1 token-meter 配对 → 0.3.1 W1/W2 折叠位置修复 → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize`（turn-null marker 原地中和）→ 0.3.4 `fix --clip-crossstep`（跨 step 引用裁剪）→ 0.3.5 **T2/S9/I1 规则**（跨 step 源引用 / 物理序单调 / inbox 重放）
-- [x] **0.3.6 → 0.3.15**：按被检文件版本择路的 v0–v3 规则（T3/T4/T5、L3–L5、E8/E9/E10）、宿主能力与迁移预检的退出码 `3`/`4`，以及如实报告"哪些版本**未**验证"的版本支持说明（详见 [CHANGELOG.md](CHANGELOG.md)）
-- [ ] Phase 2：运行时守护（订阅 session append 事件流实时校验，断裂即标记 `dsh/contract-violation` 事件，策略可配 告警/拦截）——DSH 插件形态
-- [ ] Phase 3：与 dsh-turn-guard / dsh-retrace 时间线联动
+### 0.3.18 → 0.3.24 一段话说清
 
-## 许可
-
-MIT © OfferKuai Team
-
----
-
-## ⚠️ 升级到 0.3.17 —— 必须知道的行为变更（0.3.12 → 0.3.17）
-
+**会话格式 v4**（宿主 `dsh-session` 0.2.x）改为按版本分派判定（`tool/result` 的 role、`system/message` 的来源）；
+新增五条规则（`G4` 未知但可忽略事件、`S10` 引用元素类型、`I2` `seedLength` 语义、`P5` 载体配对、`A1` 只认结构化字段的在位可还原）；
+大会话（>500MB）按行读取 + 流式帧重建；Windows 的 `header.cwd` 判定改为平台感知。
 > **0.3.17 不含行为变更。** 它只调整了注释、测试标题、少量诊断文案与 README 的措辞。
 > 所有判定结果、退出码与 `--json` 字段与 0.3.15 完全一致，
 > 因此从 0.3.12 升到 0.3.17 时，下面各条与原来完全一致。
@@ -326,3 +354,16 @@ MIT © OfferKuai Team
 **3.「体检通过」到哪一步为止。**
 本工具的规则集**不等于**官方升级链的接受条件。`assessmentScope=partial` 只表示"本工具看过的那部分没问题"，
 **不构成**"官方升级会接受"。已知未覆盖的 6 类见 `coverage.uncovered`。
+
+## Roadmap
+- [x] **Phase 1（0.1.0）**：CLI 离线体检 + 写前校验 + 契约目录
+- [x] **Phase 1.5（0.2.0）**：`fix` 子命令（严格 seq 扫描 + W1/W2 wire 检查 + 移除 marker 重编号 + 官方帧格式重建）；CI 集成（`dsh-log-contract check` 作为 Harness 会话目录的定时守护）
+- [x] **0.3.x（2026-08-30 案例固化）**：T1 token-meter 配对 → 0.3.1 W1/W2 折叠位置修复 → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize`（turn-null marker 原地中和）→ 0.3.4 `fix --clip-crossstep`（跨 step 引用裁剪）→ 0.3.5 **T2/S9/I1 规则**（跨 step 源引用 / 物理序单调 / inbox 重放）
+- [x] **0.3.6 → 0.3.15**：按被检文件版本择路的 v0–v3 规则（T3/T4/T5、L3–L5、E8/E9/E10）、宿主能力与迁移预检的退出码 `3`/`4`，以及如实报告"哪些版本**未**验证"的版本支持说明（详见 [CHANGELOG.md](CHANGELOG.md)）
+- [ ] Phase 2：运行时守护（订阅 session append 事件流实时校验，断裂即标记 `dsh/contract-violation` 事件，策略可配 告警/拦截）——DSH 插件形态
+- [ ] Phase 3：与 dsh-turn-guard / dsh-retrace 时间线联动
+
+## 许可
+MIT © OfferKuai Team
+
+---
