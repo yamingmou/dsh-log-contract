@@ -20,7 +20,7 @@ const rootIdx = argv.indexOf('--root')
 const ROOT = rootIdx >= 0 ? argv[rootIdx + 1] : process.cwd()
 const asJson = argv.includes('--json')
 
-const FORMS = [
+let FORMS = [
   ['内部治理叙事', /裁定|派工单|放行件|私有树|投影树|共同体|插件线|修复线|体检线|comm-\d{3,}|A\d\s*[-–]\s*A\d/],
   ['机制类词汇', /三折|三段式|三件套|头缓存|水位线?|断裂点|抢在自动压缩前|折叠三件套/],
   ['本机落点', /\/Users\/[A-Za-z0-9._-]+|~\/dsh-v\d|\/private\/tmp|C:\\\\Users\\\\/],
@@ -68,3 +68,21 @@ else {
   if (!hits.length) console.log('external-surface: ok —— 对外内容零内部信息')
 }
 process.exit(hits.length === 0 ? 0 : 1)
+
+// 单一词表（internal/wordlist.json）：存在则合并进 FORMS，缺失则只用内置
+try {
+  const { readFileSync: rf, existsSync: ex } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const { dirname, join } = await import('node:path')
+  const here = dirname(fileURLToPath(import.meta.url))
+  const wlPath = join(here, '..', 'internal', 'wordlist.json')
+  if (ex(wlPath)) {
+    const wl = JSON.parse(rf(wlPath, 'utf8'))
+    for (const [label, words] of Object.entries(wl)) {
+      if (label.startsWith('_') || !Array.isArray(words)) continue
+      const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      FORMS.push([`词表·${label}`, new RegExp(words.map(esc).join('|'))])
+    }
+    console.log('external-surface: 已载入单一词表 internal/wordlist.json')
+  }
+} catch (e) { console.log('external-surface: 词表载入失败，使用内置规则：', e.message) }
