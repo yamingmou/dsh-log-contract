@@ -1,7 +1,7 @@
 {
   "name": "dsh-log-contract",
   "description": "日志契约守护 — DSH session log contract guard: offline health check (CLI) + pre-write validation for DeepSeek Harness session logs",
-  "version": "0.3.7",
+  "version": "0.3.23",
   "packageManager": "pnpm@11.7.0",
   "type": "module",
   "main": "lib/index.js",
@@ -18,7 +18,13 @@
     "./prewrite": {
       "default": "./lib/prewrite.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./contract": {
+      "default": "./contract/index.js"
+    },
+    "./adapters/dsh": {
+      "default": "./adapters/dsh/index.js"
+    }
   },
   "files": [
     "lib/**/*.js",
@@ -26,12 +32,16 @@
     "docs/**/*.md",
     "README.md",
     "LICENSE",
-    "README.zh.md"
+    "README.zh.md",
+    "contract/**/*.js",
+    "adapters/**/*.js"
   ],
   "scripts": {
-    "check": "node scripts/check-syntax.mjs",
+    "check": "node scripts/check-syntax.mjs && node scripts/gen-contracts-doc.mjs --check && node scripts/check-core-purity.mjs --self-test && node scripts/check-core-purity.mjs && node scripts/check-narrative.mjs",
     "test": "vitest run",
-    "prepublishOnly": "pnpm check && pnpm test"
+    "prepublishOnly": "node scripts/check-pkg-meta.mjs && node scripts/prepublish-gate.mjs && pnpm check && pnpm test && npm run check:strict && node scripts/check-narrative.mjs --strict",
+    "check:strict": "node scripts/check-core-purity.mjs --strict",
+    "check:narrative": "node scripts/check-narrative.mjs"
   },
   "keywords": [
     "dsh",
@@ -59,10 +69,11 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-session": "^0.1.0-rc.7"
+    "@deepseek-ai/dsh-session": "^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-session": "0.1.0-rc.7",
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-session": "0.2.0-rc.2",
     "esbuild": "0.28.2",
     "vitest": "4.1.11"
   }

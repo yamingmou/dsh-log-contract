@@ -13,27 +13,79 @@
  *   contracts                     列出内置契约规则目录
  */
 import fs from 'node:fs';
-import { loadSessionLog, validateSessionLog, resumeVerdict, createPreWriter, repairSession, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls } from '../lib/index.js';
+import { delimiter as pathDelimiter } from 'node:path';
+import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport } from '../lib/index.js';
+
+/**
+ * 同步写 fd——`process.stdout.write` 在**管道**下是异步的，紧跟着的
+ * `process.exit()` 不会等待 flush：>~64KiB 的输出会丢尾，`--json` 因此变成非法 JSON
+ * （实测在 [n] 事件夹具与真实 [size] v3 会话上复现，stdout [n]B 处 "Unterminated string"）。
+ * 这里直接同步写 fd 1/2（非阻塞管道 EAGAIN 时自旋重试），做到"先写完再 exit"。
+ */
+function writeAllSync(fd, text) {
+  const buf = Buffer.from(String(text), 'utf8');
+  let offset = 0;
+  while (offset < buf.length) {
+    try {
+      offset += fs.writeSync(fd, buf, offset, buf.length - offset);
+    } catch (err) {
+      if (err.code === 'EAGAIN') continue;
+      throw err;
+    }
+  }
+}
+const out = (text) => writeAllSync(1, text);
+const errOut = (text) => writeAllSync(2, text);
 
 const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log contract guard）
 
 用法：
-  dsh-log-contract check <session-log> [--json] [--max-details N] [--resume]
-      离线体检。session-log 支持 .jsonl 与 .jsonl.zstd。
-      --json          输出机器可读 JSON 报告
+  dsh-log-contract check <session-log> [--json] [--max-details N] [--resume] [--fail-on-migration] [--no-fail-on-migration] [--archive-root DIR] [--ignorable-whitelist a,b]
+      离线体检 + **迁移预检** + **在位可还原（A1，独立维度）**。session-log 支持 .jsonl 与 .jsonl.zstd。
+      ⚠️ 判据边界：本工具只判定它实现的规则集。「ok」/「可加载」/「可继续」/「可压缩」
+      **不代表**会话"可用"，**不代表**可安全编辑，也**不代表**官方升级路径会接受
+      （迁移是独立维度，覆盖边界见 contracts 输出与 lib/contracts.js 的 G 段）。
+      --json          输出机器可读 JSON 报告（含 host / assessable / assessmentScope / migration 字段）
       --max-details N 每条违规最多列 N 个缺失 seq（默认 8，--json 忽略）
-      --resume        输出三档结论（L3）：可加载 / 可继续 / 可压缩——
-                      回答「这个会话还能不能用」；--json 时附带 verdict 字段
+      --resume        输出分层结论：可加载 / 可继续 / 可压缩（本工具规则集内）
+                      + 迁移预检（官方 v0/v1/v2→当前格式会不会拒）；--json 时附带。
+      --fail-on-migration     migration.ready===false（工具判"官方升级会拒"）时退出码 4。
+                      **注意：默认已经是这个行为**（已把"报告与退出码不一致"的假阴性修掉）；
+                      本开关是**显式别名**，便于 CI 把意图写进命令行。
+      --no-fail-on-migration  **真 opt-out**：恢复 0.3.11 的行为——迁移 blocked 不再改退出码
+                      （结构绿即 exit 0）。两者同时给时 **opt-out 优先**。若你的流水线依赖旧退出码，
+                      用本开关；也可改读 --json 的 assessmentScope / migration.ready 自定门槛。
+      评估范围 assessmentScope（顶层字段，与 migration.assessmentScope 同值）：
+      'full' = 被检文件**已是当前官方格式（version=3）、无需迁移** ⇒ 工具规则集对该文件是完整的；
+      'partial' = **需要迁移**（version<3）：迁移维度只覆盖 2 条规则，另有 6 类未覆盖 ⇒
+      **不构成"官方升级会接受"**；'none' = 本宿主能力不足以评估（文件版本 > 宿主上限）。
+      机器应判 assessmentScope == "full" 才可把绿读作完整评估（partial/none 都不该）。
+      --archive-root DIR      A1「在位可还原」的归档根目录（可重复；也可用 env
+                      DSH_LOG_CONTRACT_ARCHIVE_ROOTS，按路径分隔符分隔）。**不提供 = 该维度
+                      不可判定（unverifiable），不冒充通过**。只认结构化指针
+                      （archiveRef/archive/externalized.*），⛔ 不从自由文本 grep 路径。
+      --ignorable-whitelist a,b
+                      G4 可忽略消费者白名单（精确 type 或以 / 结尾的前缀；也可用 env
+                      DSH_LOG_CONTRACT_IGNORABLE_WHITELIST）。已登记 ⇒ acceptedDrop 不阻断迁移。
+      退出码：0 本工具认为可加载且无迁移阻断；1 有 error 级违规；3 不可在本宿主评估
+              （被检文件版本 > 宿主支持上限，如 rc.7 宿主的 v3 文件——**不是** broken）；
+              4 迁移预检 blocked（assessmentScope=partial 且 migration.ready=false；可用
+              --no-fail-on-migration 退出该档）。
 
-  dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--clip-crossstep] [--drop-failed-turns] [--trim-last N] [--compact-last N] [--tail-renumber D] [--neutralize-orphan] [--extract-turn N] [--keep-ranges a-b,c-d] [--apply] [--backup-dir DIR] [--json]
-      诊断 + 修复（[n]-08 事故固化方案）。先做严格 seq 连续扫描 + 契约体检
+  dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--neutralize-legacy-markers] [--clip-crossstep] [--drop-failed-turns] [--trim-last N] [--compact-last N] [--tail-renumber D] [--neutralize-orphan] [--extract-turn N] [--keep-ranges a-b,c-d] [--apply] [--backup-dir DIR] [--json]
+      诊断 + 修复。先做严格 seq 连续扫描 + 契约体检
       （含 W1/W2 wire 级悬空 tool 检查），再按需修复：
       --remove-markers 移除 retrace/message-editor marker 并全量重编号
                        （用于大范围遮蔽历史 / marker 漏盖 tool/result）
       --clip-crossstep 裁剪 assistant/message 的跨 step sourceEventSeqs（token-meter 不再抛 belongs to another step）
       --neutralize     原地中和 turn-null marker（type→retrace/marker +
                        ignorable:true，删 surfaceOp/sourceEventSeqs，seq/行数不变）
-                       —— token-meter 不再刷屏，会话驻留也安全（[n]-08-30 事故）
+                       —— token-meter 不再刷屏，会话驻留也安全
+      --neutralize-legacy-markers
+                       **一次性根治历史载体债**：只中和
+                       assistant/message + data.editor 形态的历史 retrace marker
+                       （新载体是 user/message + data.id，不在此列）。清理后，
+                       写前校验不再需要"≤v2 历史 marker T1 降级"那条豁免。
       --drop-failed-turns 删除"本轮运行失败"的轮次（清失败报错气泡）
       --trim-last N    裁剪到最近 N 条 append 消息（保留所在 turn 结构）
       --trim-budget N  按 token 预算裁剪（L5）：自动选保留消息数使估算 ≤ N
@@ -62,7 +114,7 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
 
   dsh-log-contract extract <session-log> --pattern <regex> [--out DIR] [--min-size N] [--json]
       考古提取：按命令正则导出工具输出（只读）。--out 写到目录（保留原始文本），
-      否则打印前 3 条摘要。--min-size 过滤小输出（默认 50，需求文档口径）。
+      否则打印前 3 条摘要。--min-size 过滤小输出（默认 50）。
 
   dsh-log-contract audit-report <session-log> [--json]
       考古审计报告：调用数 / 配对率 / 孤儿数 / 命令分布。
@@ -74,32 +126,161 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
 `;
 
 function fail(message, code = 1) {
-  process.stderr.write(`${message}\n`);
+  errOut(`${message}\n`);
   process.exit(code);
 }
 
 function printViolations(violations, maxDetails = 8) {
   if (violations.length === 0) {
-    process.stdout.write('  ✔ 无违规\n');
+    out('  ✔ 无违规\n');
     return;
   }
   for (const v of violations) {
     const loc = [v.seq !== null ? `seq ${v.seq}` : null, v.lineNo !== null ? `line ${v.lineNo}` : null]
       .filter(Boolean).join(' / ');
     const head = `  [${v.severity}] ${v.id} ${loc ? `@ ${loc}` : ''}${v.eventType ? ` (${v.eventType})` : ''}`;
-    process.stdout.write(`${head}\n      ${v.message}\n`);
+    out(`${head}\n      ${v.message}\n`);
     if (Array.isArray(v.missingSeqs) && v.missingSeqs.length > maxDetails) {
-      process.stdout.write(`      …另有 ${v.missingSeqs.length - maxDetails} 个缺失 seq 未列出\n`);
+      out(`      …另有 ${v.missingSeqs.length - maxDetails} 个缺失 seq 未列出\n`);
     }
   }
+}
+
+/** 漂移抬头（[n]-09-14）:漂移清单 + 未internal清单 + "勿据此跑 fix --apply"。 */
+function driftLines(drift, probes) {
+  if (!drift) return '';
+  const host = probes ? `${probes.hostPackage}（SESSION_FORMAT_VERSION=${probes.sessionFormatVersion},词表 ${probes.knownTypes} 类）` : '未知';
+  // 注:这里**刻意不用 ✅/⚠️ 之外的"通过"符号**——待迁移文件（assessmentScope=partial）的
+  // 输出被测试钉死为"不得出现无条件绿的 ✅"，漂移行不能破坏那条纪律。
+  const probeOk = (probes?.probes ?? []).filter((x) => x.ok).length;
+  const probeTotal = (probes?.probes ?? []).length;
+  let out = `   漂移检测：宿主 ${host} ｜ 行为探针 ${drift.probeVerified ? `全部与规则假设一致（${probeOk}/${probeTotal}）` : `${drift.unverifiedRules.length} 组不一致（${probeOk}/${probeTotal} 一致）`}\n`;
+  if (drift.unverifiedRules.length > 0) {
+    out += `     ⛔ **UNVERIFIED**（探针与规则假设不一致,结论不可采信）:${drift.unverifiedRules.join('、')}\n`;
+  }
+  out += `     出处未internal（已知债,仅告警）:${drift.driftedSources.join('、')}\n`;
+  out += `     判定前提存疑（仅告警）:${drift.premiseStale.join('、')}${drift.undecidable.length ? `；无法判定:${drift.undecidable.join('、')}` : ''}\n`;
+  if (drift.fixApplyBlocked) {
+    out += '     ⛔ **禁止据此跑 `fix --apply`**（存在未验证规则:写入类动作不可逆）——先按 report internal这些规则或显式确认。\n';
+  }
+  return out;
+}
+
+/** 版本支持面（[n]-09-14 用户要求第 1 条）：一行摘要 + 逐条告警。
+ *  `readOnly` = 未验证格式 ⇒ 只读（check 照跑结构层；prewrite/fix 直接拒绝）。 */
+function supportLines(support) {
+  if (!support) return '';
+  let s = `   版本支持：${support.summary}\n`;
+  s += `     测试基线：${support.baseline.hostPackage}@${support.baseline.hostVersion} ｜ 会话格式 v${support.baseline.sessionFormatVersion}`
+    + `（已知 ${support.baseline.knownFormatVersions.join('/')}；peer ${support.baseline.peerRange}）\n`;
+  for (const w of support.warnings ?? []) s += `     ⚠️  ${w}\n`;
+  if (support.readOnly) s += '     ⛔ 未验证格式 ⇒ **只读**：不给出写入/修复结论（版本检测见 lib/version-support.js）\n';
+  return s;
+}
+
+/** S2 横幅：被检文件版本 > 宿主支持上限 ⇒ "不可在本宿主评估"（**不是** broken）。 */
+function notAssessableBanner(result) {
+  const na = result.notAssessable ?? {};
+  return `\n⚠️  不可在本宿主评估（not-assessable）\n`
+    + `    被检文件 version=${na.fileVersion} ＞ 本宿主支持的最大文件版本 ${na.hostMaxFileVersion}\n`
+    + `    宿主 @deepseek-ai/dsh-session@${na.hostPackage}\n`
+    + `    原因：${na.reason}\n`
+    + `    已跳过规则：${(na.skippedRules ?? []).join(', ')}\n`
+    + `    已执行：结构层（Z/H/R/E1·E2·E4·E5·E6/S9/M/P/P3·P4/I1）；结构层结论 ${result.structuralOk ? '绿' : '有 error（见上）'}\n`
+    + `    ⚠️ 这不表示日志损坏，也**不要**据此运行 fix --apply —— 请用 0.1.5+ 宿主评估。\n`
+    + supportLines(result.support);
+}
+
+/** 迁移预检（独立维度）文本。
+ * @param {object} mig `migrationVerdict()` 结果
+ * @param {boolean} partial 待迁移文件（`migration.applies===true`）⇒ 迁移维度只部分覆盖，
+ *   不得给无条件绿（[n]-09-14 规格 (i)+(iii)）。
+ */
+function migrationLine(mig, partial = false) {
+  if (!mig) return '';
+  if (mig.assessable === false) return `   迁移预检：不可评估（本宿主能力不足）\n`;
+  if (mig.applies === false) return `   迁移预检：— 不适用（${mig.reason ?? ''}）\n`;
+  const n = mig.blocked?.length ?? 0;
+  let s = mig.ready
+    ? (partial
+      ? `   迁移预检（独立维度，≠"可用/可升级"）：⚠️ 仅覆盖 ${mig.coverage.implemented.length} 条规则；另有 ${mig.coverage.uncovered.length} 类未覆盖（未覆盖 ≠ 通过）—— **不构成"升级会接受"**\n`
+      : `   迁移预检（独立维度，≠"可用/可升级"）：✅ 通过（仅限本工具覆盖范围）\n`)
+    : `   迁移预检（独立维度，≠"可用/可升级"）：❌ blocked（${n} 项：官方升级路径会拒）\n`;
+  for (const v of (mig.blocked ?? []).slice(0, 5)) {
+    s += `     [${v.id}] seq ${v.seq ?? '-'}${v.eventType ? ` (${v.eventType})` : ''} — ${String(v.message).slice(0, [n])}\n`;
+  }
+  if (n > 5) s += `     …另有 ${n - 5} 项\n`;
+  const drops = mig.acceptedDrops ?? { registered: [], unregistered: [] };
+  if (drops.registered.length > 0) {
+    s += `     声明式可忽略（G4 · 已登记 acceptedDrop，不阻断迁移）：${drops.registered.length} 项`;
+    const types = [...new Set(drops.registered.map((d) => d.eventType).filter(Boolean))];
+    if (types.length > 0) s += `（${types.slice(0, 5).join('、')}${types.length > 5 ? ' 等' : ''}）`;
+    s += '\n';
+  }
+  if (drops.unregistered.length > 0) {
+    s += `     ⛔ 声明可忽略但**未登记**（G4 warning，仍阻断迁移）：${drops.unregistered.length} 项——登记到 opts.ignorableWhitelist / DSH_LOG_CONTRACT_IGNORABLE_WHITELIST 后才移出阻断\n`;
+  }
+  s += `     覆盖边界：已覆盖 ${mig.coverage.implemented.length} 条；未覆盖 ${mig.coverage.uncovered.length} 类官方迁移规则（未覆盖 ≠ 通过；判据 ${mig.coverage.note}）\n`;
+  // 规格 (iii)：把未覆盖类名直接列出来，人不必开 --json 才知道边界。
+  if (partial) {
+    for (const [i, c] of (mig.coverage.uncovered ?? []).entries()) s += `       ${i + 1}. ${c}\n`;
+  }
+  return s;
+}
+
+/**
+ * A1「在位可还原」独立维度（0.3.19 · 最小集 ⑤）。
+ * 未提供归档根 ⇒ `unverifiable`（不冒充通过）；提供后才给读数与违规。
+ */
+function archiveLines(archive) {
+  if (!archive) return '';
+  if (archive.verdict === 'unverifiable') {
+    return '   在位可还原（A1，独立维度）：— 未提供归档根目录（不可判定；加 `--archive-root DIR` 或 env DSH_LOG_CONTRACT_ARCHIVE_ROOTS 才评估）\n';
+  }
+  const rate = (archive.restorableRate * [n]).toFixed(2);
+  let s = `   在位可还原（A1，独立维度，只认结构指针）：${archive.verdict === 'restorable' ? '✅' : '❌'} ${rate}%`
+    + `（指针 ${archive.pointers}，去重后 ${archive.effectivePointers ?? archive.pointers}：可还原 ${archive.restorable}`
+    + ` ／ relocated ${archive.relocated} ／ 缺失 ${archive.missing} ／ 行缺失 ${archive.lineMissing} ／ sha 不符 ${archive.shaMismatch} ／ 无法解析 ${archive.unresolved}）\n`;
+  if (archive.relocated > 0) s += '     ⚠️  relocated：绝对路径已失效但同名归档在归档根可解析（内容可找回，但不在位；re-home 未回写）\n';
+  return s;
 }
 
 function cmdCheck(args) {
   const json = args.includes('--json');
   const resume = args.includes('--resume');
+  // `--fail-on-migration` 是**默认已生效行为**的显式别名；
+  // `--no-fail-on-migration` 是**真 opt-out**（恢复旧行为：迁移 blocked 不再改退出码）。
+  // 两者同时给 ⇒ opt-out 优先（help/README 写明）。
+  const failOnMigration = args.includes('--fail-on-migration');
+  const noFailOnMigration = args.includes('--no-fail-on-migration');
   const maxDetailsIdx = args.indexOf('--max-details');
   const maxDetails = maxDetailsIdx >= 0 && args[maxDetailsIdx + 1] ? Number(args[maxDetailsIdx + 1]) : 8;
-  const file = args.find((a) => !a.startsWith('-'));
+  // 0.3.19：G4 白名单 / A1 归档根（可重复 `--archive-root DIR`，或 env 用 path.delimiter 分隔）。
+  const flagValues = (flag) => {
+    const vals = [];
+    for (let i = 0; i < args.length; i++) if (args[i] === flag && args[i + 1] !== undefined && !args[i + 1].startsWith('-')) vals.push(args[i + 1]);
+    return vals;
+  };
+  const archiveRoots = [
+    ...flagValues('--archive-root'),
+    ...(process.env.DSH_LOG_CONTRACT_ARCHIVE_ROOTS ? process.env.DSH_LOG_CONTRACT_ARCHIVE_ROOTS.split(pathDelimiter).filter(Boolean) : []),
+  ];
+  const whitelistRaw = [
+    ...flagValues('--ignorable-whitelist'),
+    ...(process.env.DSH_LOG_CONTRACT_IGNORABLE_WHITELIST ? [process.env.DSH_LOG_CONTRACT_IGNORABLE_WHITELIST] : []),
+  ];
+  const ignorableWhitelist = whitelistRaw.length > 0
+    ? whitelistRaw.flatMap((v) => String(v).split(',')).map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  // 取位置参数时排除所有带值开关的值（否则 `--archive-root /x` 的 /x 会被当成被检文件）。
+  const valuedFlags = new Set(['--max-details', '--archive-root', '--ignorable-whitelist']);
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a.startsWith('-')) { if (valuedFlags.has(a)) i++; continue; }
+    positional.push(a);
+  }
+  const file = positional[0];
   if (!file) fail(USAGE);
 
   let log;
@@ -108,45 +289,84 @@ function cmdCheck(args) {
   } catch (err) {
     fail(`读取失败：${err.message}`);
   }
-  const result = validateSessionLog(log);
+  const result = validateSessionLog(log, { archiveRoots, ignorableWhitelist });
   const { summary, violations, ok } = result;
+  const notAssessable = result.assessable === false;
+  const migration = result.migration ?? migrationVerdict(result);
+  // 机器可判的评估范围（partial = 待迁移文件，迁移维度只部分覆盖）。
+  const scope = result.assessmentScope ?? assessmentScope(result);
+  const partial = scope === 'partial';
+  const migBlocked = migration?.applies === true && migration.ready === false;
+  // 默认：`ready===false` ⇒ 非 0（修掉的假阴性）。
+  // `--fail-on-migration` = 显式别名（同默认）；`--no-fail-on-migration` = 真 opt-out（恢复旧行为）。
+  const migGate = !noFailOnMigration && (migBlocked || (failOnMigration && migration?.ready === false));
+  // 退出码：3 不可评估 > 1 结构 error > 4 迁移 blocked > 0。
+  const exitCode = notAssessable ? 3 : (!ok ? 1 : (migGate ? 4 : 0));
 
   if (json) {
-    const payload = { file, ok, summary, violations };
+    const payload = { file, ok, assessable: !notAssessable, assessmentScope: scope, host: hostCapability(), support: result.support ?? null, probes: result.probes ?? null, drift: result.drift ?? null, migration, summary, violations, archive: result.archive ?? null, ignorableDrops: result.ignorableDrops ?? null };
+    if (notAssessable) payload.notAssessable = result.notAssessable;
     if (resume) payload.resume = resumeVerdict(result);
-    process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
-    process.exit(ok ? 0 : 1);
+    out(JSON.stringify(payload, null, 2) + '\n');
+    process.exit(exitCode);
+  }
+
+  if (notAssessable) {
+    out(notAssessableBanner(result));
+    printViolations(violations, maxDetails);
+    process.exit(3);
   }
 
   if (resume) {
     const v = resumeVerdict(result);
     const tier = v.verdict;
-    const icons = { loadable: '✅ 可加载', resumable: '✅ 可继续', compactable: '✅ 可压缩', broken: '❌ 不可用' };
-    process.stdout.write(`\n📋 dsh-log-contract check --resume —— ${file}\n`);
-    process.stdout.write(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / [n]).toFixed(1)}KiB → ${(summary.plaintextBytes / [n]).toFixed(1)}KiB）\n`);
-    process.stdout.write(`   违规 ${summary.total}（error ${summary.bySeverity.error} / warning ${summary.bySeverity.warning}）\n\n`);
-    process.stdout.write(`   三档结论：\n`);
+    // partial（待迁移文件）时不用 ✅：避免"全局绿"被读成"官方升级会接受"——用中性 ✔。
+    const passMark = partial ? '✔' : '✅';
+    const icons = { loadable: `${passMark} 可加载`, resumable: `${passMark} 可继续`, compactable: `${passMark} 可压缩`, broken: '❌ 不可用' };
+    out(`\n📋 dsh-log-contract check --resume —— ${file}\n`);
+    out(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / [n]).toFixed(1)}KiB → ${(summary.plaintextBytes / [n]).toFixed(1)}KiB）\n`);
+    out(`   违规 ${summary.total}（error ${summary.bySeverity.error} / warning ${summary.bySeverity.warning}）\n\n`);
+    out(`   分层结论（**本工具规则集内**，不代表"可用"，也不代表官方升级会接受）：\n`);
     const tiers = [
       ['可加载 loadable', v.loadable, '会话能被 DSH 读入（结构规则 S1-S9/E/W 全绿）', v.blocking.loadable],
       ['可继续 resumable', v.resumable, 'resume/followup 可用（结构 + I1 inbox 重放绿）', v.blocking.resumable],
       ['可压缩 compactable', v.compactable, '/compact 与压力测量可用（前两档 + T1/T2 token-meter 配对绿）', v.blocking.compactable],
     ];
     for (const [name, pass, desc, blockers] of tiers) {
-      const mark = pass ? '✅' : '❌';
-      process.stdout.write(`     ${mark} ${name} — ${desc}\n`);
-      if (blockers.length > 0) process.stdout.write(`        阻断: ${[...new Set(blockers)].join(', ')}\n`);
+      const mark = pass ? passMark : '❌';
+      out(`     ${mark} ${name} — ${desc}\n`);
+      if (blockers.length > 0) out(`        阻断: ${[...new Set(blockers)].join(', ')}\n`);
     }
-    process.stdout.write(`\n   结论: ${icons[tier]}${v.verdict === 'compactable' ? ' —— 可安全继续使用' : v.verdict === 'broken' ? ' —— 见上方违规明细（error 级 = 会话不可读/不可写）' : ' —— 部分能力受限'}\n\n`);
+    out(supportLines(result.support));
+    out(driftLines(result.drift, result.probes));
+    out(migrationLine(migration, partial));
+    out(archiveLines(result.archive));
+    out(`\n   结论: ${icons[tier]}${migBlocked
+      ? '（本工具规则集内）—— 但**迁移预检 blocked**：不得据此宣称"可升级"'
+      : partial
+        ? '（本工具规则集内）—— 但**迁移维度仅部分覆盖**（assessmentScope=partial）：不得据此宣称"可升级"'
+        : v.verdict === 'compactable' ? ' —— 本工具规则集内可安全继续使用' : v.verdict === 'broken' ? ' —— 见上方违规明细（error 级 = 会话不可读/不可写）' : ' —— 部分能力受限'}\n\n`);
     printViolations(violations, maxDetails);
-    process.exit(ok ? 0 : 1);
+    process.exit(exitCode);
   }
 
-  process.stdout.write(`\n📋 dsh-log-contract check —— ${file}\n`);
-  process.stdout.write(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / [n]).toFixed(1)}KiB → ${(summary.plaintextBytes / [n]).toFixed(1)}KiB）\n`);
-  process.stdout.write(`   违规 ${summary.total}（error ${summary.bySeverity.error} / warning ${summary.bySeverity.warning}）\n\n`);
+  out(`\n📋 dsh-log-contract check —— ${file}\n`);
+  out(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / [n]).toFixed(1)}KiB → ${(summary.plaintextBytes / [n]).toFixed(1)}KiB）\n`);
+  out(`   违规 ${summary.total}（error ${summary.bySeverity.error} / warning ${summary.bySeverity.warning}）\n`);
+  out(supportLines(result.support));
+  out(driftLines(result.drift, result.probes));
+  out(migrationLine(migration, partial));
+  out(archiveLines(result.archive));
+  out('\n');
   printViolations(violations, maxDetails);
-  process.stdout.write(`\n${ok ? '✅ 通过：官方 foldSurface 可重放，三层契约绿' : '❌ 未通过：见上方违规明细（error 级 = 会话不可读/不可写）'}\n\n`);
-  process.exit(ok ? 0 : 1);
+  out(`\n${ok
+    ? (migBlocked
+      ? '⚠️ 本工具认为可加载（结构层绿），但**迁移预检 blocked** —— 不得据此宣称"可用/可升级"；详见上方迁移预检'
+      : partial
+        ? '⚠️ 本工具规则集内未发现违规；**迁移维度仅部分覆盖**（assessmentScope=partial，不代表官方升级会接受）—— 详见上方迁移预检的覆盖边界'
+        : '✅ 通过（本工具规则集内：结构层绿）')
+    : '❌ 未通过：见上方违规明细（error 级 = 会话不可读/不可写）'}\n\n`);
+  process.exit(exitCode);
 }
 
 function cmdPrewrite(args) {
@@ -169,13 +389,26 @@ function cmdPrewrite(args) {
   } catch (err) {
     fail(`会话日志读取失败：${err.message}`);
   }
-  const baseline = validateSessionLog(log);
+  const prewriteWhitelist = process.env.DSH_LOG_CONTRACT_IGNORABLE_WHITELIST
+    ? process.env.DSH_LOG_CONTRACT_IGNORABLE_WHITELIST.split(',').map((x) => x.trim()).filter(Boolean)
+    : undefined;
+  const baseline = validateSessionLog(log, { ignorableWhitelist: prewriteWhitelist });
+  // 版本支持面（[n]-09-14 用户要求第 1 条）：**未验证格式 ⇒ 只读**，不得给出写入结论。
+  if (baseline.support?.readOnly) {
+    fail(`未验证的会话格式（来源 ${baseline.support.file.source}，版本 v${baseline.support.file.version}）——按只读处理，写前校验无法给出可信结论。`
+      + ` ${baseline.support.warnings?.[0] ?? ''}`, 3);
+  }
+  // S2：本宿主评估不了的文件**不能**给出写前结论（否则会拿假阳性去拦合法写入）
+  if (baseline.assessable === false) {
+    fail(`不可在本宿主评估该会话（${baseline.notAssessable?.reason ?? '宿主能力不足'}）——写前校验无法给出可信结论；请用 0.1.5+ 宿主`, 3);
+  }
   if (!baseline.ok) {
     // 基线已坏：写前校验无法在坏基线上给出可信结论
     fail(`基线会话已有 ${baseline.summary.bySeverity.error} 个 error 级违规，请先修复基线再校验写入（安全修复协议第 2 步：改前基线必须绿）`);
   }
 
-  const prewriter = createPreWriter({ events: log.events.map((e) => e.event) });
+  // C2：把被检文件的 header 显式交给 prewriter（版本不再靠模块级全局；缺省也能自行推断）
+  const prewriter = createPreWriter({ events: log.events.map((e) => e.event), header: log.header, ignorableWhitelist: prewriteWhitelist });
   let result;
   if (Object.hasOwn(plan, 'append')) {
     result = prewriter.validateAppend(plan.append);
@@ -189,26 +422,39 @@ function cmdPrewrite(args) {
   }
 
   if (json) {
-    process.stdout.write(JSON.stringify({ file, op: result.op, ok: result.ok, bySeverity: result.bySeverity, violations: result.violations }, null, 2) + '\n');
+    out(JSON.stringify({ file, op: result.op, ok: result.ok, bySeverity: result.bySeverity, legacyMarkerDebt: result.legacyMarkerDebt ?? null, violations: result.violations }, null, 2) + '\n');
     process.exit(result.ok ? 0 : 1);
   }
 
-  process.stdout.write(`\n✍️  dsh-log-contract prewrite —— ${file}（op: ${result.op}，nextSeq: ${prewriter.nextSeq}）\n\n`);
+  out(`\n✍️  dsh-log-contract prewrite —— ${file}（op: ${result.op}，nextSeq: ${prewriter.nextSeq}）\n\n`);
+  if (result.legacyMarkerDebt) {
+    // 「降级可见」:历史 marker 债不只是 warning 里的一句话,这里显式打印并给出根治命令。
+    const d = result.legacyMarkerDebt;
+    out(`  ⚠️  检测到**历史 marker 载体**（${d.kind} 形态，id=${d.id}，targetSeq=${d.targetSeq}，seq=${d.seq}）：\n`);
+    out(`     T1 已按 ≤v${d.formatVersion <= 2 ? 2 : d.formatVersion} 白名单降级为 warning（仅历史载体、仅旧格式文件）——\n`);
+    out('     但**压缩（/compact）前仍需清理**，否则 token-meter 自检会拦：一次性根治 →\n');
+    out(`     \`dsh-log-contract fix <log> --neutralize-legacy-markers --apply\`（备份后原地中和，seq/行数不变）\n\n`);
+  }
   if (result.ok) {
-    process.stdout.write('  ✅ 写入安全：三层契约全绿（持久化 foldSurface 可重放 / 引擎层无崩溃风险 / 插件 marker 语义自洽）\n');
-    process.stdout.write(`     写入后 surface 节点 ${result.stateAfter.surfaceNodes} 个，nextSeq ${result.stateAfter.nextSeq}\n\n`);
+    out('  ✅ 写入安全：三层契约全绿（持久化 foldSurface 可重放 / 引擎层无崩溃风险 / 插件 marker 语义自洽）\n');
+    out(`     写入后 surface 节点 ${result.stateAfter.surfaceNodes} 个，nextSeq ${result.stateAfter.nextSeq}\n\n`);
     process.exit(0);
   }
-  process.stdout.write('  ❌ 写入会被拒：\n');
+  out('  ❌ 写入会被拒：\n');
   printViolations(result.violations);
-  process.stdout.write('\n');
+  out('\n');
   process.exit(1);
 }
 
 function cmdContracts() {
-  process.stdout.write('dsh-log-contract 契约规则目录（spec：59 条审计发现 + 官方源码逐行核对）\n\n');
+  out('dsh-log-contract 契约规则目录（spec：官方源码逐行核对）\n\n');
   for (const r of CONTRACT_RULES) {
-    process.stdout.write(`  ${r.id}  [${r.severity}/${r.layer}] ${r.title}\n      ${r.description}\n      出处: ${r.source}\n\n`);
+    const flags = [
+      r.candidate ? '候选规则' : null,
+      r.sourceVerified === false ? '出处未internal' : null,
+      r.premiseStale ? '判定前提存疑' : null,
+    ].filter(Boolean).join(' / ');
+    out(`  ${r.id}  [${r.severity}/${r.layer}] ${r.title}${flags ? `  ⟪${flags}⟫` : ''}\n      ${r.description}\n      出处: ${r.source}\n\n`);
   }
 }
 
@@ -216,6 +462,8 @@ function cmdFix(args) {
   const json = args.includes('--json');
   const removeMarkers = args.includes('--remove-markers');
   const neutralize = args.includes('--neutralize');
+  // 一次性根治路径:只中和**历史载体**(assistant/message + data.editor)的 retrace marker
+  const neutralizeLegacyMarkers = args.includes('--neutralize-legacy-markers');
   const clipCrossStep = args.includes('--clip-crossstep');
   const dropFailedTurns = args.includes('--drop-failed-turns');
   const trimIdx = args.indexOf('--trim-last');
@@ -224,7 +472,7 @@ function cmdFix(args) {
   const trimBudget = budgetIdx >= 0 && args[budgetIdx + 1] ? Number(args[budgetIdx + 1]) : undefined;
   const compactIdx = args.indexOf('--compact-last');
   const compactLast = compactIdx >= 0 && args[compactIdx + 1] ? Number(args[compactIdx + 1]) : undefined;
-  // L4 新原语（[n]-08-30 需求文档 §L4 收编 tools/）
+  // L4 新原语（[n]-08-30 收编外部验证工具）
   const tailIdx = args.indexOf('--tail-renumber');
   const tailRenumberDelta = tailIdx >= 0 && args[tailIdx + 1] ? Number(args[tailIdx + 1]) : undefined;
   const neutralizeOrphan = args.includes('--neutralize-orphan');
@@ -240,26 +488,41 @@ function cmdFix(args) {
   const file = args.find((a) => !a.startsWith('-'));
   if (!file) fail(USAGE);
 
-  const result = repairSession(file, { removeMarkers, neutralize, clipCrossStep, dropFailedTurns, trimLast, trimBudget, compactLast, tailRenumberDelta, neutralizeOrphan, extractTurn, extractTurnTo, keepRanges, apply, backupDir });
+  // S2 安全闸：本宿主评估不了的文件**不许**修。危害路径（实测指出）：rc.7 上把健康 v3
+  // 日志报成 broken → 用户以为日志坏了去跑 `fix --apply` ⇒ 在健康日志上动手。这里直接拒绝。
+  const head = readSessionHeader(file);
+  const fileVersion = Number.isSafeInteger(head?.version) ? head.version : 0;
+  // 版本支持面：未验证格式 ⇒ 只读（不得修），与 S2 宿主能力闸并列。
+  const support = detectSupport({ header: head });
+  if (support.readOnly) {
+    fail(`未验证的会话格式（来源 ${support.file.source}，版本 v${support.file.version}）——按只读处理，拒绝修复。`
+      + ` ${support.warnings?.[0] ?? ''}`, 3);
+  }
+  if (fileVersion > HOST_MAX_FILE_VERSION) {
+    fail(`拒绝修复：被检文件 version=${fileVersion} 高于本宿主 @deepseek-ai/dsh-session@${hostCapability().hostPackage} 支持的最大版本 ${HOST_MAX_FILE_VERSION}`
+      + ` —— 本宿主评估不了该文件（不是"日志坏了"）。请用 0.1.5+ 宿主修复。`, 3);
+  }
+
+  const result = repairSession(file, { removeMarkers, neutralize, neutralizeLegacyMarkers, clipCrossStep, dropFailedTurns, trimLast, trimBudget, compactLast, tailRenumberDelta, neutralizeOrphan, extractTurn, extractTurnTo, keepRanges, apply, backupDir });
   if (json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    out(JSON.stringify(result, null, 2) + '\n');
     process.exit(result.ok ? 0 : 1);
   }
 
-  process.stdout.write(`\n🔧 dsh-log-contract fix —— ${file}\n`);
-  process.stdout.write(`   诊断：${result.issues.length === 0 ? '无问题' : result.issues.map((i) => `[${i.kind}] ${i.detail}`).join('\n         ')}\n`);
+  out(`\n🔧 dsh-log-contract fix —— ${file}\n`);
+  out(`   诊断：${result.issues.length === 0 ? '无问题' : result.issues.map((i) => `[${i.kind}] ${i.detail}`).join('\n         ')}\n`);
   if (result.applied) {
-    process.stdout.write(`   已应用修复：移除 ${result.removed} 项，重编号 ${result.renumbered} 行，中和 ${result.neutralized} 个 turn-null marker，裁剪 ${result.clipped} 个跨 step 引用（seq ${(result.neutralizedSeqs ?? []).join(',')}）\n`);
-    process.stdout.write(`   备份：${result.backupPath}\n`);
-    process.stdout.write(`   修复后体检：error ${result.check.summary?.bySeverity?.error ?? '?'} ｜ surface ${result.check.summary?.surfaceNodes ?? '?'} 节点\n`);
+    out(`   已应用修复：移除 ${result.removed} 项，重编号 ${result.renumbered} 行，中和 ${result.neutralized} 个 turn-null marker，裁剪 ${result.clipped} 个跨 step 引用（seq ${(result.neutralizedSeqs ?? []).join(',')}）\n`);
+    out(`   备份：${result.backupPath}\n`);
+    out(`   修复后体检：error ${result.check.summary?.bySeverity?.error ?? '?'} ｜ surface ${result.check.summary?.surfaceNodes ?? '?'} 节点\n`);
   } else if (apply && !result.ok) {
-    process.stdout.write('   ❌ 存在 error 级问题，拒绝应用（改前基线必须绿；先修基线或检查输出）\n');
+    out('   ❌ 存在 error 级问题，拒绝应用（改前基线必须绿；先修基线或检查输出）\n');
   } else if (apply) {
-    process.stdout.write('   （--apply 且无问题——无内容可修）\n');
+    out('   （--apply 且无问题——无内容可修）\n');
   } else {
-    process.stdout.write(`   （干跑模式：${result.removed} 项可移除、${result.renumbered} 行待重编号、${result.neutralized} 个 turn-null marker 可中和、${result.clipped} 个跨 step 引用可裁剪；加 --apply 落盘，--remove-markers / --neutralize / --clip-crossstep / --drop-failed-turns / --trim-last N / --trim-budget N / --tail-renumber D / --neutralize-orphan / --extract-turn N / --keep-ranges a-b,c-d 启用于对应修复）\n`);
+    out(`   （干跑模式：${result.removed} 项可移除、${result.renumbered} 行待重编号、${result.neutralized} 个 turn-null marker 可中和、${result.clipped} 个跨 step 引用可裁剪；加 --apply 落盘，--remove-markers / --neutralize / --clip-crossstep / --drop-failed-turns / --trim-last N / --trim-budget N / --tail-renumber D / --neutralize-orphan / --extract-turn N / --keep-ranges a-b,c-d 启用于对应修复）\n`);
   }
-  process.stdout.write('\n');
+  out('\n');
   process.exit(result.ok ? 0 : 1);
 }
 
@@ -277,11 +540,11 @@ function cmdExtract(args) {
   const log = loadSessionLog(file);
   const { pairs, total } = extractToolOutputs(log.events.map((e) => e.event), pattern, { minSize });
   if (json) {
-    process.stdout.write(JSON.stringify({ file, pattern, matched: pairs.length, total, pairs: pairs.map((p) => ({ callId: p.callId, command: p.command, size: p.size })) }, null, 2) + '\n');
+    out(JSON.stringify({ file, pattern, matched: pairs.length, total, pairs: pairs.map((p) => ({ callId: p.callId, command: p.command, size: p.size })) }, null, 2) + '\n');
     process.exit(0);
   }
-  process.stdout.write(`\n🔍 dsh-log-contract extract —— ${file}\n`);
-  process.stdout.write(`   命令正则：/${pattern}/ ｜ 匹配 ${pairs.length} 个输出（共 ${total} 个工具调用，min-size ${minSize}）\n`);
+  out(`\n🔍 dsh-log-contract extract —— ${file}\n`);
+  out(`   命令正则：/${pattern}/ ｜ 匹配 ${pairs.length} 个输出（共 ${total} 个工具调用，min-size ${minSize}）\n`);
   if (outDir) {
     fs.mkdirSync(outDir, { recursive: true });
     let written = 0;
@@ -290,14 +553,14 @@ function cmdExtract(args) {
       fs.writeFileSync(`${outDir}/${safe}.txt`, p.text);
       written += 1;
     }
-    process.stdout.write(`   已导出 ${written} 个输出到 ${outDir}\n`);
+    out(`   已导出 ${written} 个输出到 ${outDir}\n`);
   } else {
     for (const p of pairs.slice(0, 3)) {
-      process.stdout.write(`   - [${p.size}B] ${p.command.slice(0, 60)}… ${p.text.slice(0, 80).replace(/\n/g, ' ')}…\n`);
+      out(`   - [${p.size}B] ${p.command.slice(0, 60)}… ${p.text.slice(0, 80).replace(/\n/g, ' ')}…\n`);
     }
-    if (pairs.length > 3) process.stdout.write(`   … 其余 ${pairs.length - 3} 个（加 --out DIR 全部导出）\n`);
+    if (pairs.length > 3) out(`   … 其余 ${pairs.length - 3} 个（加 --out DIR 全部导出）\n`);
   }
-  process.stdout.write('\n');
+  out('\n');
   process.exit(0);
 }
 
@@ -308,30 +571,30 @@ function cmdAuditReport(args) {
   const log = loadSessionLog(file);
   const report = auditToolCalls(log.events.map((e) => e.event));
   if (json) {
-    process.stdout.write(JSON.stringify({ file, ...report }, null, 2) + '\n');
+    out(JSON.stringify({ file, ...report }, null, 2) + '\n');
     process.exit(0);
   }
-  process.stdout.write(`\n📊 dsh-log-contract audit-report —— ${file}\n`);
-  process.stdout.write(`   工具调用 ${report.calls} ｜ 结果 ${report.results} ｜ 孤儿 ${report.orphans} ｜ 配对率 ${(report.pairingRate * [n]).toFixed(1)}%\n`);
-  process.stdout.write(`   输出总字节 ${report.outputBytes}`);
-  if (report.largest) process.stdout.write(` ｜ 最大 ${report.largest.size}B（${(report.largest.command || '?').slice(0, 40)}）`);
-  process.stdout.write(`\n   命令分布（前 ${report.commands.top.length} 个去重）：\n`);
+  out(`\n📊 dsh-log-contract audit-report —— ${file}\n`);
+  out(`   工具调用 ${report.calls} ｜ 结果 ${report.results} ｜ 孤儿 ${report.orphans} ｜ 配对率 ${(report.pairingRate * [n]).toFixed(1)}%\n`);
+  out(`   输出总字节 ${report.outputBytes}`);
+  if (report.largest) out(` ｜ 最大 ${report.largest.size}B（${(report.largest.command || '?').slice(0, 40)}）`);
+  out(`\n   命令分布（前 ${report.commands.top.length} 个去重）：\n`);
   for (const { command, count } of report.commands.top.slice(0, 8)) {
-    process.stdout.write(`     ${String(count).padStart(4)}  ${(command || '(no-command)').slice(0, 70)}\n`);
+    out(`     ${String(count).padStart(4)}  ${(command || '(no-command)').slice(0, 70)}\n`);
   }
-  process.stdout.write('\n');
+  out('\n');
   process.exit(0);
 }
 
 const args = process.argv.slice(2);
 const cmd = args[0];
 if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') {
-  process.stdout.write(USAGE);
+  out(USAGE);
   process.exit(0);
 }
 if (cmd === '--version' || cmd === '-v') {
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  process.stdout.write(`dsh-log-contract ${pkg.version}\n`);
+  out(`dsh-log-contract ${pkg.version}\n`);
   process.exit(0);
 }
 if (cmd === 'check') cmdCheck(args.slice(1));

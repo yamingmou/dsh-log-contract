@@ -1,19 +1,216 @@
-## Unreleased
+## [0.3.17] — [n]-09-16 · 新增帧形状规则（首帧必须恰好一行 header；多行日志不得压成单帧）
 
-### 新增（[n]-09-02 · 渲染层规则 T3/T4 —— 5e[n] 白屏复盘固化）
+### 帧形状
+- **Z4**：会话日志的 **zstd 首帧必须恰好一行 header**。首帧装多行时，宿主侧的读取断言会失败，
+  而该断言发生在**遍历整个会话库**的路径上、没有按会话容错 ⇒ **整个客户端无法启动**。
+- **Z5**：**多行日志不得压缩成单帧**。把整份日志重压成一帧会同时触发 Z4；任何重写会话的路径都必须
+  **保持原有分帧形状**（逐帧解、逐帧回写，或使用宿主写入器），不要整体重新压缩。
+- 这两条来自一次真实损坏的复盘：一次"内容正确、但写回形状错误"的修复导致客户端整体不可用。
+
+### 其它
+- 测试夹具与**官方写盘形状**对齐：帧 1 为 header 独占、事件分批、至少 2 帧，并且压缩参数与本包写回一致（首帧逐字节相同）。
+- 规则总数 44 → **46**。
+
+## [0.3.16] — [n]-09-15 · 对外文本与代码注释的措辞清理
+
+> 0.3.15 把"发布前检查"固化成自动步骤，但那一步只看 README / CHANGELOG / `docs/`。
+> 本版把范围补全：**代码注释、测试标题、字符串字面量、诊断文案、文档**统一按同一条
+> 标准处理——只描述产品与契约本身，不描述这份代码是怎么被生产出来的。
+> **不含行为变更**：所有判定的结果、退出码、`--json` 字段结构一律不变，
+> 只有个别用户可见文案的措辞与测试标题变干净。
+
+### 修复
+- **代码注释（`lib/`、`bin/`）**：把"这条规则是谁、在哪一轮、按什么编号确认的"一类叙述
+  改成**实测 / 反例**这类技术表述；规则的技术依据与其引用的官方源码行号全部保留。
+- **规则出处（`lib/contracts.js` → 自动生成的 `docs/CONTRACTS.md`）**：出处只留
+  官方源码定位与实测结论，不再带批次编号或内部工具文件名。
+- **测试（`test/`）**：测试标题与注释改为自述式（"这条钉住什么语义 / 改坏哪里会变红"）；
+  夹具里指向真实脚本/会话的名字换成合成名。
+- **README（中英）**：把"真值表"从**文件名**改为**日志形态**（缺陷类 → 判定 → 触发规则），
+  信息量不降但不指认任何具体文件；顺带订正三处与实现不符的表述
+  （一个不存在的函数名、一个不存在的 `--trim` 开关名、ZIP 安装指引里不存在的 `build` 脚本），
+  并把绝对化措辞（"每条规则都来自事故"）改为如实表述。
+
+### 工程
+- **文本检查范围扩大**：`prepublishOnly` 的文本检查现在也覆盖代码注释、测试标题与诊断
+  文案（此前只看 README / CHANGELOG / `docs/`）。
+- **发布前元数据校验**：改为**正向断言**（只认 `github.com/yamingmou/<name>`），
+  能拦下的错误比原来的黑名单更多，且不再在公开仓里记录历史账号名。
+
+## [0.3.15] — [n]-09-15 · 清理对外文档里与产品无关的信息
+
+> 0.3.8–0.3.14 的一些对外文本里混进了与产品无关的信息（内部文档名、规划代号、私有路径、
+> 某次真实会话的文件名等）。本版把它们清理干净，并把"发布前的文本检查"固化成自动步骤，
+> 防止再犯。
+
+### 修复
+- **README（中英）**：包名沿革只保留"本包名 / 早期工作名"这一对外事实。
+- **`lib/log-reader.js`**：注释里去掉与本机环境相关的描述，改为通用表述。
+- **规则出处（全树）**：`lib/contracts.js`（含自动生成的 `docs/CONTRACTS.md`）、`lib/archaeology.js`、
+  `lib/checks.js`、`lib/validate.js`、`lib/repair.js`、`bin/` 与本文件里对内部文档名的引用，
+  一律改成**不带文档名**的通用表述——规则出处的可读性不变。
+- **测试夹具**：去掉夹具文件名里对某个真实会话的指认，改用合成名。
+
+### 工程
+- **发布前检查加强**：文本检查的覆盖面扩大，并把"引用了不存在的文件"（含大小写变体）
+  挡在发布之前。
+- **契约目录漂移检查**：`pnpm check` 现在会校验 `docs/CONTRACTS.md` 与 `lib/contracts.js` 的
+  规则注册表一致——改了注册表却没重生成，检查直接失败。
+- **发布包范围**：npm 包与公开仓**只含运行时代码与文档**；维护者本地工具不在其中，
+  因此干净克隆里 `pnpm check` / `pnpm test` 即可通过。
+
+### 说明
+- 本版**不含行为变更**：0.3.14 → 0.3.15 与 0.3.12 → 0.3.15 的行为一致，升级说明见 README。
+
+## [0.3.14] — [n]-09-14 · 对外文本清理 + 版本支持检测 + 文档如实性
+
+> 背景：0.3.8–0.3.13 的一些对外文本里混进了与产品无关的信息。本版把它们清理干净，
+> 并在发布前加入自动检查，避免同类信息再次随包或随公开仓出去。
+
+### 新增
+- **版本支持检测**（`lib/version-support.js`）:测试基线（宿主 `@deepseek-ai/dsh-session@0.1.5-rc.1` /
+  会话格式 v3 / 已知 0/1/2/3）变成**常量**并**运行时比对**:宿主比基线新 ⇒ 告警;
+  被检文件格式未知或无法识别 ⇒ 报"未验证格式"并**按只读处理**（`prewrite`/`fix` 拒绝，退出码 3）。
+- **行为探针**（`lib/host-probes.js`）:自造微型日志喂宿主导出的
+  `foldSurface`/`adoptSessionEvent`,断言规则假设;不一致 ⇒ 相关规则标 `UNVERIFIED` 并在结论抬头点名。
+
+### 修复（[n]-09-14 确证的误报/漏检）
+- **Z2 撕裂尾帧误报**:宿主 `readZstdPrefix` 会恢复撕裂尾帧并 `tornTruncateTo`,旧实现直接抛错 ⇒
+  级联 `Z1+Z2+H1`、verdict=broken(把宿主能修的文件报成"会话坏了")。现按宿主语义**恢复**
+  (无完整帧仍报错);写路径仍 strict(不回写活动会话正在写的尾部)。
+- **S2 误报**:未知类型 + `ignorable:true` 的 opaque 元数据宿主**刻意容忍**(`dsh-session:[n]`),
+  不再报 S2 error(E7 warning 保留)。
+- **T2/P1/P2/C1/T3 标注**为"出处未internal / 判定前提存疑"(机读字段 + 结论抬头清单);
+  **E5**"写入即被拒"订正为"写入会成功、下一次读取才炸"。
+- **历史 marker 白名单收窄**:从"任意 `data.editor`"收窄为可识别的历史 retrace 载体
+  (id 前缀 + `editor.targetSeq === op.start`),**只对 ≤v2 降级**且降级可见;
+  新增一次性根治 `fix --neutralize-legacy-markers`。
+- **补 3 条候选规则**:E9 `system/message` 必须 plugin source;E10 `request/header` 字段约束;
+  E8 信封键白名单(**按行为探针订正口径**:load 路径容忍、seed/restore 路径拒 ⇒ warning)。
+
+### 文档
+- README 中英:「版本支持」明文（基线 + 未验证版本行为）;`/compact` 表述改为**带前提的如实版**
+  （只承诺新写入不再制造 token-meter 配对债;历史单段 marker 需先清理）。
+- 删除 README 中英重复的「版本支持」整段;「升级到 0.3.12」标题更新到 0.3.14。
+
+## [0.3.13] — [n]-09-14 · 修复 --tail-renumber 的静默数据破坏 + 迁移门可 opt-out
+
+> ⚠️ **安全修复**:0.3.11/0.3.12 的 `--tail-renumber` 在 v3 会话上会把**区间对** `sourceEventSeqs` 写成 `null`
+> （`[[[n]]]` → `[null]`，静默破坏且仍报 `changed`）。本版修复。
+
+### 修复
+- **`--tail-renumber` 位移时同步所有 seq 引用**:`data.shadowedRange{start,end}` / `data.shadowedSeqs` /
+  `surfaceOp{start,end,startSeq,endSeq}` / `data.messageSeqs` / **v3 区间对 `sourceEventSeqs`**。
+  跨平移起点的区间对**明确报错**（不猜：两端分属起点两侧时结果不是单个闭区间）。
+  已知未覆盖:`command/done.data.sourceEventSeq`（单数，命中 2/[n] 文件，低严重度）。
+- **迁移门可 opt-out**:新增 `--no-fail-on-migration`（恢复 0.3.11 退出码;**只影响退出码**,JSON 结论不变）;
+  与 `--fail-on-migration` 同给时 opt-out 优先。
+- **迁移预检新增 G3**（`session/title` 系列 `messageSeqs`,出处 `v0-to-v1:[n]-[n]`）。
+
+### 一条**做了又撤回**的规则（如实记录）
+turn/start 状态机规则（G4）原型在 [n] 个真实 v0 上 **0 误报**、能把残余 mismatch 打到 0,
+但机制核查发现**官方把它跑在变换后的 v1/v2 artifact 上**（`v1-to-v2:[n]`,带 `cut`）,不是原始 v0 ——
+把官方该断言直接喂**原始 v0** 会 `THROW: assistant/chunk does not match an open turn and step`。
+⇒ **撤回**,并写进工具的 `coverage.uncovered`。
+**"0 误报"不等于"语义与官方一致"** —— 撤回的价值不是修 mismatch,而是**避免写错病因**。
+
+### 指标
+- 迁移交叉表（[n] 真实 v0）:拦住 **[n]** / **误拦 0** / 残余 mismatch **26**（原 27）/ 官方 OK 21;
+- 双宿主回归:`0.1.5-rc.1` **[n]/0/2**、`0.1.0-rc.7` **[n]/0/14**;
+- 未覆盖（`coverage.uncovered`,6 类）:`turn/start` close-prior 10 / open-expected 7 / shape 4 / attempt 2 / inheritedCount 2 / inheritedCut 1;
+  下轮第一顺位 = `inheritedEventCount`（= `header.seedLength`,须与**展开后**事件数比较）。
+
+## [0.3.12] — [n]-09-14 · 宿主 0.1.5 语义对齐（按被检文件版本择路）+ 诚实性修复
+
+### 新增/修复
+- **按被检文件自身 `header.version` 择路**（不按运行时版本）：v0–v2 走本地等价折叠，v3 走官方 `foldSurface`；
+  修掉一处**死分支**（旧格式回退路径只看 `.error`，`violations` 成死数据 ⇒ 终验 S8 永不触发）。
+- **v3 区间编码**：`sourceEventSeqs` 的官方区间对 `[[a,b],…]` 现在会展开（本地 vendored `decodeSeqRanges`；
+  该导出**只有 0.1.5+ 有**，直接引官方会在旧宿主上"装即坏"）；在**读取层 / 体检入口 / 写前入口**三处归一。
+  实测：一处真实 v3 会话由「S5×1+S6×4+S8×1 误报」变为 `ok` 且与官方一致（[n] 节点 / [n] 替换）。
+- **删掉模块级 `fileVersion` 全局状态**，版本改为「显式参数 > `header.version` > 事件形状推断」，
+  消除"同进程先体检 v3 再写前校验 v0 结论翻转"的隐式串味。
+- **宿主能力闸**：文件版本高于宿主上限 ⇒ 输出 `not-assessable`（退出码 3），不再误报 `broken`；
+  `fix --apply` 拒绝落盘。
+- **迁移预检**（`migrationVerdict`）：对"官方升级链会拒"的文件显式 blocked（退出码 4），
+  交叉表把"工具判 ok 但官方拒"从 [n]/[n] 降到 27/[n]。
+- **`--json` 新增 `assessmentScope`**（`full`/`partial`/`none`）：`partial` 时 CLI 不再给无条件绿。
+- `--json` 大报告不再被 `process.exit` 截断（先同步写完）；v2 类型表按官方构造式剔除 `assistant/chunk`。
+
+### ⚠️ 破坏性变更
+- **退出码**：新增 3/4，且"工具自己判官方会拒"的文件不再返回 0。
+
+### 已知限制（未覆盖，详见 `coverage.uncovered`）
+- 迁移预检只覆盖 2 条规则，另有 6 类未覆盖；`turn/start` 未闭合/未打开预期轮、继承切点、
+  `title messageSeqs`、`assistant/attempt` 等仍不在覆盖内。
+- payload 层形状（如 `subagent/descriptor.data.version`）与内嵌 `assistant/attempt.data.stream` 的校验未做。
+- `fix --tail-renumber` 未同步 `shadowedRange`/`surfaceOp`/`shadowedSeqs` 的位移（未审改动，本版**未纳入**）。
+
+## [0.3.11] — [n]-09-09 · 规则增量 T1-T3
+
+### 新增
+
+- **T1 → P3 双向**：tool/result 无对应 tool/call（孤儿 result）也告警,精确指认 callId
+  （原只查孤儿 call;折叠后 wire 流无主 tool 消息 = provider 拒绝风险,W1/W2 同族不同层）;
+- **T2 → E7（新规则）**：ignorable 未知 type 合法性——未知 type + ignorable + 无已知
+  消费者（retrace/marker、retrace/goal-marker、message-editor/ 白名单外）= warning
+  "静默垃圾"（ignorable 后门补校验）;全量 [n] 会话 0 误报（白名单覆盖 neutralize 产物）;
+- **T3 → Z3（新规则）**：空会话文件（有 header 无事件）显式 warning（补空态盲区）;
+- `docs/CONTRACTS.md` 自动生成并同步;
+- 观察项:T4 重复投递检测语义边界待澄清（内容重复难判:用户重复提问合法）;
+  C2 超时专项记 backlog;C4 自查通过（check 纯读不落盘,保持）。
+
+### 风险跟踪（[n]-09-06）：官方 session 格式 v1→v2
+
+- 官方 deepseek-harness 9/4 release **0.1.3-alpha.1** + worktree
+  `session-format-05-v1-v2-chunk-migration`（9/2-9/4 活跃）——session 格式 v1→v2 迁移；
+- 本包解码路径依赖官方：peerDep `@deepseek-ai/dsh-session ^0.1.0-rc.7`，
+  `decodeStorageRecord`（log-reader）+ `foldSurface`/`KNOWN_SESSION_EVENT_TYPES`（checks）；
+- **现状兼容**：DSH Desktop 2.0.3 捆绑 0.1.1-rc.2（v1），本包服务 v1 会话不受影响；
+- **策略**：v2 未冻结不追（追移动靶）；**冻结（进 rc/正式 + DSH 升级）时评估**：
+  ① 格式 diff（chunk 迁移改什么）② 解码路径要动的点（理想 = decode 层单点替换，
+  log-reader 与规则层边界清晰则只动 decode）③ v1 老会话在 v2 读路径的兼容性（主要战场）。
+
+### 工具
+
+- `scripts/gen-contracts-doc.mjs`：从 `lib/contracts.js` CONTRACT_RULES 自动生成
+  `docs/CONTRACTS.md`——规则文档禁止手工维护（曾与注册表滞后 15+ 条）；
+- `scripts/check-pkg-meta.mjs`：发布前校验 repository/homepage/bugs 指向 yamingmou
+  （地址写错一次即永久 [n]：npm 已发布版本的元数据不可改），已在发布前检查。
+
+### 新增
+
+- **`readSessionHeader(path)`**：只读会话文件帧 1（header 单行），不读全文件帧——
+  全量 ~[n] 会话扫描 ≈ 30ms（zstd 文件读前缀 64KiB 解帧 1；明文直接取首行）。
+  用途：会话短码推导（工作区 createdAt 序号）只需要 header；失败返回 null。
+
+## 0.3.9 — [n]-09-02 · T5 turn/end reason.kind（malformed turn/end 固化）
+
+### 新增（[n]-09-02 · T5 turn/end 必须带 data.reason.kind）
+
+- **T5**（`turnEndReasonViolations`）：turn/end 的 `data.reason?.kind` 缺失/非字符串
+  = error——官方 validation 强制（镜像 dsh-agent-loop:[n]），缺失 = malformed →
+  会话加载失败（实测：retrace 情形③信封 turn/end 漏 reason，已修 0.4.18）；
+- 进 `check` 全量体检 + `--resume`（计入可加载/可压缩阻断）+ prewrite 写前校验；
+- 契约注册 T5；测试 fixture 修正（turnEnd helper 的 reason 从字符串改为
+  `{ kind: 'completed' }` 对象——真实 DSH 契约）。
+
+## 0.3.8 — [n]-09-02 · 渲染层规则 T3/T4（渲染层白屏事故固化）
+
+### 新增（[n]-09-02 · 渲染层规则 T3/T4）
 
 - **T3 step 节点 key 唯一**（`stepKeyViolations`）：同 turn 内两个 step/start 的
-  step 号重复 = error（客户端 React 节点 key 冲突 → 渲染死循环白屏，5e[n]
-  事故；5e[n]/5e[n]/5e[n] 同型已由维护分支整块重编号修复）；
+  step 号重复 = error（客户端 React 节点 key 冲突 → 渲染死循环白屏事故；
+  同类会话已由修复工具整块重编号修复）；
 - **T4 step/消息本体 turn 缺失**（`nullTurnStepViolations`）：step/start|step/end|
   assistant/message 的 data.turn 为 null/undefined = error（客户端渲染状态机
-  无法归属 → 死循环白屏，D8 5e[n]；user/message 天然无 turn 不查、chunk 不查）；
+  无法归属 → 死循环白屏（D8 事故）；user/message 天然无 turn 不查、chunk 不查）；
 - 两条规则进 `check` 全量体检 + `--resume` 三档（计入可加载/可压缩阻断）+ prewrite
   写前校验（拟写事件引入 T3/T4 → error 拒绝，防再犯：任何写 turn:null 或 step
   冲突的 marker 写入前被拦）；
-- 契约注册 T3/T4；98 测试绿。
+- 契约注册 T3/T4。
 
-## 0.3.7 — [n]-08-31 · L3/L4/L5 + 独立审查 5 项修复 + health-scan 巡检
+## 0.3.7 — [n]-08-31 · L3/L4/L5 + 5 项修复 + 定期巡检
 
 ### 新增
 
@@ -21,11 +218,10 @@
   还能判定会话能否加载/续跑/压缩（`bin/dsh-log-contract.mjs check <file> --resume`）；
 - **L4 fix 原语收编**：neutralize / clip-crossstep / drop-turnnull / trim 等收进统一命令；
 - **L5 `--trim-budget`**：按 token 预算裁剪（中文字符密度实测校准）；
-- **health-scan.mjs 定期巡检**（`scripts/health-scan.mjs`）：全量扫描会话 → 分级
-  （🟢健康/🟡可自修/🔴损坏）→ 报告归档 `健康巡检报告-*.md`——生产级运行时的
-  「定期巡检」层（工程-生产级运行时/自检机制）。
+- **定期巡检**：全量扫描会话 → 分级（🟢健康/🟡可自修/🔴损坏）→ 报告归档，
+  作为「定期巡检」层（本地运行，产物名 `健康巡检报告-*.md`）。
 
-### 修复（独立审查 5 项）
+### 修复（5 项）
 
 - neutralize-orphan 误伤健康文件（孤立判定过宽）；
 - extract-turn 同 seq 丢内容（同 seq 多事件只取最后一个）；
@@ -35,12 +231,92 @@
 
 ---
 
+## [0.3.23] — [n]-10-20 · README 重排与案例记录补全（无代码变更）
+
+- README（中/英）**章节重排**：版本支持 / 架构 / v4 支持前置到使用说明之前，License 收尾（此前这些节被追加在 License 之后，顺序不可读）
+- **案例记录补到 14 条**：补上 0.3.16–0.3.23 期间的真实形态（帧形状 Z4/Z5、尾帧撕裂 Z1、v4 形状漂移 E6/E9、Windows H2、>[size] [internal]、载体配对 P5、`seedLength` 语义 I2、可忽略未知事件 G4），仍为脱敏表述（无会话 id / 文件名）
+- 升级说明更新为 **0.3.12 → 0.3.23**，一段话概括 v4 支持与五条新规则
+- 无代码/判定变更：[n]→[n] 测试仅来自已有的闸门用例（本版不含新代码）
+
+---
+
+## [0.3.22] — [n]-10-20 · 分层重构（patch，行为不变）：契约层 + 平台适配器
+
+**性质：行为等价的分层重构，不是已验证的跨平台抽象。** 公开 API（70 项）、51 条规则的 id/severity/layer、
+判定结果与退出码全部不变；[n] 份真实 v3 会话违规签名差异 0（[n]=[n]）。
+
+**结构（新增）**
+- `contract/`：判定与严重度模型、不变量（28）、规则描述符 schema、规则注册表、记录 schema
+- `adapters/dsh/`：事件形状、格式版本 v0–v4 路由、zstd 帧、surface/fold、迁移、宿主探针、词表；51 条规则数据在此
+- 依赖方向 `adapters → contract`；`package.json#exports` 新增 `./contract`、`./adapters/dsh`
+
+**机制（可internal）**
+- `scripts/check-core-purity.mjs` v3：`contract/**` 零平台词汇/零适配器或实现依赖；解析真实 import（含包自引用、动态/拼接导入）、
+  构造绕过（`String.fromCharCode`/base64/模板插值）、全文件类型、`adapters/*` 动态扫描面、入口 fail-closed；内建 18 条正负对照
+- `scripts/check-narrative.mjs`：公开面叙事闸（32 文件），`pnpm check` 默认 fail，`prepublishOnly` 再跑 `--strict`
+- 每条规则声明 `invariant:`；每个不变量至少被一条规则引用（机读映射测试，+7 用例）
+- 规则 `description:` 文本中性化（仅人读文案；判定/严重度/退出码不变）
+
+**测试**：[n] passed / 2 skipped（[n] 基线零回归 + 7 条映射断言）；干净 clone [n]/2
+
+**已知缺口（batch 4，未完成，勿宣称跨平台可用）**
+- `contract/` 仍会发出平台规则 id（14 处）；`A1` 的在位可还原指针形状（`archiveLine`/`archiveRoot`/`sha[n]`/`externalized`）仍在 contract
+- 28 个不变量中仅 9 个在 contract 有可执行实现；不变量接口返回形状未统一
+- 无平台无关编排入口：唯一入口 `lib/validate.js` 仍含 [n] 行平台编排；`lib/repair.js`/`prewrite.js`/`archaeology.js` 未下沉
+- `check-core-purity --future` 词表实测 17 处（全在 A1），随 A1 下沉后并入正式词表
+
+---
+
+
+## [0.3.21] — [n]-10-20 · README 补写（0.3.18–0.3.20 的能力与兼容性）
+
+- 中英 README 新增「支持 DSH 0.2.x（会话格式 v4）」节：格式分派、v3 零回归、未知版本仍只读
+- 增补新增规则 G4/S10/I2/P5/A1 的判据表（共 51 条）
+- 增补[internal]（按行解码 / 流式帧重建）与 Windows `header.cwd` 平台感知说明
+- 增补兼容性声明：Node ≥ 22、`@deepseek-ai/dsh-session` 三段范围、会话格式 v0–v4
+- 清理 CHANGELOG 中的 `[未发布]` 残条（并入 0.3.18）
+- 无代码/判定变更
+
+---
+
+## [0.3.20] — [n]-10-20 · [internal]（>[size]）修复 + 文案中性化
+
+- **`log-reader` 按行 Buffer 解码**：不再把整份日志字符串化，避免 `ERR_STRING_TOO_LONG`（>[size] 会话此前直接失败）
+- **`repair` 流式分块重建 `.jsonl.zstd`**：帧 1 = header、正文分块多帧（均带 checksum），逐帧 roundtrip 校验；同样不再构造整份大字符串
+- 文案中性化：README（中/英）"事故记录/incident log" → "案例记录/case log"
+- 行为不变（规则/判定/退出码不变）
+
+---
+
+## [0.3.19] — [n]-10-20 · v4 契约补充最小集（5 条硬规则）
+
+- **G4 未知历史事件声明式可忽略**：`ignorable: true` 的未知类型不再硬拒（白名单可注入）；未登记仍告警并阻断
+- **S10 `sourceEventSeqs` 元素类型硬断言**：存储形态仅允许非负整数或官方区间对 `[start,end]`；解码后必须全为非负整数
+- **I2 `seedLength` 语义**：= 继承事件条数（非字节）；`parentSession` 存在且缺失/0 视为合法（依据官方 `isSeeded` 语义）
+- **P5 carrier 两段配对**：写侧第 2 段 `sourceEventSeqs[0]` = 第 1 段 seq；读侧兼容早期写法
+- **A1 「在位可还原」只认结构化字段**（`archiveRef`/`archive`/`externalized.*`），不再从自由文本推断路径；提供归档根时校验文件/行/sha[n]，缺根标记 unverifiable
+
+**验证**：[n] 项测试通过；[n]/[n] 份真实 v3 会话违规签名零变化（[n]=[n]）；[n] 份会话中 34 份含归档指针、[n] 条记录可还原 [n]%
+
+---
+
+## [0.3.18] — [n]-10-15 · 会话格式 v4 适配（issue #2 / PR#3）+ Windows 路径判定修复（issue #1）
+
+- **会话格式 v4（DSH 0.2.x）**：按格式版本分派规则，\`tool/result\` 的 \`role\`、\`system/message\` 的 \`source.kind\` 按 v4 语义判定
+  ⇒ 修复 v4 健康会话上的 E6/E9 误报（实测 8 份真实 v4：E6 [n]→0、E9 22→0、H2 8→0）；v3 规则判据零改动（15 份真实 v3 日志违规集一致）
+  （贡献：PR#3 · 木马）
+- **Windows**：\`header.cwd\` 绝对路径判定改为平台感知（posix ∥ win32），修复 Windows 上对所有会话误报 H2（issue #1）
+- 预写闸：\`validateAppend()\` 在真实 v4 上通过（不再误拒），v3 形状仍按 v3 拒
+- 测试：[n] passed / 2 skipped / 0 failed（含新增 v4 + H2 用例）
+
+---
+
 ## 0.3.6 — [n]-08-30 · T2 规则盲区修复（非 chunk 引用 + usage 前提）
 
 ### 事故（[n]-08-30 第二层根因）
 
-- 5e[n] neutralize 后仍报错：6 个 error 级 T2 跨 step 引用（seq [n] 等）。
-- 精查 [n]：sourceEventSeqs [n] 个引用 = [n] 同 step chunk + **10 个非 chunk**
+- 某真实会话 neutralize 后仍报错：6 个 error 级 T2 跨 step 引用。
+- 精查该会话：sourceEventSeqs [n] 个引用 = [n] 同 step chunk + **10 个非 chunk**
   （assistant/message、tool/call、tool/result、step/end、step/start 各 2）——DSH resend
   在 step 未关时把旧 step 整段引用进新消息。
 - **官方 `dsh-token-meter/lib/index.js:[n]`：非 chunk 引用直接 throw `is not assistant/chunk`**
@@ -56,17 +332,16 @@
   sourceEventSeqs 是 S5 遮蔽语义、合法且必需，**不可裁剪**；只有带 usage 的
   append 消息才检查/裁剪。
 - T2 规则 + clip-crossstep 都加 usage 前提；非 chunk 引用改报 error（原 continue）。
-- 5e[n] 修复：只裁剪 [n] 一条（[n]→[n]，去掉 10 个非 chunk），
+- 某真实会话修复：只裁剪一条跨 step 引用（[n]→[n]，去掉 10 个非 chunk），
   5 条 replace marker 不动；复检 0 违规。
-- 测试 +2（非 chunk → T2 error / replace marker 无 usage 不报），**81 全绿**。
 
 ### 铁律沉淀
 
 - **规则必须逐字镜像官方源码**——凡注释写"官方跳过/官方不管"的，先打开官方源码
   确认，别猜（本事故就是"猜官方跳过"猜错的）。
 
-## 0.3.6 发版清查台账（[n]-08-30）
+## 0.3.6 补充核查（[n]-08-30）
 
-- 全量历史会话清查（[path] 85 会话）：**error 级违规 0**（T1/T2/I1/S9 全清）。
-- 5e[n] 遗留 6 个 0.4.6 时代 turn-null marker（seq [n]/[n]/[n]/[n]/[n]/[n]）已在前序 neutralize 中处理；跨 step 引用 [n] 已 clip（[n]→[n]）。
+- 全量历史会话核查：**error 级违规 0**（T1/T2/I1/S9 全清）。
+- 该会话遗留的 0.4.6 时代 turn-null marker 已在前序 neutralize 中处理；跨 step 引用已 clip（[n]→[n]）。
 - 说明：0.3.6 的 T2 usage 前提修复后复扫，replace marker（无 usage）的 sourceEventSeqs 不再误报——S5 遮蔽语义合法引用保留。
