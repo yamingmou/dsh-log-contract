@@ -28,13 +28,16 @@ if (words.length < 20) { console.error('commit-hygiene: 无法判定 —— 词�
 const RE = new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')
 
 let commits
-try { commits = git('log', '--format=%H%x1f%s%x1f%b', range).split('\n').filter(Boolean) } catch (e) { console.error('commit-hygiene: 无法判定 ——', e.message); process.exit(2) }
+try {
+  // 记录分隔用 \x1e（body 可含换行）；字段分隔 \x1f
+  commits = git('log', '--format=%H%x1f%s%x1f%b%x1e', range).split('\x1e').map((s) => s.replace(/^\n/, '')).filter(Boolean)
+} catch (e) { console.error('commit-hygiene: 无法判定 ——', e.message); process.exit(2) }
 if (!commits.length) { console.error('commit-hygiene: 无法判定 —— 区间无提交'); process.exit(2) }
 
 const fail = [], warn = []
 let prevSubject = ''
-for (const line of commits.reverse()) {
-  const [sha, subject, body = ''] = line.split('\x1f')
+for (const line of commits.slice().reverse()) {
+  const [sha, subject = '', body = ''] = line.split('\x1f')
   const short = sha.slice(0, 8)
   // H1 空提交
   try {
@@ -45,7 +48,7 @@ for (const line of commits.reverse()) {
   const hit = (subject + ' ' + body).match(RE)
   if (hit) fail.push(`H2 提交信息含内部词 ${short}: ${[...new Set(hit)].slice(0, 4).join(',')}`)
   // H4 过空
-  if (subject.trim().length < 6) warn.push(`H4 subject 过短 ${short}: "${subject}"`)
+  if (subject && subject.trim().length < 6) warn.push(`H4 subject 过短 ${short}: "${subject}"`)
   // H3 改-撤来回
   if (/^revert:|恢复|重新中性化/.test(subject) && /中性化|清理|去掉|移除/.test(prevSubject)) warn.push(`H3 改-撤来回 ${short}: "${prevSubject.slice(0, 32)}" → "${subject.slice(0, 32)}"`)
   prevSubject = subject
