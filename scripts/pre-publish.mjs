@@ -32,6 +32,7 @@ else add('工作区干净', 'PASS')
 // 2) 结构性检查（脚本闸）
 const gates = [
   ['锁文件一致', 'scripts/check-lockfile-consistency.mjs'],
+  ['发布泄漏闸（两包口径）', 'internal/scripts/prepublish-gate.mjs'],
   ['提交卫生', 'scripts/check-commit-hygiene.mjs'],
   ['发版纪律', 'scripts/check-release-discipline.mjs'],
   ['对外信息（发布集）', 'scripts/check-external-surface.mjs'],

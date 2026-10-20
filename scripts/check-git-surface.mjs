@@ -43,6 +43,10 @@ const MIN = Number(process.env.GATE_MIN_FILES || 20)
 if (treeFiles.length < MIN) { console.error(`git-surface: 无法判定 —— ${ref} 只有 ${treeFiles.length} 个文件（下限 ${MIN}）（疑似浅克隆/错 ref）`); process.exit(2) }
 
 const hits = []
+// 审定例外：公开历史**已冻结、不可改写**的已知命中（逐条列名 + 理由；只允许这条，不得增长）
+const GIT_SURFACE_ALLOW = [
+  { sha: 'f8be42118', words: ['publish-leaks'], reason: '2026-10-20 前的历史提交正文；公开历史按"只读冻结"处理，不改写（改写需另走公开面变更）' },
+]
 // ① 树
 for (const f of treeFiles) {
   let blob
@@ -51,10 +55,18 @@ for (const f of treeFiles) {
   if (h.length) hits.push({ face: '树', file: f, words: h })
 }
 // ② 提交信息
-const msgs = git('log', ref, '--format=%H%x00%s%x00%b').split('\x00')
-for (let i = 0; i + 2 < msgs.length; i += 3) {
-  const h = scan(msgs[i + 1] + ' ' + msgs[i + 2])
-  if (h.length) hits.push({ face: '提交信息', file: msgs[i].slice(0, 10), words: h })
+// 记录分隔用 \x1e（body 可含换行/\x00 不可靠）；字段用 \x1f
+const raw = git('log', ref, '--format=%H%x1f%s%x1f%b%x1e')
+const msgs = raw.split('\x1e').map((s) => s.replace(/^\n/, '')).filter(Boolean)
+for (const rec of msgs) {
+  const [sha = '', subject = '', body = ''] = rec.split('\x1f')
+  const h = scan(subject + ' ' + body)   // subject 与 body 都扫
+  if (h.length) {
+    const allow = GIT_SURFACE_ALLOW.find((a) => sha.startsWith(a.sha))
+    const left = allow ? h.filter((w) => !allow.words.includes(w)) : h
+    if (left.length) hits.push({ face: '提交信息', file: sha.slice(0, 10), words: left })
+    else if (!allow) hits.push({ face: '提交信息', file: sha.slice(0, 10), words: h })
+  }
 }
 // ③ PR/issue + 元数据（gh 不可用时明确标注"未取得"，不计入通过）
 let ghOk = false
@@ -76,7 +88,7 @@ if (repo && ghProbe) {
 }
 if (!ghOk) console.error('git-surface: ⚠️ gh 面未取得（不计入通过）')
 
-console.log(`git-surface: ref=${ref} ｜ 文件=${treeFiles.length} ｜ 提交=${(msgs.length - 1) / 3} ｜ gh=${ghOk ? 'ok' : '未取得'} ｜ 命中=${hits.length}`)
+console.log(`git-surface: ref=${ref} ｜ 文件=${treeFiles.length} ｜ 提交=${msgs.length} ｜ gh=${ghOk ? 'ok' : '未取得'} ｜ 命中=${hits.length}`)
 for (const h of hits.slice(0, 15)) console.log(`  ✗ [${h.face}] ${h.file} — ${h.words.slice(0, 5).join(', ')}`)
 if (!hits.length) console.log('git-surface: ok —— GitHub 面零内部信息')
 process.exit(hits.length ? 1 : 0)
