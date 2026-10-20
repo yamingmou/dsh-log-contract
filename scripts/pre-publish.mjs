@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const argv = process.argv.slice(2)
 const SKIP_TESTS = argv.includes('--skip-tests')
+const OFFLINE_OK = argv.includes('--offline-ok')  // 显式允许离线；否则 registry 不可达 = FAIL
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const version = pkg.version
@@ -37,6 +38,7 @@ const gates = [
   ['发布入口唯一性', 'scripts/check-publish-entry.mjs'],
   ['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs'],
   ['提交卫生', 'scripts/check-commit-hygiene.mjs'],
+  ['手册新鲜度', 'scripts/check-mechanism-freshness.mjs'],
   ['发版纪律', 'scripts/check-release-discipline.mjs'],
   ['对外信息（发布集）', 'scripts/check-external-surface.mjs'],
   ['GitHub 面对外信息', 'scripts/check-git-surface.mjs'],
@@ -91,7 +93,9 @@ try {
 } catch { add('CHANGELOG 条目', 'FAIL', '缺 CHANGELOG.md') }
 try {
   const r = runCmd('npm', ['view', `dsh-log-contract@${version}`, 'version'])
-  add('版本未被发布过', r.status === 0 && (r.stdout || '').includes(version) ? 'FAIL' : 'PASS', r.status === 0 ? '该版本已在 npm' : '未发布')
+  const out = (r.stdout || '').trim()
+  if (r.status === 0) add('版本未被发布过', out.includes(version) ? 'FAIL' : 'PASS', out.includes(version) ? '该版本已在 npm' : '未发布')
+  else add('版本未被发布过', OFFLINE_OK ? 'WARN' : 'FAIL', OFFLINE_OK ? '离线（--offline-ok）：未核验' : 'registry 不可达（fail-closed）')
 } catch { add('版本未被发布过', 'SKIP', '网络不可用') }
 
 // 6) 独立审核记录内容检查（不仅是存在）
