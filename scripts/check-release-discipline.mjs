@@ -75,13 +75,29 @@ try {
     process.exit(2)
   }
   range = `${base}..HEAD`
+  // 实质改动判定：忽略注释行、空白行、以及纯 lock 文件的"版本号/完整性"噪声
+  const substantiveLines = (() => {
+    try {
+      const diff = git('diff', '-U0', range)
+      let changed = 0
+      for (const line of diff.split('\n')) {
+        if (!/^[+-]/.test(line) || /^(\+\+\+|---)/.test(line)) continue
+        const body = line.slice(1).trim()
+        if (!body) continue
+        if (/^(\/\/|\/\*|\*|#|<!--)/.test(body)) continue   // 注释行
+        if (/^['"]?[\w.-]+['"]?\s*:\s*['"]?[\d.]+['"]?,?$/.test(body)) continue // 纯版本/字段行（package.json）
+        changed++
+      }
+      return changed
+    } catch { return null }
+  })()
   const files0 = changedFiles(range)
   if (files0.length === 0) { console.error('release-discipline: 无法判定 —— 区间为空（--base 指向 HEAD？）'); process.exit(2) }
   const baseVer = pkgAt(base)?.version
   const headVer = headPkg?.version
   const files = changedFiles(range)
   const versionBumped = baseVer && headVer && baseVer !== headVer
-  const docOnly = files.length > 0 && files.every(isDocLike)
+  const docOnly = substantiveLines === 0 || (files.length > 0 && files.every(isDocLike))
 
   // "实质改动"判定：lib/|bin/|test/ 中新增行去掉注释/空行后仍有内容
   let substantive = false

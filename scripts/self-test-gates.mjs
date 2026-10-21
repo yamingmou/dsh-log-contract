@@ -35,32 +35,29 @@ function mkRepo() {
   writeFileSync(join(d, 'reviews'), '')
   rmSync(join(d, 'reviews'))
   execFileSync('git', ['-C', d, 'add', '-A'], { env })
-  execFileSync('git', ['-C', d, 'commit', '-qm', 'init'], { env })
+  execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'init'], { env })
   return { d, env }
 }
 function run(script, args, cwd, env = {}) {
   const r = spawnSync('node', [join(cwd, 'scripts', script), ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
 }
-// 1) git-surface：树是干净的，只有提交信息含内部流程词 ⇒ 必须 exit 1 且命中面为「提交信息」
+// 1) git-surface：提交信息里带内部流程词 ⇒ 必须 exit 1
 {
   const { d, env } = mkRepo()
-  // 树保持干净（只有 lib/a.js），把内部词放进提交信息
+  writeFileSync(join(d, 'lib', 'b.js'), 'export const b = 2\n')
+  execFileSync('git', ['-C', d, 'add', '-A'], { env })
   execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', `chore: 按${W_PROCESS}处理`], { env })
   const r = run('check-git-surface.mjs', ['--allow-no-gh'], d, { GATE_MIN_FILES: '1' })
-  const hitInMessage = /\[提交信息\]/.test(r.out || '')
-  results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}，树干净）`, expect: 1, got: r.code, ok: r.code === 1 && hitInMessage, sample: hitInMessage ? '[提交信息] 命中' : '未命中提交信息' })
-}
- = mkRepo()
-    execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', `chore: 按${W_PROCESS}处理`], { env })
-  const r = run('check-git-surface.mjs', ['--allow-no-gh'], d, { GATE_MIN_FILES: '1' })
-  results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}）`, expect: 1, got: r.code, ok: r.code === 1, sample: r.out.split('\n').find((l) => l.includes(W_PROCESS)) || '' })
+  const inMsg = /\[提交信息\]/.test(r.out || '')
+  results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}，树干净）`, expect: 1, got: r.code, ok: r.code === 1 && inMsg, sample: inMsg ? '[提交信息] 命中' : '未命中提交信息' })
 }
 // 2) external-surface：包内文件含内部机制词 ⇒ 必须 exit 1
 {
   const { d, env } = makeSimplePkg([])
-  writeFileSync(join(d, 'lib', 'c.js'), `// ${W_MECH} 与 ${pickWord('内部机制', 4) || ''}\n`)
-  execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'x'], { env })
+  // 把内部机制词写进一个**会随包发布**的文件（files: lib/**）
+  writeFileSync(join(d, 'lib', 'c.js'), `// ${W_MECH}\n`)
+  execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'x'], { env })
   const r = run('check-external-surface.mjs', [], d, { GATE_MIN_FILES: '1' })
   results.push({ gate: `external-surface（包内含 ${W_MECH}）`, expect: 1, got: r.code, ok: r.code === 1 })
 }
@@ -69,7 +66,7 @@ function run(script, args, cwd, env = {}) {
   const { d, env } = makeSimplePkg([], '0.0.1')
   writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version: '0.0.2', files: ['lib/**'] }, null, 2))
   writeFileSync(join(d, 'CHANGELOG.md'), '## [0.0.2]\n\n- 只改文档\n\n## [0.0.1]\n\n- x\n')
-  execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'docs: 0.0.2（只文档）'], { env })
+  execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'docs: 0.0.2（只文档）'], { env })
   const r = run('check-release-discipline.mjs', ['--base', 'HEAD~1'], d)
   results.push({ gate: 'release-discipline（只改文档升版本）', expect: 1, got: r.code, ok: r.code === 1 })
 }
@@ -88,7 +85,7 @@ function makeSimplePkg(_unused, version = '0.0.2') {
   mkdirSync(join(d, 'lib'), { recursive: true }); writeFileSync(join(d, 'lib', 'a.js'), 'export const a=1\n')
   writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version, files: ['lib/**'] }, null, 2))
   writeFileSync(join(d, 'CHANGELOG.md'), `## [${version}]\n\n- x\n`)
-  execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'init'], { env })
+  execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'init'], { env })
   return { d, env }
 }
 
@@ -219,7 +216,7 @@ function posCase(name, fn) {
 {
   const { d, env } = makeSimplePkg([], '0.0.1')
   writeFileSync(join(d, 'lib', 'clean.js'), 'export const c = 1\n')
-  execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'clean'], { env })
+  execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'clean'], { env })
   posCase('external-surface', () => run('check-external-surface.mjs', [], d, { GATE_MIN_FILES: '1' }).code)
 }
 // P2 commit-hygiene：干净提交 ⇒ 0
@@ -227,7 +224,7 @@ function posCase(name, fn) {
   const { d, env } = makeSimplePkg([], '0.0.1')
   writeFileSync(join(d, 'lib', 'clean2.js'), 'export const c2 = 1\n')
   execFileSync('git', ['-C', d, 'add', '-A'], { env })
-  execFileSync('git', ['-C', d, 'commit', '-qm', 'chore: 正常提交'], { env })
+  execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'chore: 正常提交'], { env })
   posCase('commit-hygiene', () => run('check-commit-hygiene.mjs', ['--range', 'HEAD~1..HEAD'], d).code)
 }
 // P3 lockfile：一致 ⇒ 0
