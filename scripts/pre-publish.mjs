@@ -103,7 +103,10 @@ try {
 try {
   const r = runCmd('npm', ['view', `${PKG_NAME}@${version}`, 'version'])
   const out = (r.stdout || '').trim()
+  const stderr = (r.stderr || '')
+  const notFound = /E404|404 Not Found|is not in this registry|No match found/i.test(out + ' ' + stderr)
   if (r.status === 0) add('版本未被发布过', out.includes(version) ? 'FAIL' : 'PASS', out.includes(version) ? '该版本已在 npm' : '未发布')
+  else if (notFound) add('版本未被发布过', 'PASS', `registry 查无 ${version}（未发布，符合预期）`)
   else add('版本未被发布过', OFFLINE_OK ? 'WARN' : 'FAIL', OFFLINE_OK ? '离线（--offline-ok）：未核验' : 'registry 不可达（fail-closed）')
 } catch { add('版本未被发布过', 'SKIP', '网络不可用') }
 
