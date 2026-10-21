@@ -49,9 +49,11 @@ const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const RE = new RegExp([...words.map(esc), ...regexes].join('|'), 'g')
 const scan = (text) => { const m = String(text).match(RE); return m ? [...new Set(m)] : [] }
 
-const ref = (() => { try { git('rev-parse', '--verify', 'origin/main') ; return 'origin/main' } catch { return 'HEAD' } })()
+const refs = ['HEAD', 'origin/main'].filter((r) => { try { git('rev-parse', '--verify', r); return true } catch { return false } })
+if (!refs.length) { console.error('git-surface: 无法判定 —— 无可扫描 ref'); process.exit(2) }
+const ref = refs[0]
 let treeFiles
-try { treeFiles = git('ls-tree', '-r', '--name-only', ref).split('\n').filter(Boolean) } catch (e) { console.error('git-surface: 无法判定 —— 取不到树', e.message); process.exit(2) }
+try { treeFiles = git('-c', 'core.quotePath=false', 'ls-tree', '-r', '-z', '--name-only', ref).split('\0').filter(Boolean) } catch (e) { console.error('git-surface: 无法判定 —— 取不到树', e.message); process.exit(2) }
 const MIN = Number(process.env.GATE_MIN_FILES || 20)
 if (treeFiles.length < MIN) { console.error(`git-surface: 无法判定 —— ${ref} 只有 ${treeFiles.length} 个文件（下限 ${MIN}）（疑似浅克隆/错 ref）`); process.exit(2) }
 
@@ -62,8 +64,11 @@ const GIT_SURFACE_ALLOW = [
 ]
 // ① 树
 for (const f of treeFiles) {
+  // 文件名本身也扫（历史事故：泄漏藏在文件名里）
+  const nameHit = scan(f)
+  if (nameHit.length) hits.push({ face: '文件名', file: f, words: [...new Set(nameHit)].slice(0, 5) })
   let blob
-  try { blob = git('cat-file', 'blob', `${ref}:${f}`) } catch { continue }
+  try { blob = git('cat-file', 'blob', `${ref}:${f}`) } catch (e) { console.error(`git-surface: ✗ 无法读取 ${f}（${e.message}）`); process.exit(2) }
   const h = scan(blob)
   if (h.length) hits.push({ face: '树', file: f, words: h })
 }
@@ -103,8 +108,6 @@ if (repo && ghProbe) {
 }
 if (!ghOk) {
   // 生产语义：gh 面未取得 ⇒ fail-closed（exit 2）
-  // 例外：仅测试夹具可声明 GIT_SURFACE_ALLOW_NO_GH=1（此时只扫树+提交信息，并显式告警）
-  if (process.env.GIT_SURFACE_ALLOW_NO_GH === '1') console.error('git-surface: ⚠️ 测试模式：跳过 gh 面（只扫树+提交信息）')
   else { console.error('git-surface: 无法判定 —— gh 面未取得（PR/issue/元数据未被扫描，fail-closed exit 2）'); process.exit(2) }
 }
 

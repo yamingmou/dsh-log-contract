@@ -31,7 +31,10 @@ if (existsSync(wfDir)) {
 // E3
 const rel = join(ROOT, 'scripts', 'release.mjs')
 if (!existsSync(rel)) problems.push('E3 缺 scripts/release.mjs')
-else if (!/pre-publish\.mjs/.test(readFileSync(rel, 'utf8'))) problems.push('E3 release.mjs 未调用 pre-publish.mjs（不是单一事实源）')
+else {
+  const code = readFileSync(rel, 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  if (!/'scripts\/pre-publish\.mjs'|"scripts\/pre-publish\.mjs"/.test(code)) problems.push('E3 release.mjs 未真实调用 pre-publish.mjs（注释不算）')
+}
 
 console.log(`publish-entry: 检查 scripts(${Object.keys(pkg.scripts || {}).length}) + workflows ｜ 违规 ${problems.length}`)
 for (const p of problems) console.log(`  ✗ ${p}`)
