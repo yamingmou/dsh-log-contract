@@ -50,7 +50,7 @@ const problems = []
 let npmLatest = null
 try {
   const { execFileSync: ex } = await import('node:child_process')
-  npmLatest = ex('npm', ['view', 'dsh-log-contract', 'version'], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] }).trim()
+  npmLatest = ex('npm', ['view', PKG_NAME, 'version'], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] }).trim()
 } catch { npmLatest = null }
 let range = null
 let headPkg = null
