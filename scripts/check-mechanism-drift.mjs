@@ -25,6 +25,16 @@ const PEER = pi >= 0 ? argv[pi + 1] : join(ROOT, '..', 'dsh-retrace-private')
 
 /** 机制脚本目录（相对仓库根）。`scripts/` 必备；`internal/scripts/` 存在则必须可读。 */
 const MECH_DIRS = ['scripts', 'internal/scripts']
+/**
+ * 同名不同物的显式豁免（每条必须写理由；不在清单内的同名差异一律 exit 1）。
+ * 判据用 basename；加新条目必须在评审里说明"为什么不能同步"。
+ */
+const DRIFT_EXEMPT = new Map([
+  ['check-syntax.mjs', '两仓语法检查覆盖面不同：本仓 node --check 遍历 lib/bin；对端用 esbuild transform 校验'],
+  ['pre-publish.mjs', '两仓按仓定制：本仓是发布前流程入口；对端是旧的发布自检脚本，职责与参数不同'],
+])
+
+
 /** 已登记差异（逐条列名 + 理由）：允许的行内容模式（仅放行非逻辑差异）。 */
 const ALLOW_LINE = [/同源/, /\.\.', '\.\.'/, /^\/\//, /const ROOT = rootIdx/]
 
@@ -71,7 +81,7 @@ let compared = 0
 
 const paired = [...mine.keys()].filter((n) => theirs.has(n)).sort()
 for (const name of paired) {
-  if (typeof DRIFT_EXEMPT !== 'undefined' && DRIFT_EXEMPT.has(name)) continue  // 同名不同物：已登记豁免
+  if (DRIFT_EXEMPT.has(String(name).split('/').pop())) { console.log(`  · 豁免：${name}（同名不同物，理由已登记）`); continue }
   const a = mine.get(name), b = theirs.get(name)
   let A, B
   try { A = readFileSync(a.file, 'utf8') } catch (e) { cannot(`本仓文件不可读 ${a.file}（${e.code || e.message}）`) }
