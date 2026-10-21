@@ -4,6 +4,7 @@
  * 用 esbuild 在进程内解析每个 lib/**.js 与 bin/**.mjs、test/**.js，
  * 坏文件立即失败（避免 `node --check` 只校验首个参数而静默跳过其余文件的坑）。
  */
+// 前置：需 node_modules（esbuild）。缺依赖时明确 exit 2，避免误报语法错
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { build } from 'esbuild';

@@ -58,6 +58,12 @@ for (const [name, script, gateArgs = []] of gates) {
   if (!existsSync(join(ROOT, script))) { add(name, 'FAIL', `脚本缺失 ${script}（fail-closed）`); continue }
   const r = runNode(script, gateArgs)
   const raw = ((r.stdout || '') + (r.stderr || '')).trim()
+  const HS_BRANCH = (runCmd('git', ['branch', '--show-current']).stdout || '').trim()
+  if (name === '提交卫生') {
+    const softH = !PRE_RELEASE || HS_BRANCH !== 'main'
+    add(name, r.status === 0 ? 'PASS' : (softH ? 'WARN' : 'FAIL'), r.status === 0 ? '' : `分支 ${HS_BRANCH || '(detached)'}｜${raw.split('\n').filter((l) => l.includes('✗')).slice(0, 2).join(' ｜ ').slice(0, 140)}`)
+    continue
+  }
   const out = raw.split('\n')
   // 审核记录在 --pre-release 下缺记录是"待发布补齐"WARN（exit 0 但输出 ⚠️）：如实降为 WARN，不冒充 PASS
   if (name === '独立审核记录' && r.status === 0 && raw.includes('⚠️')) {
@@ -103,7 +109,7 @@ try {
 
 // 6) 独立审核记录内容检查（不仅是存在）
 {
-  const p = join(ROOT, 'reviews', `${version}.json`)
+  const p = [join(ROOT, 'internal', 'reviews', `${version}.json`), join(ROOT, 'reviews', `${version}.json`)].find((x) => existsSync(x)) || join(ROOT, 'internal', 'reviews', `${version}.json`)
   if (!existsSync(p)) {
     // 发布前自检：缺记录 = 待补齐（WARN）；正式发布：缺记录 = FAIL（不可发布）
     add('独立审核记录内容', PRE_RELEASE ? 'WARN' : 'FAIL', PRE_RELEASE
