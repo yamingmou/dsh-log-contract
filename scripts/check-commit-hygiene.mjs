@@ -42,8 +42,12 @@ for (const line of commits.slice().reverse()) {
   const short = sha.slice(0, 8)
   // H1 空提交
   try {
-    const parent = git('rev-parse', `${sha}^`).trim()
-    if (git('rev-parse', `${sha}^{tree}`).trim() === git('rev-parse', `${parent}^{tree}`).trim()) fail.push(`H1 空提交 ${short} ${subject.slice(0, 50)}`)
+    // merge 提交天然"无净改动"，不算空提交（负对照里用 --allow-empty 造的才是真空提交）
+    const parents = git('rev-list', '--parents', '-n1', sha).trim().split(/\s+/).slice(1)
+    if (parents.length === 1) {
+      const parent = parents[0]
+      if (git('rev-parse', `${sha}^{tree}`).trim() === git('rev-parse', `${parent}^{tree}`).trim()) fail.push(`H1 空提交 ${short} ${subject.slice(0, 50)}`)
+    }
   } catch { /* 根提交 */ }
   // H2 内部词
   const hit = (subject + ' ' + body).match(RE)
