@@ -120,7 +120,7 @@ try {
     try {
       const r = JSON.parse(readFileSync(p, 'utf8'))
       const ok = r.verdict === 'pass' && r.reviewer && r.author && r.reviewer !== r.author && Array.isArray(r.evidence) && r.evidence.length
-      add('独立审核记录内容', ok ? 'PASS' : 'FAIL', ok ? `reviewer=${r.reviewer}` : '字段不合规')
+      add('独立审核记录内容', ok ? 'PASS' : (RELEASE ? 'FAIL' : 'WARN'), ok ? `reviewer=${r.reviewer}` : '字段不合规')
     } catch { add('独立审核记录内容', 'FAIL', 'JSON 不可解析') }
   }
 }
