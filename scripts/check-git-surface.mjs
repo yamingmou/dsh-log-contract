@@ -107,8 +107,8 @@ if (repo && ghProbe) {
   }
 }
 if (!ghOk) {
-  // 生产语义：gh 面未取得 ⇒ fail-closed（exit 2）
-  else { console.error('git-surface: 无法判定 —— gh 面未取得（PR/issue/元数据未被扫描，fail-closed exit 2）'); process.exit(2) }
+  console.error('git-surface: ⚠️ gh 面未取得')
+  if (!ALLOW_NO_GH) { console.error('git-surface: ✗ 默认 fail-closed（gh 面未核 ⇒ 不可判定）；确需跳过请加 --allow-no-gh'); process.exit(2) }
 }
 
 console.log(`git-surface: ref=${ref} ｜ 文件=${treeFiles.length} ｜ 提交=${msgs.length} ｜ gh=${ghOk ? 'ok' : '未取得'} ｜ 命中=${hits.length}`)
