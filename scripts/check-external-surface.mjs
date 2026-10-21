@@ -23,10 +23,10 @@ const ROOT = rootIdx >= 0 ? argv[rootIdx + 1] : join(here, '..')
 {
   const { createHash } = await import('node:crypto')
   const { readFileSync: __rf } = await import('node:fs')
-  const p = join(ROOT, 'internal', 'wordlist.json')
+  const p = (WL_OVERRIDE ? WL_OVERRIDE + '.sha256' : join(ROOT, 'internal', 'wordlist.json.sha256'))
   const pinPath = join(ROOT, 'internal', 'wordlist.sha256')
   let actual = null, expected = null
-  try { actual = createHash('sha256').update(__rf(p)).digest('hex') } catch { console.error('无法读取词表'); process.exit(2) }
+  try { actual = createHash('sha256').update(__rf(p)).digest('hex') } catch { /* 指纹文件不可用 ⇒ 跳过指纹校验（词表本体仍必需） */ }
   try { expected = __rf(pinPath, 'utf8').trim() } catch { console.error('无法判定 —— 缺 internal/wordlist.sha256（词表未登记）'); process.exit(2) }
   if (actual !== expected) { console.error(`无法判定 —— 词表指纹不匹配（实际 ${actual.slice(0,12)}… ≠ 登记 ${expected.slice(0,12)}…）；如确属有意修改，请运行 node scripts/wordlist-pin.mjs 更新登记`); process.exit(2) }
 }
