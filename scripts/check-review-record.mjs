@@ -22,7 +22,8 @@ const preRelease = process.argv.includes('--pre-release')
 const root = process.cwd()
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const version = pkg.version
-const file = join(root, 'reviews', `${version}.json`)
+const candidates = [join(root, 'internal', 'reviews', `${version}.json`), join(root, 'reviews', `${version}.json`)]
+const file = candidates.find((p) => existsSync(p)) || candidates[0]
 const problems = []
 
 if (!existsSync(file)) {
@@ -43,8 +44,12 @@ if (!existsSync(file)) {
     try {
       const { execFileSync } = await import('node:child_process')
       const head = execFileSync('git', ['-C', process.cwd(), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
-      if (!r.gitHead) problems.push('缺少 gitHead（必须绑定被审的提交）')
-      else if (r.gitHead !== head) problems.push(`gitHead 不匹配：记录 ${String(r.gitHead).slice(0,8)} ≠ HEAD ${head.slice(0,8)}`)
+      const tree = execFileSync('git', ['-C', process.cwd(), 'rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim()
+      // 绑定 **tree SHA**：代码树未变即可发布（记录文件本身被 gitignore，不影响 tree）
+      const bound = r.treeSha || r.gitHead
+      if (!bound) problems.push('缺少 treeSha（必须绑定被审的代码树）')
+      else if (r.treeSha && r.treeSha !== tree) problems.push(`treeSha 不匹配：记录 ${String(r.treeSha).slice(0,8)} ≠ 当前 ${tree.slice(0,8)}`)
+      else if (!r.treeSha && r.gitHead && r.gitHead !== head) problems.push(`gitHead 不匹配：记录 ${String(r.gitHead).slice(0,8)} ≠ HEAD ${head.slice(0,8)}`)
     } catch { problems.push('无法读取 HEAD（无法绑定）') }
     // reviewer 不能是占位/数字
     if (r.reviewer && (/^[xX]+$/.test(String(r.reviewer)) || /^\d+$/.test(String(r.reviewer)))) problems.push('reviewer 像占位值（x/number）')
