@@ -1,0 +1,34 @@
+# 机制 CI 草案（内部参考，**尚未提交到公开仓**）
+# 用法：机制完备并决定公开后，复制到 .github/workflows/ 并按需裁剪路径。
+name: mechanism-gates
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # 机制闸（缺脚本 ⇒ 步骤直接失败，fail-closed）
+      - name: 锁文件一致
+        run: node scripts/check-lockfile-consistency.mjs
+      - name: 提交卫生
+        run: node scripts/check-commit-hygiene.mjs --range origin/main..HEAD
+      - name: 对外信息（发布集）
+        run: node scripts/check-external-surface.mjs
+      - name: 发版纪律
+        run: node scripts/check-release-discipline.mjs
+      - name: 手册新鲜度
+        run: node scripts/check-mechanism-freshness.mjs
+      - name: 闸负对照自检
+        run: node scripts/self-test-gates.mjs
+      - name: 发布前检查
+        run: node scripts/pre-publish.mjs --release --skip-tests
+      - name: 全量测试
+        run: pnpm test
