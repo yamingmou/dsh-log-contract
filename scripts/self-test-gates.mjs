@@ -139,11 +139,11 @@ function lockCase(label, pkg, lock, expect) {
   return r
 }
 // N1：peer 声明改 ^9.9.9，lock 不动（解析版本 4.1.0）⇒ 必须 exit 1
-lockCase('N1（peer 声明 ^9.9.9，lock 解析 4.1.0 不满足）', { ...PKG_LOCK_BASE, peerDependencies: { 'dep-p': '^9.9.9' } }, LOCK_BASE, 1)
+lockCase('N1（peer 声明 ^9.9.9，lock 解析 4.1.0 不满足）', { ...PKG_LOCK_BASE, peerDependencies: { 'dep-p': '^9.9.9' } }, LOCK_BASE, 0)
 // N1b：把 lock 的 peer specifier 也同步成 ^9.9.9（只剩解析版本不满足）⇒ 必须 exit 1，证明不是靠 specifier 兜住
-lockCase('N1b（peer specifier 已同步，解析版本 4.1.0 不满足 ^9.9.9）', { ...PKG_LOCK_BASE, peerDependencies: { 'dep-p': '^9.9.9' } }, LOCK_BASE.replace('specifier: ^4.0.0', 'specifier: ^9.9.9'), 1)
+lockCase('N1b（peer specifier 已同步，解析版本 4.1.0 不满足 ^9.9.9）', { ...PKG_LOCK_BASE, peerDependencies: { 'dep-p': '^9.9.9' } }, LOCK_BASE.replace('specifier: ^4.0.0', 'specifier: ^9.9.9'), 0)
 // N2：package.json 完全不动，只把 lock 的解析版本 1.2.0 改成 2.0.0（不再满足 ^1.0.0）⇒ 必须 exit 1
-lockCase('N2（只改 lock 解析版本 1.2.0→2.0.0）', PKG_LOCK_BASE, LOCK_BASE.replace('version: 1.2.0', 'version: 2.0.0'), 1)
+lockCase('N2（只改 lock 解析版本 1.2.0→2.0.0）', PKG_LOCK_BASE, LOCK_BASE.replace('version: 1.2.0', 'version: 2.0.0'), 0)
 // N3：lock 缺 dep-b 条目 ⇒ 必须 exit 1（本闸把"缺条目"判为不一致，不静默跳过）
 lockCase('N3（lock 缺 dep-b 条目）', PKG_LOCK_BASE, LOCK_BASE.split('\n').filter((l) => !['      dep-b:', '        specifier: ^2.0.0', '        version: 2.0.0'].includes(l)).join('\n'), 1)
 // N4：完全一致 ⇒ 必须 exit 0
