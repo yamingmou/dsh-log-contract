@@ -5,7 +5,9 @@
  * 这不是"一个闸"，而是**发布前置的完整流程**：按顺序跑，逐项出 PASS/FAIL/SKIP，
  * 最后写一份可审计报告 internal/release-reports/<version>-<ts>.json，任何 FAIL ⇒ exit 1。
  *
- * 用法：node scripts/pre-publish.mjs [--json] [--skip-tests]
+ * 用法：node scripts/pre-publish.mjs [--json] [--skip-tests] [--offline-ok] [--pre-release]
+ *   --pre-release  发布前自检语义：缺 reviews/<version>.json ⇒ WARN（待发布补齐），
+ *                  正式发布（不带该开关）⇒ 缺记录仍为 FAIL
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
@@ -17,6 +19,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const argv = process.argv.slice(2)
 const SKIP_TESTS = argv.includes('--skip-tests')
 const OFFLINE_OK = argv.includes('--offline-ok')  // 显式允许离线；否则 registry 不可达 = FAIL
+const PRE_RELEASE = argv.includes('--pre-release') // 发布前自检：缺审核记录 ⇒ WARN（正式发布仍 FAIL）
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const version = pkg.version
@@ -43,9 +46,9 @@ const gates = [
   ['对外信息（发布集）', 'scripts/check-external-surface.mjs'],
   ['GitHub 面对外信息', 'scripts/check-git-surface.mjs'],
   ['闸负对照自检', 'scripts/self-test-gates.mjs'],
-  ['独立审核记录', 'scripts/check-review-record.mjs'],
+  ['独立审核记录', 'scripts/check-review-record.mjs', PRE_RELEASE ? ['--pre-release'] : []],
 ]
-for (const [name, script] of gates) {
+for (const [name, script, gateArgs = []] of gates) {
   if (!existsSync(join(ROOT, script))) { add(name, 'FAIL', `脚本缺失 ${script}（fail-closed）`); continue }
   if (name === '提交卫生') {
     const br = (runCmd('git', ['branch', '--show-current']).stdout || '').trim()
@@ -60,8 +63,14 @@ for (const [name, script] of gates) {
     add(name, r.status === 0 ? 'PASS' : 'FAIL', r.status === 0 ? '' : out.split('\n').slice(-2).join(' ｜ ').slice(0, 160))
     continue
   }
-  const r = runNode(script)
-  const out = ((r.stdout || '') + (r.stderr || '')).trim().split('\n')
+  const r = runNode(script, gateArgs)
+  const raw = ((r.stdout || '') + (r.stderr || '')).trim()
+  const out = raw.split('\n')
+  // 审核记录在 --pre-release 下缺记录是"待发布补齐"WARN（exit 0 但输出 ⚠️）：如实降为 WARN，不冒充 PASS
+  if (name === '独立审核记录' && r.status === 0 && raw.includes('⚠️')) {
+    add(name, 'WARN', out.slice(-2).join(' ｜ ').slice(0, 160))
+    continue
+  }
   add(name, r.status === 0 ? 'PASS' : 'FAIL', r.status === 0 ? '' : out.slice(-2).join(' ｜ ').slice(0, 160))
 }
 
@@ -101,8 +110,12 @@ try {
 // 6) 独立审核记录内容检查（不仅是存在）
 {
   const p = join(ROOT, 'reviews', `${version}.json`)
-  if (!existsSync(p)) add('独立审核记录内容', 'FAIL', `缺 reviews/${version}.json`)
-  else {
+  if (!existsSync(p)) {
+    // 发布前自检：缺记录 = 待补齐（WARN）；正式发布：缺记录 = FAIL（不可发布）
+    add('独立审核记录内容', PRE_RELEASE ? 'WARN' : 'FAIL', PRE_RELEASE
+      ? `缺 reviews/${version}.json —— 发布前必须补齐（reviewer≠author、gitHead=HEAD、evidence 为可复算命令）`
+      : `缺 reviews/${version}.json`)
+  } else {
     try {
       const r = JSON.parse(readFileSync(p, 'utf8'))
       const ok = r.verdict === 'pass' && r.reviewer && r.author && r.reviewer !== r.author && Array.isArray(r.evidence) && r.evidence.length
