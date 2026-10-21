@@ -48,6 +48,7 @@ const gates = [
   ...(DRIFT_PEER_DIR ? [['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs', ['--peer', DRIFT_PEER_DIR, '--warn-only']]] : []),
   ['提交卫生', 'scripts/check-commit-hygiene.mjs'],
   ['手册新鲜度', 'scripts/check-mechanism-freshness.mjs'],
+  ['机制冻结基线', 'scripts/check-mechanism-freeze.mjs'],
   ['发版纪律', 'scripts/check-release-discipline.mjs'],
   ['对外信息（发布集）', 'scripts/check-external-surface.mjs'],
   ['GitHub 面对外信息', 'scripts/check-git-surface.mjs'],

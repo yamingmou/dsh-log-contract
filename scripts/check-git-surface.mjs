@@ -52,7 +52,12 @@ const RE = new RegExp([...words.map(esc), ...regexes].join('|'), 'g')
 // 允许清单：这些词是"公开历史里已存在的检查器名"，不算内部信息（否则公开 main 无法通过）
 const ALLOWLIST = ['publish-leaks', 'check-publish-set', 'public-projection']
 
-const scan = (text) => { const m = String(text).match(RE); return m ? [...new Set(m)] : [] }
+const scan = (text) => {
+  const m = String(text).match(RE)
+  if (!m) return []
+  const uniq = [...new Set(m)]
+  return uniq.filter((w) => !ALLOWLIST.some((a) => w.includes(a)))
+}
 
 // 发布审查对象 = **会被发布的公开分支**：origin/main + 本地 main（覆盖未推送提交）
 // 内部分支（local/process 等）自身含机制内容，不应作为对外面扫描对象
