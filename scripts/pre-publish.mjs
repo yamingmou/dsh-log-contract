@@ -40,9 +40,7 @@ else add('工作区干净', 'PASS')
 
 // 2) 结构性检查（脚本闸）
 const DRIFT_PEER_DIR = process.env.DRIFT_PEER || join(homedir(), 'opena', 'dsh-retrace-private')
-const DRIFT_ARGS = (await import('node:fs')).existsSync(DRIFT_PEER_DIR)
-  ? ['--peer', DRIFT_PEER_DIR, '--warn-only']
-  : ['--warn-only', '--peer', DRIFT_PEER_DIR]
+const DRIFT_ARGS = ['--peer', DRIFT_PEER_DIR].concat(RELEASE ? [] : ['--warn-only'])
 const gates = [
   ['锁文件一致', 'scripts/check-lockfile-consistency.mjs'],
   ['发布泄漏闸（两包口径）', 'internal/scripts/prepublish-gate.mjs'],
