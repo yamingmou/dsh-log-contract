@@ -61,7 +61,9 @@ for (const [name, script, gateArgs = []] of gates) {
       add(name, r.status === 0 ? 'PASS' : 'WARN', `内部分支 ${br}（不公开）｜${m ? `违规 ${m[1]} 条` : '有违规'}｜${(out.split('\n').find((l) => l.includes('✗')) || '').trim().slice(0, 90)}`)
       continue
     }
-    add(name, r.status === 0 ? 'PASS' : 'FAIL', r.status === 0 ? '' : out.split('\n').slice(-2).join(' ｜ ').slice(0, 160))
+  // 开发模式下这两项天然不满足（版本未升/审核未补）⇒ WARN，避免红灯免疫
+  const __soft = !RELEASE && (name === '独立审核记录' || name === '发版纪律')
+  add(name, r.status === 0 ? 'PASS' : (__soft ? 'WARN' : 'FAIL'), r.status === 0 ? '' : out.split('\n').slice(-2).join(' ｜ ').slice(0, 160))
     continue
   }
   const r = runNode(script, gateArgs)
