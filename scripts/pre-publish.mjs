@@ -18,7 +18,8 @@ import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const argv = process.argv.slice(2)
 const SKIP_TESTS = argv.includes('--skip-tests')
-const OFFLINE_OK = argv.includes('--offline-ok')  // 显式允许离线；否则 registry 不可达 = FAIL
+const OFFLINE_OK = argv.includes('--offline-ok')
+const RELEASE = argv.includes('--release')  // 发布模式：审核记录缺失 = FAIL；开发模式 = WARN（待发布前补齐）  // 显式允许离线；否则 registry 不可达 = FAIL
 const PRE_RELEASE = argv.includes('--pre-release') // 发布前自检：缺审核记录 ⇒ WARN（正式发布仍 FAIL）
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
