@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-21T16:13:11.790Z",
+  "generatedAt": "2026-10-21T16:13:43.129Z",
   "mechanismFiles": [
     "check-commit-hygiene.mjs:911888c557b8",
     "check-external-surface.mjs:42fe3f66708c",
@@ -19,7 +19,7 @@
     "mechanism-status.mjs:b080bda3ff71",
     "pre-publish.mjs:4250036e3d41",
     "release.mjs:9433b71e9ad2",
-    "self-test-gates.mjs:c1e279b50d54",
+    "self-test-gates.mjs:1c0f6f371cfa",
     "wordlist-pin.mjs:68427795eedc"
   ],
   "wordlistSha": "1cf0c42cfdc8f4132dc6322bd9e19e533e1cfb4a1e387e1bdaba1bc7e310f0a2"

@@ -50,7 +50,7 @@ function run(script, args, cwd, env = {}) {
   execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', `chore: 按${W_PROCESS}处理`], { env })
   ;(() => { try { execFileSync('git', ['-C', d, 'remote', 'add', 'origin', 'https://github.com/x/y.git'], { env }) } catch {} })()
   const r = run('check-git-surface.mjs', ['--allow-no-gh'], d, { GATE_MIN_FILES: '1' })
-  const inMsg = /\[提交信息\]/.test(r.out || '')
+  const inMsg = /\[提交信息/.test(r.out || '')  // 容忍 face 标签带 @ref 后缀
   results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}，树干净）`, expect: 1, got: r.code, ok: r.code === 1 && inMsg, sample: inMsg ? '[提交信息] 命中' : '未命中提交信息' })
 }
 // 2) external-surface：包内文件含内部机制词 ⇒ 必须 exit 1
