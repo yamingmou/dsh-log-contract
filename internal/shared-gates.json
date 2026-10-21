@@ -1,0 +1,20 @@
+{
+  "_说明": "两仓应保持一致的机制脚本清单。漂移闸只对这里列出的文件比对内容；清单外视为各仓专属。",
+  "_版本": "2026-10-21",
+  "shared": [
+    "check-lockfile-consistency.mjs",
+    "check-release-discipline.mjs",
+    "check-external-surface.mjs",
+    "check-git-surface.mjs",
+    "check-review-record.mjs",
+    "check-commit-hygiene.mjs",
+    "check-mechanism-drift.mjs",
+    "check-mechanism-freshness.mjs",
+    "mechanism-index.mjs",
+    "pre-publish.mjs",
+    "release.mjs",
+    "self-test-gates.mjs"
+  ],
+  "sharedData": ["internal/wordlist.json", "internal/shared-gates.json"],
+  "_待移植": "dsh-retrace-private 尚未移植以上脚本（漂移闸会报「待移植 N」= WARN，不阻断）"
+}
