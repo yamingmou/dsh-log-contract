@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-10-21T13:03:48.479Z",
+  "branch": "local/process",
+  "head": "20779e2a09e3845a16cf7bfc2d0b57f84c818a32",
+  "mechanismFiles": [
+    "check-commit-hygiene.mjs",
+    "check-external-surface.mjs",
+    "check-git-surface.mjs",
+    "check-lockfile-consistency.mjs",
+    "check-mechanism-drift.mjs",
+    "check-mechanism-freshness.mjs",
+    "check-pkg-meta.mjs",
+    "check-publish-entry.mjs",
+    "check-release-discipline.mjs",
+    "check-review-record.mjs",
+    "check-syntax.mjs",
+    "gen-contracts-doc.mjs",
+    "mechanism-index.mjs",
+    "mechanism-status.mjs",
+    "pre-publish.mjs",
+    "release.mjs",
+    "self-test-gates.mjs",
+    "wordlist-pin.mjs"
+  ]
+}
