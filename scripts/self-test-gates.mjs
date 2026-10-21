@@ -220,7 +220,9 @@ function posCase(name, fn) {
 // P2 commit-hygiene：干净提交 ⇒ 0
 {
   const { d, env } = makeSimplePkg([], '0.0.1')
-  execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'chore: 正常提交'], { env })
+  writeFileSync(join(d, 'lib', 'clean2.js'), 'export const c2 = 1\n')
+  execFileSync('git', ['-C', d, 'add', '-A'], { env })
+  execFileSync('git', ['-C', d, 'commit', '-qm', 'chore: 正常提交'], { env })
   posCase('commit-hygiene', () => run('check-commit-hygiene.mjs', ['--range', 'HEAD~1..HEAD'], d).code)
 }
 // P3 lockfile：一致 ⇒ 0
