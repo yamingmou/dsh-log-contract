@@ -63,7 +63,7 @@ console.log('[release] 发布…')
 console.log('[release] 发布后复验…')
 let reg = null
 for (let i = 0; i < 12; i++) {
-  const r = cmd('node', ['-e', `const d=await (await fetch('https://registry.npmjs.org/dsh-log-contract')).json();console.log(JSON.stringify(d))`])
+  const r = cmd('node', ['-e', `const d=await (await fetch('https://registry.npmjs.org/' + PKG_NAME)).json();console.log(JSON.stringify(d))`])
   if (r.status === 0) { try { reg = JSON.parse((r.stdout || '').trim().split('\n').pop()) } catch {} }
   if (reg?.versions?.[version]) break
   console.log(`  … registry 暂不可见 ${i + 1}/12，等 20s`)
@@ -75,7 +75,7 @@ const dir = mkdtempSync(join(tmpdir(), 'rel-check-'))
 execFileSync('bash', ['-lc', `curl -sL '${url}' -o '${dir}/p.tgz' && tar -xzf '${dir}/p.tgz' -C '${dir}'`], { stdio: 'inherit' })
 if (node('scripts/check-external-surface.mjs', ['--root', join(dir, 'package')]).status !== 0) fail('已发布 tarball 的对外信息检查未通过')
 mkdirSync(join(ROOT, 'internal', 'release-reports'), { recursive: true })
-const rec = { repo: 'dsh-log-contract', version, at: new Date().toISOString(), gitHead: (cmd('git', ['rev-parse', 'HEAD']).stdout || '').trim(), tarball: url, gates: 'pre-publish green + review record pass + tarball re-scanned' }
+const rec = { repo: PKG_NAME, version, at: new Date().toISOString(), gitHead: (cmd('git', ['rev-parse', 'HEAD']).stdout || '').trim(), tarball: url, gates: 'pre-publish green + review record pass + tarball re-scanned' }
 const rp = join(ROOT, 'internal', 'release-reports', `${version}-release-${Date.now()}.json`)
 writeFileSync(rp, JSON.stringify(rec, null, 2))
 console.log(`\n✅ 发布完成：${version} ｜ tarball 已复验 ｜ 记录 ${rp.replace(ROOT + '/', '')}`)
