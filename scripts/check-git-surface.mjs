@@ -49,7 +49,13 @@ const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const RE = new RegExp([...words.map(esc), ...regexes].join('|'), 'g')
 const scan = (text) => { const m = String(text).match(RE); return m ? [...new Set(m)] : [] }
 
-const refs = ['HEAD', 'origin/main'].filter((r) => { try { git('rev-parse', '--verify', r); return true } catch { return false } })
+// 发布审查对象 = **会被发布的公开分支**：origin/main + 本地 main（覆盖未推送提交）
+// 内部分支（local/process 等）自身含机制内容，不应作为对外面扫描对象
+const refArgIdx = process.argv.indexOf('--ref')
+const explicitRef = refArgIdx >= 0 ? process.argv[refArgIdx + 1] : null
+const refs = (explicitRef ? [explicitRef] : ['origin/main', 'main'])
+  .filter((r) => { try { git('rev-parse', '--verify', r); return true } catch { return false } })
+  .filter((r, i, a) => a.indexOf(r) === i)
 if (!refs.length) { console.error('git-surface: 无法判定 —— 无可扫描 ref'); process.exit(2) }
 const ref = refs[0]
 let treeFiles
