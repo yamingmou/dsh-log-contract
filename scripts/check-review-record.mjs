@@ -59,12 +59,7 @@ if (!existsSync(file)) {
 const missingOnly = problems.length > 0 && problems.every((p) => p.startsWith('缺少独立审核记录'))
 const mustFill = `发布前必须补齐 reviews/${version}.json（reviewer≠author、gitHead=HEAD、evidence 为可复算命令）`
 
-// 发布前自检：缺记录只是"待补齐"，不判 FAIL；记录存在但内容不合规仍按上面的 problems 判 FAIL。
-if (missingOnly && preRelease) {
-  console.log(`review-record: ⚠️ 待发布补齐 —— 缺 reviews/${version}.json（--pre-release：本次不判 FAIL）`)
-  console.log(`  ⇒ ${mustFill}`)
-  process.exit(0)
-}
+// strict: missing review record always exit 1; dev-mode softness is handled by pre-publish
 if (missingOnly && allowMissing) {
   console.log('review-record: ⚠️ 缺少审核记录，但 --allow-missing 已允许（仅限 bootstrap）')
   process.exit(0)
