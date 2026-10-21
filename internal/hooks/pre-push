@@ -7,4 +7,4 @@ if [ ! -f "$SCAN" ]; then
   exit 1
 fi
 repo="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-exec node "$SCAN" --repo "$repo"
+exec node "$SCAN" --repo "$repo" --remote "${1:-}" --url "${2:-}"
