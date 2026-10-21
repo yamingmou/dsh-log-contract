@@ -16,6 +16,19 @@ import { dirname, join } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(here, '..')
+
+// 词表指纹固定：wordlist.json 的 sha256 必须等于 internal/wordlist.sha256
+// （改词表必须同时更新登记文件 ⇒ 删词/改词会在 diff 中可见，且单点删词立即判红）
+{
+  const { createHash } = await import('node:crypto')
+  const { readFileSync: __rf } = await import('node:fs')
+  const p = join(ROOT, 'internal', 'wordlist.json')
+  const pinPath = join(ROOT, 'internal', 'wordlist.sha256')
+  let actual = null, expected = null
+  try { actual = createHash('sha256').update(__rf(p)).digest('hex') } catch { console.error('无法读取词表'); process.exit(2) }
+  try { expected = __rf(pinPath, 'utf8').trim() } catch { console.error('无法判定 —— 缺 internal/wordlist.sha256（词表未登记）'); process.exit(2) }
+  if (actual !== expected) { console.error(`无法判定 —— 词表指纹不匹配（实际 ${actual.slice(0,12)}… ≠ 登记 ${expected.slice(0,12)}…）；如确属有意修改，请运行 node scripts/wordlist-pin.mjs 更新登记`); process.exit(2) }
+}
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
 const sh = (cmd, args) => {
   try { return execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }) }
@@ -81,7 +94,9 @@ if (repo && ghProbe) {
   const meta = sh('gh', ['api', `repos/${owner}/${name}`, '--jq', '.description, (.homepage // ""), ((.topics // []) | join(" "))'])
   if (pr !== null && is !== null && meta !== null) {
     ghOk = true
-    for (const [face, text] of [['PR', pr], ['issue', is], ['元数据', meta]]) {
+    const comments = sh('gh', ['api', `repos/${owner}/${name}/issues/comments?per_page=100`, '--jq', '.[]|.body']) || ''
+    const releases = sh('gh', ['api', `repos/${owner}/${name}/releases`, '--jq', '.[]|"\(.name // "") \(.body // "")"']) || ''
+    for (const [face, text] of [['PR', pr], ['issue', is], ['评论', comments], ['release', releases], ['元数据', meta]]) {
       const h = scan(text); if (h.length) hits.push({ face, file: '-', words: h })
     }
   }

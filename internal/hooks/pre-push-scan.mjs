@@ -19,7 +19,28 @@ const GATE = join(homedir(), '.dsh-gates')
 const wlPath = join(GATE, 'wordlist.json')
 if (!existsSync(wlPath)) { console.error('[gate] ✗ 无法判定：缺 ~/.dsh-gates/wordlist.json'); process.exit(2) }
 const wl = JSON.parse(readFileSync(wlPath, 'utf8'))
+
+// 词表指纹固定（~/.dsh-gates/wordlist.sha256）
+{
+  const { createHash } = await import('node:crypto')
+  let actual = null, expected = null
+  try { actual = createHash('sha256').update(readFileSync(wlPath)).digest('hex') } catch { console.error('[gate] ✗ 无法读取词表'); process.exit(2) }
+  try { expected = readFileSync(join(GATE, 'wordlist.sha256'), 'utf8').trim() } catch { console.error('[gate] ✗ 无法判定 —— 缺 ~/.dsh-gates/wordlist.sha256'); process.exit(2) }
+  if (actual !== expected) { console.error('[gate] ✗ 词表指纹不匹配（词表被改动但未登记）'); process.exit(2) }
+}
+
 const words = Object.entries(wl).filter(([k]) => !k.startsWith('_')).flatMap(([, v]) => v)
+
+// 词表完整性守卫：每类非空 + 总数 ≥ 55（防"删一行即失效"的单点弱化）
+{
+  const cats = Object.entries(wl).filter(([k, v]) => !k.startsWith('_') && Array.isArray(v))
+  const total = cats.reduce((n, [, v]) => n + v.length, 0)
+  const emptyCats = cats.filter(([, v]) => v.length === 0).map(([k]) => k)
+  if (total < 55 || emptyCats.length) {
+    console.error(`词表完整性不足：总数 ${total}（下限 55）｜空类：${emptyCats.join(',') || '无'}`)
+    process.exit(2)
+  }
+}
 const regexes = Array.isArray(wl._regex) ? wl._regex : []
 if (words.length < 20) { console.error('[gate] ✗ 词表异常（条目过少）'); process.exit(2) }
 const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

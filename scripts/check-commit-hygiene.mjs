@@ -16,6 +16,19 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+// 词表指纹固定：wordlist.json 的 sha256 必须等于 internal/wordlist.sha256
+// （改词表必须同时更新登记文件 ⇒ 删词/改词会在 diff 中可见，且单点删词立即判红）
+{
+  const { createHash } = await import('node:crypto')
+  const { readFileSync: __rf } = await import('node:fs')
+  const p = join(ROOT, 'internal', 'wordlist.json')
+  const pinPath = join(ROOT, 'internal', 'wordlist.sha256')
+  let actual = null, expected = null
+  try { actual = createHash('sha256').update(__rf(p)).digest('hex') } catch { console.error('无法读取词表'); process.exit(2) }
+  try { expected = __rf(pinPath, 'utf8').trim() } catch { console.error('无法判定 —— 缺 internal/wordlist.sha256（词表未登记）'); process.exit(2) }
+  if (actual !== expected) { console.error(`无法判定 —— 词表指纹不匹配（实际 ${actual.slice(0,12)}… ≠ 登记 ${expected.slice(0,12)}…）；如确属有意修改，请运行 node scripts/wordlist-pin.mjs 更新登记`); process.exit(2) }
+}
 const argv = process.argv.slice(2)
 const rangeIdx = argv.indexOf('--range')
 const range = rangeIdx >= 0 ? argv[rangeIdx + 1] : 'origin/main..HEAD'
@@ -24,6 +37,17 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 
 const wl = JSON.parse(readFileSync(join(ROOT, 'internal', 'wordlist.json'), 'utf8'))
 const words = Object.entries(wl).filter(([k]) => !k.startsWith('_')).flatMap(([, v]) => v)
+
+// 词表完整性守卫：每类非空 + 总数 ≥ 55（防"删一行即失效"的单点弱化）
+{
+  const cats = Object.entries(wl).filter(([k, v]) => !k.startsWith('_') && Array.isArray(v))
+  const total = cats.reduce((n, [, v]) => n + v.length, 0)
+  const emptyCats = cats.filter(([, v]) => v.length === 0).map(([k]) => k)
+  if (total < 55 || emptyCats.length) {
+    console.error(`词表完整性不足：总数 ${total}（下限 55）｜空类：${emptyCats.join(',') || '无'}`)
+    process.exit(2)
+  }
+}
 if (words.length < 20) { console.error('commit-hygiene: 无法判定 —— 词表异常'); process.exit(2) }
 const regexes = Array.isArray(wl._regex) ? wl._regex : []
 const RE = new RegExp([...words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), ...regexes].join('|'), 'g')
