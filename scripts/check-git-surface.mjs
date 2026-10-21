@@ -75,7 +75,7 @@ if (treeFiles.length < MIN) { console.error(`git-surface: 无法判定 —— ${
 const hits = []
 // 审定例外：公开历史**已冻结、不可改写**的已知命中（逐条列名 + 理由；只允许这条，不得增长）
 const GIT_SURFACE_ALLOW = [
-  { sha: 'f8be42118', words: ['publish-leaks'], reason: '2026-10-20 前的历史提交正文；公开历史按"只读冻结"处理，不改写（改写需另走公开面变更）' },
+  { sha: 'f8be42118', words: ['发布泄漏闸'], reason: '2026-10-20 前的历史提交正文；公开历史按"只读冻结"处理，不改写（改写需另走公开面变更）' },
 ]
 // ① 树
 for (const f of treeFiles) {

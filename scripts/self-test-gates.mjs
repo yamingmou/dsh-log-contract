@@ -19,7 +19,7 @@ const results = []
 // 内部词一律从词表运行时读取 —— 本文件自身不得含内部词（否则被自己的闸判红）
 const WL = JSON.parse(readFileSync(join(ROOT, 'internal', 'wordlist.json'), 'utf8'))
 const pickWord = (cat, i = 0) => (WL[cat] || [])[i]
-const W_PROCESS = pickWord('内部流程', 0)      // 例：裁决类
+const W_PROCESS = pickWord('内部流程', 0)      // 例：结论类
 const W_MECH = pickWord('内部机制', 0)          // 例：三折类
 
 function mkRepo() {
