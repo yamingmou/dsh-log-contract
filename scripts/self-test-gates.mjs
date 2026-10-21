@@ -48,7 +48,7 @@ function run(script, args, cwd, env = {}) {
   writeFileSync(join(d, 'lib', 'b.js'), 'export const b = 2\n')
   execFileSync('git', ['-C', d, 'add', '-A'], { env })
   execFileSync('git', ['-C', d, 'commit', '-qm', `feat: 按${W_PROCESS}执行`], { env })
-  const r = run('check-git-surface.mjs', [], d, { GATE_MIN_FILES: '1', GIT_SURFACE_ALLOW_NO_GH: '1' })
+  const r = run('check-git-surface.mjs', ['--allow-no-gh'], d, { GATE_MIN_FILES: '1' })
   results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}）`, expect: 1, got: r.code, ok: r.code === 1, sample: r.out.split('\n').find((l) => l.includes(W_PROCESS)) || '' })
 }
 // 2) external-surface：包内文件含内部机制词 ⇒ 必须 exit 1
