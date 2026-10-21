@@ -46,6 +46,9 @@ function previousVersionCommit() {
 }
 
 const PKG_NAME = 'dsh-log-contract'
+// 只有"版本变更就发生在 HEAD 这个提交"时，才是发布动作；否则是开发分支的日常提交
+let BUMP_IN_HEAD = false
+try { BUMP_IN_HEAD = git('log', '-1', '--format=%H', '--', 'package.json') === git('rev-parse', 'HEAD') } catch { BUMP_IN_HEAD = false }
 const problems = []
 // npm latest 一致性（头注释早已声明、此前未实现）：本版本若已发布 ⇒ 不可再发
 let npmLatest = null
@@ -142,7 +145,7 @@ try {
     if (npmLatest) {
     // 只在「本次确实升了版本」时，才把"与 npm latest 相同"视为发布违规；
     // 无版本变更（日常开发分支）只作提示 —— 否则每次检查都是红，导致红灯免疫。
-    if (versionBumped && headVer === npmLatest) problems.push(`版本 ${headVer} 已是 npm latest —— 未升版本不得发布`)
+    if (BUMP_IN_HEAD && versionBumped && headVer === npmLatest) problems.push(`版本 ${headVer} 已是 npm latest —— 未升版本不得发布`)
     else if (versionBumped && baseVer === npmLatest) console.log(`  提示：当前版本 ${headVer} 高于 npm latest ${npmLatest}，可发布`)
     else if (!versionBumped) console.log(`  提示：本次无版本变更（当前 ${headVer}，npm latest ${npmLatest}）`)
   } else console.log('  提示：npm latest 未取得（离线）')
