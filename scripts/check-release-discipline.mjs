@@ -58,8 +58,8 @@ try {
   headPkg = pkgAt('HEAD')
   const base = explicitBase || previousVersionCommit()
   if (!base) {
-    console.log('release-discipline: 无法确定基线（没有可比较的历史版本）——跳过版本纪律检查')
-    process.exit(0)
+    console.error('release-discipline: 无法判定 —— 无法确定基线（浅克隆或无历史）；fail-closed exit 2')
+    process.exit(2)
   }
   range = `${base}..HEAD`
   const files0 = changedFiles(range)
@@ -70,6 +70,19 @@ try {
   const versionBumped = baseVer && headVer && baseVer !== headVer
   const docOnly = files.length > 0 && files.every(isDocLike)
 
+  // "实质改动"判定：lib/|bin/|test/ 中新增行去掉注释/空行后仍有内容
+  let substantive = false
+  if (versionBumped) {
+    const codeFiles = files.filter((f) => /^(lib|bin|test|scripts)\//.test(f) && !f.endsWith('.md'))
+    for (const f of codeFiles) {
+      let diff = ''
+      try { diff = git('diff', `${base}..HEAD`, '--', f) } catch { continue }
+      const added = diff.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++'))
+        .map((l) => l.slice(1).trim())
+        .filter((l) => l && !/^(\/\/|\*|\/\*|#|<!--)/.test(l))
+      if (added.length) { substantive = true; break }
+    }
+  }
   if (versionBumped && docOnly) {
     problems.push(
       `版本号 ${baseVer} → ${headVer} 的改动只有文档（${files.length} 个文件，全部为 md/docs）——` +
@@ -99,6 +112,7 @@ try {
     if (headVer === npmLatest) problems.push(`版本 ${headVer} 已是 npm latest —— 未升版本不得发布`)
     else if (baseVer === npmLatest) console.log(`  提示：当前版本 ${headVer} 高于 npm latest ${npmLatest}，可发布`)
   } else console.log('  提示：npm latest 未取得（离线）')
+  if (versionBumped && !docOnly && !substantive) problems.push('版本号递增但代码文件里只有注释/空行改动 —— 不算功能/修复')
   if (problems.length === 0) console.log('release-discipline: ok —— 版本号使用符合纪律')
     else { for (const p of problems) console.log(`  ✗ ${p}`) }
   }
