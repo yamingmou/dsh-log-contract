@@ -17,6 +17,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 const allowMissing = process.argv.includes('--allow-missing')
+const PRE_RELEASE = process.argv.includes('--pre-release')  // 发布模式：缺记录 = FAIL；开发模式 = 提示（exit 0）
 const preRelease = process.argv.includes('--pre-release')
 const root = process.cwd()
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
