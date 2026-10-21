@@ -15,6 +15,9 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+const __pkg = JSON.parse((await import('node:fs')).readFileSync(join(ROOT, 'package.json'), 'utf8'))
+const PKG_NAME = __pkg.name
 const argv = process.argv.slice(2)
 const DRY = argv.includes('--dry-run')
 const SKIP_TESTS = argv.includes('--skip-tests')
@@ -29,7 +32,7 @@ const fail = (m, code = 1) => { console.error(`\n✗ 发布中止：${m}`); proc
   const st = cmd('git', ['status', '--porcelain'])
   if (st.status !== 0) fail('git status 失败（exit 2）', 2)
   if ((st.stdout || '').trim()) fail(`工作区有未提交改动（${(st.stdout || '').trim().split('\n').length} 处）—— 发布内容必须等于仓库内容`)
-  const seen = cmd('npm', ['view', `dsh-log-contract@${version}`, 'version'])
+  const seen = cmd('npm', ['view', `${PKG_NAME}@${version}`, 'version'])
   if (seen.status === 0 && (seen.stdout || '').includes(version)) fail(`版本 ${version} 已存在于 npm —— 请先升版本号（版本号只用于功能与修复）`)
   console.log(`[release] 前置通过：工作区干净 ｜ 版本 ${version} 未发布`)
 }

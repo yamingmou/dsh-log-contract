@@ -16,6 +16,9 @@ import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+const __pkg = JSON.parse((await import('node:fs')).readFileSync(join(ROOT, 'package.json'), 'utf8'))
+const PKG_NAME = __pkg.name
 const argv = process.argv.slice(2)
 const SKIP_TESTS = argv.includes('--skip-tests')
 const OFFLINE_OK = argv.includes('--offline-ok')
@@ -102,7 +105,7 @@ try {
   add('CHANGELOG 条目', cl.includes(`## [${version}]`) ? 'PASS' : 'FAIL', `版本 ${version}`)
 } catch { add('CHANGELOG 条目', 'FAIL', '缺 CHANGELOG.md') }
 try {
-  const r = runCmd('npm', ['view', `dsh-log-contract@${version}`, 'version'])
+  const r = runCmd('npm', ['view', `${PKG_NAME}@${version}`, 'version'])
   const out = (r.stdout || '').trim()
   if (r.status === 0) add('版本未被发布过', out.includes(version) ? 'FAIL' : 'PASS', out.includes(version) ? '该版本已在 npm' : '未发布')
   else add('版本未被发布过', OFFLINE_OK ? 'WARN' : 'FAIL', OFFLINE_OK ? '离线（--offline-ok）：未核验' : 'registry 不可达（fail-closed）')
