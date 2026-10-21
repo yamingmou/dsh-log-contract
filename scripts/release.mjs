@@ -37,6 +37,17 @@ const fail = (m, code = 1) => { console.error(`\n✗ 发布中止：${m}`); proc
   console.log(`[release] 前置通过：工作区干净 ｜ 版本 ${version} 未发布`)
 }
 
+// ①.5 SHA 冻结：被审 SHA 必须等于当前 HEAD（审查后有改动 ⇒ 必须重新审查）
+{
+  const fs = await import('node:fs')
+  const freezeFile = process.env.FREEZE_FILE || '/tmp/mechanism-freeze-sha.txt'
+  const head = (cmd('git', ['rev-parse', 'HEAD']).stdout || '').trim()
+  if (!fs.existsSync(freezeFile)) fail(`缺冻结文件 ${freezeFile}（被审 SHA 未登记，禁止发布）`, 2)
+  const frozen = fs.readFileSync(freezeFile, 'utf8').trim()
+  if (frozen !== head) fail(`被审 SHA ${frozen.slice(0, 8)} ≠ 当前 HEAD ${head.slice(0, 8)}（审查后有改动，需重新审查）`)
+  console.log(`[release] SHA 冻结核对通过：${head.slice(0, 8)}`)
+}
+
 // ② 发布前检查（单一事实源）
 console.log('[release] 运行发布前检查（scripts/pre-publish.mjs）…')
 {
