@@ -1,0 +1,26 @@
+{
+  "_说明": "git-surface 的唯一豁免机制：逐条给出 词 + 作用范围(sha commit / file 路径) + 理由。禁止全局豁免。",
+  "_版本": "2026-10-22",
+  "exceptions": [
+    {
+      "word": "publish-leaks",
+      "sha": "f8be42118",
+      "reason": "该提交是公开历史里的既有提交（重写历史后仍存在），词出现在提交信息里；发布物已清理，故仅豁免此 sha"
+    },
+    {
+      "word": "publish-leaks",
+      "file": "scripts/prepublish-gate.mjs",
+      "reason": "该文件名/内容属于公开仓既有文件（历史遗留），不在本次清理范围内"
+    },
+    {
+      "word": "check-publish-set",
+      "file": "scripts/prepublish-gate.mjs",
+      "reason": "同上：公开仓既有文件内容"
+    },
+    {
+      "word": "public-projection",
+      "file": "scripts/check-release-traceability.mjs",
+      "reason": "可追溯性闸需要读取公开投影树以做 tarball 双向比对（机制脚本，不进公开包）"
+    }
+  ]
+}
