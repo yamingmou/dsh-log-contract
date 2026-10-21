@@ -71,6 +71,7 @@ let compared = 0
 
 const paired = [...mine.keys()].filter((n) => theirs.has(n)).sort()
 for (const name of paired) {
+  if (typeof DRIFT_EXEMPT !== 'undefined' && DRIFT_EXEMPT.has(name)) continue  // 同名不同物：已登记豁免
   const a = mine.get(name), b = theirs.get(name)
   let A, B
   try { A = readFileSync(a.file, 'utf8') } catch (e) { cannot(`本仓文件不可读 ${a.file}（${e.code || e.message}）`) }
