@@ -132,7 +132,8 @@ try {
   }
 }
 
-const fail = items.filter((i) => i.status === 'FAIL')
+const blockList = RELEASE ? items.filter((i) => i.status !== 'PASS') : items.filter((i) => i.status === 'FAIL')
+const fail = blockList
 const soft = items.filter((i) => i.status === 'WARN' || i.status === 'SKIP')
 const report = { version, at: new Date().toISOString(), gitHead: (runCmd('git', ['rev-parse', 'HEAD']).stdout || '').trim(), items, verdict: fail.length ? 'fail' : 'pass' }
 const reportDir = join(homedir(), '.dsh-gates', 'reports')

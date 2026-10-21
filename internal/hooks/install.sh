@@ -7,6 +7,7 @@ GATE="$HOME/.dsh-gates"
 mkdir -p "$GATE/hooks" "$GATE/reports"
 cp "$SRC/internal/hooks/pre-push-scan.mjs" "$GATE/pre-push-scan.mjs"
 cp "$SRC/internal/wordlist.json" "$GATE/wordlist.json"
+cp "$SRC/internal/wordlist.sha256" "$GATE/wordlist.sha256"
 cp "$SRC/internal/hooks/pre-push" "$GATE/hooks/pre-push"
 chmod +x "$GATE/hooks/pre-push"
 for repo in "$@"; do
