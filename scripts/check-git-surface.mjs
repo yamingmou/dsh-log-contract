@@ -48,6 +48,10 @@ try {
 if (words.length < 20) { console.error(`git-surface: 无法判定 —— 词表仅 ${words.length} 条（疑似损坏）`); process.exit(2) }
 const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const RE = new RegExp([...words.map(esc), ...regexes].join('|'), 'g')
+
+// 允许清单：这些词是"公开历史里已存在的检查器名"，不算内部信息（否则公开 main 无法通过）
+const ALLOWLIST = ['publish-leaks', 'check-publish-set', 'public-projection']
+
 const scan = (text) => { const m = String(text).match(RE); return m ? [...new Set(m)] : [] }
 
 // 发布审查对象 = **会被发布的公开分支**：origin/main + 本地 main（覆盖未推送提交）
@@ -84,7 +88,7 @@ for (const f of treeFiles) {
   if (nameHit.length) hits.push({ face: '文件名', file: f, words: [...new Set(nameHit)].slice(0, 5) })
   let blob
   try { blob = git('cat-file', 'blob', `${ref}:${f}`) } catch (e) { console.error(`git-surface: ✗ 无法读取 ${f}（${e.message}）`); process.exit(2) }
-  const h = scan(blob)
+  const h = scan(blob).filter((w) => !ALLOWLIST.some((a) => w.includes(a)))
   if (h.length) hits.push({ face: '树', file: f, words: h })
 }
 // ② 提交信息
