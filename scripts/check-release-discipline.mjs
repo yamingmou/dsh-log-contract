@@ -140,8 +140,11 @@ try {
     console.log(`release-discipline: 区间 ${range} ｜ 改动 ${files.length} 个文件 ｜ 版本 ${baseVer} → ${headVer}`)
     for (const w of warn) console.log(`  ↑ ${w}`)
     if (npmLatest) {
-    if (headVer === npmLatest) problems.push(`版本 ${headVer} 已是 npm latest —— 未升版本不得发布`)
-    else if (baseVer === npmLatest) console.log(`  提示：当前版本 ${headVer} 高于 npm latest ${npmLatest}，可发布`)
+    // 只在「本次确实升了版本」时，才把"与 npm latest 相同"视为发布违规；
+    // 无版本变更（日常开发分支）只作提示 —— 否则每次检查都是红，导致红灯免疫。
+    if (versionBumped && headVer === npmLatest) problems.push(`版本 ${headVer} 已是 npm latest —— 未升版本不得发布`)
+    else if (versionBumped && baseVer === npmLatest) console.log(`  提示：当前版本 ${headVer} 高于 npm latest ${npmLatest}，可发布`)
+    else if (!versionBumped) console.log(`  提示：本次无版本变更（当前 ${headVer}，npm latest ${npmLatest}）`)
   } else console.log('  提示：npm latest 未取得（离线）')
   if (versionBumped && !docOnly && !substantive) problems.push('版本号递增但代码文件里只有注释/空行改动 —— 不算功能/修复')
   if (problems.length === 0) console.log('release-discipline: ok —— 版本号使用符合纪律')
