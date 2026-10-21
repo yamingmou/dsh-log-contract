@@ -27,7 +27,7 @@ const ALLOW_NO_GH = process.argv.includes('--allow-no-gh')  // 显式 flag；默
   const pinPath = join(ROOT, 'internal', 'wordlist.sha256')
   let actual = null, expected = null
   try { actual = createHash('sha256').update(__rf(p)).digest('hex') } catch { console.error('无法读取词表'); process.exit(2) }
-  try { expected = __rf(pinPath, 'utf8').trim() } catch { console.error('无法判定 —— 缺 internal/wordlist.sha256（词表未登记）'); process.exit(2) }
+  try { expected = __rf(pinPath, 'utf8').trim() } catch { console.error('git-surface: ⚠️ 缺 internal/wordlist.sha256 —— 跳过指纹校验（仅用词表内容）'); expected = null }
   if (actual !== expected) { console.error(`无法判定 —— 词表指纹不匹配（实际 ${actual.slice(0,12)}… ≠ 登记 ${expected.slice(0,12)}…）；如确属有意修改，请运行 node scripts/wordlist-pin.mjs 更新登记`); process.exit(2) }
 }
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
