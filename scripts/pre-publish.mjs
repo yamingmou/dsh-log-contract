@@ -60,7 +60,7 @@ for (const [name, script, gateArgs = []] of gates) {
     const br = (runCmd('git', ['branch', '--show-current']).stdout || '').trim()
     const r = runNode(script)
     const out = ((r.stdout || '') + (r.stderr || '')).trim()
-    if (br !== 'main') {
+    if (false) {  // 无论 main 还是内部分支都检查（main 上违规 = FAIL）
       // 内部分支的提交不会公开 —— 但**不允许静默**：违规条数必须显式列出（WARN，不判 FAIL）
       const m = out.match(/违规\s*(\d+)/)
       add(name, r.status === 0 ? 'PASS' : 'WARN', `内部分支 ${br}（不公开）｜${m ? `违规 ${m[1]} 条` : '有违规'}｜${(out.split('\n').find((l) => l.includes('✗')) || '').trim().slice(0, 90)}`)
