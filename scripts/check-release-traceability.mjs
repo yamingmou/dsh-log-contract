@@ -22,7 +22,7 @@ const argv = process.argv.slice(2)
 const vIdx = argv.indexOf('--version'); const wantV = vIdx >= 0 ? argv[vIdx + 1] : null
 const lIdx = argv.indexOf('--last'); const lastN = lIdx >= 0 ? Number(argv[lIdx + 1]) : 3
 const offlineWarn = argv.includes('--offline-warn')
-const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore','pipe','ignore'] })
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const NAME = pkg.name
 
