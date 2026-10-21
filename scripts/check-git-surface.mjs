@@ -96,8 +96,11 @@ for (const rec of msgs) {
 let ghOk = false
 const repo = sh('git', ['-C', ROOT, 'config', '--get', 'remote.origin.url'])?.trim().match(/github\.com[:/]([^/]+)\/([^/.]+)/)
 if (!repo) console.error('DEBUG repo 解析失败: url=', (() => { try { return git('config','--get','remote.origin.url') } catch (e) { return 'ERR:' + e.message } })())
+if (!repo) {
+  console.error('git-surface: 无法判定 —— 非 GitHub 远端（本地克隆/离线），gh 面不可核')
+  if (!ALLOW_NO_GH) process.exit(2)
+}
 const ghProbe = repo ? sh('gh', ['api', 'repos/' + repo[1] + '/' + repo[2], '--jq', '.full_name']) : null
-if (!repo) { console.error('git-surface: 无法判定 —— 非 GitHub 远端（本地克隆/离线），gh 面不可核'); if (!ALLOW_NO_GH) process.exit(2) }
 if (repo && !ghProbe) console.error('git-surface: gh 探测失败 repo=' + repo[1] + '/' + repo[2] + '（gh 未认证或无网络）')
 if (repo && ghProbe) {
   const [owner, name] = [repo[1], repo[2]]
