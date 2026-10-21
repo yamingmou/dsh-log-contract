@@ -45,6 +45,7 @@ function previousVersionCommit() {
   return null
 }
 
+const PKG_NAME = 'dsh-log-contract'
 const problems = []
 // npm latest 一致性（头注释早已声明、此前未实现）：本版本若已发布 ⇒ 不可再发
 let npmLatest = null

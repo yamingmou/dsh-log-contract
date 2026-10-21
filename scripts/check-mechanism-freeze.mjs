@@ -7,6 +7,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -14,9 +15,9 @@ const F = join(ROOT, 'internal', 'mechanism-freeze.json')
 const update = process.argv.includes('--update')
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8' }).trim()
 const wlSha = (() => { try { return execFileSync('shasum', ['-a', '256', join(ROOT, 'internal', 'wordlist.json')], { encoding: 'utf8' }).trim().split(/\s+/)[0] } catch { return null } })()
-const state = () => ({ generatedAt: new Date().toISOString(), mechanismFiles: readdirSync(join(ROOT, 'scripts')).filter((f) => f.endsWith('.mjs')).sort(), wordlistSha: wlSha })
+const state = () => ({ generatedAt: new Date().toISOString(), mechanismFiles: readdirSync(join(ROOT, 'scripts')).filter((f) => f.endsWith('.mjs')).sort().map((f) => `${f}:${createHash('sha256').update(readFileSync(join(ROOT, 'scripts', f))).digest('hex').slice(0, 12)}`), wordlistSha: wlSha })
 if (update) { writeFileSync(F, JSON.stringify(state(), null, 2) + '\n'); console.log('freeze: 已更新基线'); process.exit(0) }
-if (!existsSync(F)) { console.error('freeze: ✗ 缺 internal/mechanism-freeze.json（先 --update）'); process.exit(1) }
+if (!existsSync(F)) { console.error('freeze: ✗ 无法判定 —— 缺 internal/mechanism-freeze.json（先 --update）'); process.exit(2) }
 const rec = JSON.parse(readFileSync(F, 'utf8')); const cur = state()
 const probs = []
 if (rec.wordlistSha && cur.wordlistSha && rec.wordlistSha !== cur.wordlistSha) probs.push(`词表变化：${String(rec.wordlistSha).slice(0,12)} ≠ ${String(cur.wordlistSha).slice(0,12)}`)

@@ -130,7 +130,7 @@ try {
 const blockList = RELEASE ? items.filter((i) => i.status !== 'PASS') : items.filter((i) => i.status === 'FAIL')
 const fail = blockList
 const soft = items.filter((i) => i.status === 'WARN' || i.status === 'SKIP')
-const report = { version, at: new Date().toISOString(), gitHead: (runCmd('git', ['rev-parse', 'HEAD']).stdout || '').trim(), items, verdict: fail.length ? 'fail' : 'pass' }
+const report = { version, mode: RELEASE ? 'release' : 'dev', at: new Date().toISOString(), gitHead: (runCmd('git', ['rev-parse', 'HEAD']).stdout || '').trim(), items, verdict: fail.length ? 'fail' : 'pass' }
 const reportDir = join(homedir(), '.dsh-gates', 'reports')
 mkdirSync(reportDir, { recursive: true })
 const rp = join(reportDir, `${version}-${Date.now()}.json`)
