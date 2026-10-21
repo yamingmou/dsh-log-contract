@@ -42,19 +42,24 @@ function run(script, args, cwd, env = {}) {
   const r = spawnSync('node', [join(cwd, 'scripts', script), ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
 }
-// 1) git-surface：提交信息里带内部流程词 ⇒ 必须 exit 1
+// 1) git-surface：树是干净的，只有提交信息含内部流程词 ⇒ 必须 exit 1 且命中面为「提交信息」
 {
   const { d, env } = mkRepo()
-  writeFileSync(join(d, 'lib', 'b.js'), 'export const b = 2\n')
-  execFileSync('git', ['-C', d, 'add', '-A'], { env })
+  // 树保持干净（只有 lib/a.js），把内部词放进提交信息
   execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', `chore: 按${W_PROCESS}处理`], { env })
   const r = run('check-git-surface.mjs', ['--allow-no-gh'], d, { GATE_MIN_FILES: '1' })
-  const inMsg = /\[提交信息\]/.test(r.out || '')
-  results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}，树干净）`, expect: 1, got: r.code, ok: r.code === 1 && inMsg, sample: inMsg ? '[提交信息] 命中' : '未命中提交信息' })
+  const hitInMessage = /\[提交信息\]/.test(r.out || '')
+  results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}，树干净）`, expect: 1, got: r.code, ok: r.code === 1 && hitInMessage, sample: hitInMessage ? '[提交信息] 命中' : '未命中提交信息' })
+}
+ = mkRepo()
+    execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', `chore: 按${W_PROCESS}处理`], { env })
+  const r = run('check-git-surface.mjs', ['--allow-no-gh'], d, { GATE_MIN_FILES: '1' })
+  results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}）`, expect: 1, got: r.code, ok: r.code === 1, sample: r.out.split('\n').find((l) => l.includes(W_PROCESS)) || '' })
 }
 // 2) external-surface：包内文件含内部机制词 ⇒ 必须 exit 1
 {
   const { d, env } = makeSimplePkg([])
+  writeFileSync(join(d, 'lib', 'c.js'), `// ${W_MECH} 与 ${pickWord('内部机制', 4) || ''}\n`)
   execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'x'], { env })
   const r = run('check-external-surface.mjs', [], d, { GATE_MIN_FILES: '1' })
   results.push({ gate: `external-surface（包内含 ${W_MECH}）`, expect: 1, got: r.code, ok: r.code === 1 })
