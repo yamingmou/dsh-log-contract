@@ -30,8 +30,8 @@ const MECH_DIRS = ['scripts', 'internal/scripts']
  * 判据用 basename；加新条目必须在评审里说明"为什么不能同步"。
  */
 const DRIFT_EXEMPT = new Map([
-  ['check-syntax.mjs', '两仓语法检查覆盖面不同：本仓 node --check 遍历 lib/bin；对端用 esbuild transform 校验'],
-  ['pre-publish.mjs', '两仓按仓定制：本仓是发布前流程入口；对端是旧的发布自检脚本，职责与参数不同'],
+  ['check-syntax.mjs', '两仓语法检查实现与覆盖面不同：本仓 esbuild build 覆盖 lib/bin/test/scripts；对端仅 esbuild transform 校验 lib'],
+  ['pre-publish.mjs', '两仓按仓定制：本仓是发布前流程入口（含 --pre-release 等）；对端为旧发布自检脚本，导入顺序与参数不同'],
 ])
 
 
@@ -80,8 +80,10 @@ const problems = []
 let compared = 0
 
 const paired = [...mine.keys()].filter((n) => theirs.has(n)).sort()
+const exempted = []
 for (const name of paired) {
-  if (DRIFT_EXEMPT.has(String(name).split('/').pop())) { console.log(`  · 豁免：${name}（同名不同物，理由已登记）`); continue }
+  const __base = String(name).split('/').pop()
+  if (DRIFT_EXEMPT.has(__base)) { exempted.push(name); console.log(`  · 豁免：${name}（同名不同物，理由已登记）`); continue }
   const a = mine.get(name), b = theirs.get(name)
   let A, B
   try { A = readFileSync(a.file, 'utf8') } catch (e) { cannot(`本仓文件不可读 ${a.file}（${e.code || e.message}）`) }
@@ -105,7 +107,7 @@ for (const name of paired) {
 const mineOnly = [...mine.keys()].filter((n) => !theirs.has(n)).sort()
 const theirsOnly = [...theirs.keys()].filter((n) => !mine.has(n)).sort()
 
-console.log(`mechanism-drift: 本仓机制脚本 ${mine.size} 个 ｜ 对端 ${theirs.size} 个 ｜ 同名配对 ${compared} 对 ｜ 差异 ${problems.length}`)
+console.log(`mechanism-drift: 本仓机制脚本 ${mine.size} 个 ｜ 对端 ${theirs.size} 个 ｜ 同名 ${paired.length} 对 / 豁免 ${exempted.length} / 比对 ${compared} ｜ 差异 ${problems.length}`)
 for (const p of problems) {
   console.log(`  ✗ ${p.name}：${p.a} vs ${p.b} —— 首个差异 第 ${p.line} 行（归一化后）`)
   console.log(`      本仓「${p.al}」`)
