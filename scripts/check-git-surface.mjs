@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(here, '..')
+const ALLOW_NO_GH = process.argv.includes('--allow-no-gh')  // 显式 flag；默认 fail-closed
 
 // 词表指纹固定：wordlist.json 的 sha256 必须等于 internal/wordlist.sha256
 // （改词表必须同时更新登记文件 ⇒ 删词/改词会在 diff 中可见，且单点删词立即判红）
@@ -53,11 +54,19 @@ const scan = (text) => { const m = String(text).match(RE); return m ? [...new Se
 // 内部分支（local/process 等）自身含机制内容，不应作为对外面扫描对象
 const refArgIdx = process.argv.indexOf('--ref')
 const explicitRef = refArgIdx >= 0 ? process.argv[refArgIdx + 1] : null
-const refs = (explicitRef ? [explicitRef] : ['origin/main', 'main'])
-  .filter((r) => { try { git('rev-parse', '--verify', r); return true } catch { return false } })
-  .filter((r, i, a) => a.indexOf(r) === i)
-if (!refs.length) { console.error('git-surface: 无法判定 —— 无可扫描 ref'); process.exit(2) }
-const ref = refs[0]
+const existsRef = (r) => { try { git('rev-parse', '--verify', r); return true } catch { return false } }
+let ref
+if (explicitRef) {
+  if (!existsRef(explicitRef)) { console.error(`git-surface: 无法判定 —— 指定 ref 不存在：${explicitRef}`); process.exit(2) }
+  ref = explicitRef
+} else if (existsRef('main')) {
+  // main 是 origin/main 的超集（正常快进）⇒ 扫 main 即覆盖未推送提交
+  if (existsRef('origin/main')) {
+    try { git('merge-base', '--is-ancestor', 'origin/main', 'main') } catch { console.error('git-surface: 无法判定 —— main 与 origin/main 已分叉，需分别审查（--ref）'); process.exit(2) }
+  }
+  ref = 'main'
+} else if (existsRef('origin/main')) ref = 'origin/main'
+else { console.error('git-surface: 无法判定 —— 无可扫描 ref'); process.exit(2) }
 let treeFiles
 try { treeFiles = git('-c', 'core.quotePath=false', 'ls-tree', '-r', '-z', '--name-only', ref).split('\0').filter(Boolean) } catch (e) { console.error('git-surface: 无法判定 —— 取不到树', e.message); process.exit(2) }
 const MIN = Number(process.env.GATE_MIN_FILES || 20)
