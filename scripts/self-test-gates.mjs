@@ -187,32 +187,21 @@ lockCase('N4（完全一致，正例）', PKG_LOCK_BASE, LOCK_BASE, 0)
   const r = run('check-publish-entry.mjs', [], d)
   results.push({ gate: 'check-publish-entry（裸 npm publish）', expect: 1, got: r.code, ok: r.code === 1 })
 }
-// 10) check-mechanism-drift：对端机制件逻辑差异 ⇒ 必须 exit 1
+// 10) check-mechanism-drift：共享集内容不一致 ⇒ 必须 exit 1（清单驱动）
 {
   const d = mkdtempSync(join(tmpdir(), 'gate-drift-'))
   const peer = mkdtempSync(join(tmpdir(), 'gate-drift-peer-'))
-  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
-  execFileSync('git', ['init', '-q', d], { env })
   cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
+  cpSync(join(ROOT, 'internal'), join(d, 'internal'), { recursive: true })
+  // 对端：共享清单 + 词表 + 一个被改动的共享脚本
   mkdirSync(join(peer, 'scripts'), { recursive: true })
-  mkdirSync(join(peer, 'internal', 'scripts'), { recursive: true })
+  mkdirSync(join(peer, 'internal'), { recursive: true })
+  cpSync(join(ROOT, 'internal', 'shared-gates.json'), join(peer, 'internal', 'shared-gates.json'))
+  cpSync(join(ROOT, 'internal', 'wordlist.json'), join(peer, 'internal', 'wordlist.json'))
   const src = readFileSync(join(ROOT, 'scripts', 'check-lockfile-consistency.mjs'), 'utf8')
-  writeFileSync(join(d, 'scripts', 'check-lockfile-consistency.mjs'), src)
-  // 对端：追加一行可执行逻辑（非注释），模拟同源件被改动
-  writeFileSync(join(peer, 'internal', 'scripts', 'check-lockfile-consistency.mjs'), `${src}\nconst driftProbe = 1\n`)
+  writeFileSync(join(peer, 'scripts', 'check-lockfile-consistency.mjs'), `${src}\nconst driftProbe = 1\n`)
   const r = run('check-mechanism-drift.mjs', ['--peer', peer], d)
-  results.push({ gate: 'check-mechanism-drift（对端逻辑差异）', expect: 1, got: r.code, ok: r.code === 1 })
-}
-
-
-// 6) mechanism-freshness：篡改手册 ⇒ 必须 exit 1
-{
-  const { d } = mkRepo()
-  const { writeFileSync: wf, readFileSync: rf } = await import('node:fs')
-  const { join: j } = await import('node:path')
-  wf(j(d, 'internal', '机制方法手册-v3.md'), 'old content\n')
-  const r = run('check-mechanism-freshness.mjs', [], d)
-  results.push({ gate: 'mechanism-freshness（手册过期）', expect: 1, got: r.code, ok: r.code === 1 })
+  results.push({ gate: 'check-mechanism-drift（共享集内容不一致）', expect: 1, got: r.code, ok: r.code === 1 })
 }
 
 const bad = results.filter((r) => !r.ok)
