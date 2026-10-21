@@ -18,21 +18,27 @@ const argv = process.argv.slice(2)
 const rootIdx = argv.indexOf('--root')
 const ROOT = rootIdx >= 0 ? argv[rootIdx + 1] : join(here, '..')
 
-// 词表指纹固定：wordlist.json 的 sha256 必须等于 internal/wordlist.sha256
-// （改词表必须同时更新登记文件 ⇒ 删词/改词会在 diff 中可见，且单点删词立即判红）
-{
-  const { createHash } = await import('node:crypto')
-  const { readFileSync: __rf } = await import('node:fs')
-  const p = (WL_OVERRIDE ? WL_OVERRIDE + '.sha256' : join(ROOT, 'internal', 'wordlist.json.sha256'))
-  const pinPath = join(ROOT, 'internal', 'wordlist.sha256')
-  let actual = null, expected = null
-  try { actual = createHash('sha256').update(__rf(p)).digest('hex') } catch { /* 指纹文件不可用 ⇒ 跳过指纹校验（词表本体仍必需） */ }
-  try { expected = __rf(pinPath, 'utf8').trim() } catch { console.error('无法判定 —— 缺 internal/wordlist.sha256（词表未登记）'); process.exit(2) }
-  if (actual !== expected) { console.error(`无法判定 —— 词表指纹不匹配（实际 ${actual.slice(0,12)}… ≠ 登记 ${expected.slice(0,12)}…）；如确属有意修改，请运行 node scripts/wordlist-pin.mjs 更新登记`); process.exit(2) }
-}
 const asJson = argv.includes('--json')
 const wlIdx = argv.indexOf('--wordlist')
 const WL_OVERRIDE = wlIdx >= 0 ? argv[wlIdx + 1] : null
+
+// 词表指纹（可选）：若存在 `<词表>.sha256` 或 internal/wordlist.sha256，则必须匹配；
+// 不存在 ⇒ 跳过（tarball 复验场景没有 internal/，不能因此判"无法判定"）
+{
+  const { createHash } = await import('node:crypto')
+  const wlForPin = WL_OVERRIDE || join(ROOT, 'internal', 'wordlist.json')
+  const pinCandidates = [wlForPin + '.sha256', join(ROOT, 'internal', 'wordlist.sha256'), join(here, '..', 'internal', 'wordlist.sha256')]
+  const pinPath = pinCandidates.find(existsSync)
+  if (pinPath && existsSync(wlForPin)) {
+    const actual = createHash('sha256').update(readFileSync(wlForPin)).digest('hex')
+    let expected = null
+    try { expected = readFileSync(pinPath, 'utf8').trim() } catch { expected = null }
+    if (expected && actual !== expected) {
+      console.error(`external-surface: 无法判定 —— 词表指纹不匹配（${actual.slice(0,12)}… ≠ ${expected.slice(0,12)}…）`)
+      process.exit(2)
+    }
+  }
+}
 
 // ── 1) 词表（必须在扫描之前载入）──────────────────────────────
 const wlPath = WL_OVERRIDE || [join(ROOT, 'internal', 'wordlist.json'), join(here, '..', 'internal', 'wordlist.json')].find(existsSync)
