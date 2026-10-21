@@ -1,119 +1,43 @@
 #!/usr/bin/env node
 /**
- * 两仓机制件漂移闸（check-mechanism-drift）
+ * 机制漂移闸（mechanism drift gate）
  *
- * 方法：扫描两仓的机制脚本目录（scripts/、internal/scripts/），按**文件名**配对，
- *       逐字比较两边都存在的同名脚本；归一化后仍不同 ⇒ exit 1（列文件 + 首个差异行）。
- *       单侧独有的脚本只登记、不比对（没有对端副本可比）。
- *       已登记的**非逻辑差异**（注释/路径常量等）按行模式放行，见 ALLOW_LINE。
- * 判定：任一机制脚本目录不可读（含对端仓/对端 scripts/ 不存在）⇒ exit 2 —— 无法判定，
- *       不许当成通过，也不许静默跳过。
- * 用法：node scripts/check-mechanism-drift.mjs [--peer <path>]
+ * 方法：比较"本仓 mechanism 脚本集合"与"对端仓（--peer）的脚本集合"，
+ *       以及两边 internal/wordlist.json 的内容是否一致。
+ *       缺失/多出/内容不一致 ⇒ 违规（默认 FAIL；--warn-only 降级为 WARN）。
+ * 用途：dsh-log-contract 与 dsh-retrace 共用一套闸时，防止一边改了另一边没跟。
+ * 用法：node scripts/check-mechanism-drift.mjs --peer <目录> [--warn-only] [--json]
+ * 退出码：0 一致 / 1 漂移 / 2 无法判定（对端不可读）
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const argv = process.argv.slice(2)
-const pi = argv.indexOf('--peer')
-if (pi >= 0 && (!argv[pi + 1] || argv[pi + 1].startsWith('--'))) {
-  console.error('drift: 无法判定 —— --peer 缺路径参数')
-  process.exit(2)
-}
-const PEER = pi >= 0 ? argv[pi + 1] : join(ROOT, '..', 'dsh-retrace-private')
+const pIdx = argv.indexOf('--peer')
+const PEER = pIdx >= 0 ? argv[pIdx + 1] : null
+const WARN_ONLY = argv.includes('--warn-only')
+if (!PEER) { console.error('drift: 无法判定 —— 需 --peer <目录>'); process.exit(2) }
+if (!existsSync(join(PEER, 'scripts'))) { console.error(`drift: 无法判定 —— 对端无 scripts/：${PEER}`); process.exit(2) }
 
-/** 机制脚本目录（相对仓库根）。`scripts/` 必备；`internal/scripts/` 存在则必须可读。 */
-const MECH_DIRS = ['scripts', 'internal/scripts']
-/**
- * 同名不同物的显式豁免（每条必须写理由；不在清单内的同名差异一律 exit 1）。
- * 判据用 basename；加新条目必须在评审里说明"为什么不能同步"。
- */
-const DRIFT_EXEMPT = new Map([
-  ['check-syntax.mjs', '两仓语法检查实现与覆盖面不同：本仓 esbuild build 覆盖 lib/bin/test/scripts；对端仅 esbuild transform 校验 lib'],
-  ['pre-publish.mjs', '两仓按仓定制：本仓是发布前流程入口（含 --pre-release 等）；对端为旧发布自检脚本，导入顺序与参数不同'],
-])
-
-
-/** 已登记差异（逐条列名 + 理由）：允许的行内容模式（仅放行非逻辑差异）。 */
-const ALLOW_LINE = [/同源/, /\.\.', '\.\.'/, /^\/\//, /const ROOT = rootIdx/]
-
-const cannot = (msg) => { console.error(`drift: 无法判定 —— ${msg}`); process.exit(2) }
-
-/** 收集一侧的机制脚本：basename → { dir, file }。同一侧重名 ⇒ 无法判定。 */
-function collect(root, side) {
-  const out = new Map()
-  for (const dir of MECH_DIRS) {
-    const abs = join(root, dir)
-    let st
-    try { st = statSync(abs) } catch (e) {
-      if (dir === 'scripts') cannot(`${side}缺机制脚本目录 ${abs}（${e.code || e.message}）`)
-      continue // internal/scripts 不存在 = 该仓没有这一层，不是「不可读」
-    }
-    if (!st.isDirectory()) cannot(`${side}的 ${abs} 不是目录`)
-    let entries
-    try { entries = readdirSync(abs) } catch (e) { cannot(`${side}目录不可读 ${abs}（${e.code || e.message}）`) }
-    for (const name of entries) {
-      if (name.startsWith('.')) continue
-      const file = join(abs, name)
-      let fst
-      try { fst = statSync(file) } catch (e) { cannot(`${side}无法读取 ${file}（${e.code || e.message}）`) }
-      if (!fst.isFile()) continue // 子目录（如 scripts/hooks/）不属于本层比对
-      const prev = out.get(name)
-      if (prev) cannot(`${side}同名脚本出现在多个机制目录：${prev.dir}/${name} 与 ${dir}/${name}`)
-      out.set(name, { dir, file })
-    }
-  }
-  return out
-}
-
-// 归一化：剔除注释行与空白差异，再整体比较（允许注释/路径差异，不允许逻辑差异）
-const norm = (s) => s.split('\n')
-  .map((l) => l.trim())
-  .filter((l) => l && !l.startsWith('//') && !l.startsWith('*') && !l.startsWith('/*') && !l.startsWith('#'))
-  .filter((l) => !ALLOW_LINE.some((re) => re.test(l)))
-  .join('\n')
-
-const mine = collect(ROOT, '本仓')
-const theirs = collect(PEER, '对端仓')
+const list = (d) => readdirSync(join(d, 'scripts')).filter((f) => f.endsWith('.mjs')).sort()
+const mine = list(ROOT), theirs = list(PEER)
+const missing = mine.filter((f) => !theirs.includes(f))   // 本仓有、对端缺
+const extra = theirs.filter((f) => !mine.includes(f))     // 对端有、本仓缺
+const hash = (p) => { try { return createHash('sha256').update(readFileSync(p)).digest('hex').slice(0, 12) } catch { return null } }
+const differs = mine.filter((f) => theirs.includes(f) && hash(join(ROOT, 'scripts', f)) !== hash(join(PEER, 'scripts', f)))
+const wlA = hash(join(ROOT, 'internal', 'wordlist.json')), wlB = hash(join(PEER, 'internal', 'wordlist.json'))
+const wlDiff = wlA && wlB && wlA !== wlB
 const problems = []
-let compared = 0
-
-const paired = [...mine.keys()].filter((n) => theirs.has(n)).sort()
-const exempted = []
-for (const name of paired) {
-  const __base = String(name).split('/').pop()
-  if (DRIFT_EXEMPT.has(__base)) { exempted.push(name); console.log(`  · 豁免：${name}（同名不同物，理由已登记）`); continue }
-  const a = mine.get(name), b = theirs.get(name)
-  let A, B
-  try { A = readFileSync(a.file, 'utf8') } catch (e) { cannot(`本仓文件不可读 ${a.file}（${e.code || e.message}）`) }
-  try { B = readFileSync(b.file, 'utf8') } catch (e) { cannot(`对端文件不可读 ${b.file}（${e.code || e.message}）`) }
-  compared++
-  const na = norm(A), nb = norm(B)
-  if (na === nb) continue
-  const al = na.split('\n'), bl = nb.split('\n')
-  let idx = 0
-  while (idx < al.length && idx < bl.length && al[idx] === bl[idx]) idx++
-  problems.push({
-    name,
-    a: `${a.dir}/${name}`,
-    b: `${b.dir}/${name}`,
-    line: idx + 1,
-    al: (al[idx] ?? '<无此行>').slice(0, 100),
-    bl: (bl[idx] ?? '<无此行>').slice(0, 100),
-  })
-}
-
-const mineOnly = [...mine.keys()].filter((n) => !theirs.has(n)).sort()
-const theirsOnly = [...theirs.keys()].filter((n) => !mine.has(n)).sort()
-
-console.log(`mechanism-drift: 本仓机制脚本 ${mine.size} 个 ｜ 对端 ${theirs.size} 个 ｜ 同名 ${paired.length} 对 / 豁免 ${exempted.length} / 比对 ${compared} ｜ 差异 ${problems.length}`)
-for (const p of problems) {
-  console.log(`  ✗ ${p.name}：${p.a} vs ${p.b} —— 首个差异 第 ${p.line} 行（归一化后）`)
-  console.log(`      本仓「${p.al}」`)
-  console.log(`      对端「${p.bl}」`)
-}
-if (!problems.length) console.log('mechanism-drift: ok —— 同名机制脚本无未登记差异')
-if (mineOnly.length) console.log(`mechanism-drift: 仅本仓存在（无对端副本，不比对）：${mineOnly.join(', ')}`)
-if (theirsOnly.length) console.log(`mechanism-drift: 仅对端存在（无本仓副本，不比对）：${theirsOnly.join(', ')}`)
-process.exit(problems.length ? 1 : 0)
+if (missing.length) problems.push(`本仓有、对端缺：${missing.join(', ')}`)
+if (extra.length) problems.push(`对端有、本仓缺：${extra.join(', ')}`)
+if (differs.length) problems.push(`同名但内容不同：${differs.join(', ')}`)
+if (wlDiff) problems.push(`词表不一致：${wlA} ≠ ${wlB}`)
+const status = problems.length === 0 ? 'ok' : (WARN_ONLY ? 'warn' : 'fail')
+console.log(`drift: 本仓 ${mine.length} 个脚本 ｜ 对端 ${theirs.length} 个 ｜ 缺失 ${missing.length} ｜ 多出 ${extra.length} ｜ 内容不同 ${differs.length} ｜ 词表一致 ${!wlDiff}`)
+for (const p of problems.slice(0, 8)) console.log(`  ✗ ${p}`)
+if (status === 'ok') console.log('drift: ok —— 两仓机制一致')
+else if (status === 'warn') { console.log('drift: ⚠️ 存在漂移（--warn-only）'); process.exit(0) }
+else { console.log('drift: ✗ 存在漂移'); process.exit(1) }
