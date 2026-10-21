@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-10-21T16:13:43.129Z",
+  "generatedAt": "2026-10-21T16:14:24.784Z",
   "mechanismFiles": [
     "check-commit-hygiene.mjs:911888c557b8",
     "check-external-surface.mjs:42fe3f66708c",
-    "check-git-surface.mjs:e4602feb773e",
+    "check-git-surface.mjs:053db6ea3af1",
     "check-lockfile-consistency.mjs:afa9cd367975",
     "check-mechanism-drift.mjs:789c63025a18",
     "check-mechanism-freeze.mjs:167fdbdecf1b",

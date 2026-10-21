@@ -102,12 +102,7 @@ const msgs = raw.split('\x1e').map((s) => s.replace(/^\n/, '')).filter(Boolean)
 for (const rec of msgs) {
   const [sha = '', subject = '', body = ''] = rec.split('\x1f')
   const h = scan(subject + ' ' + body).filter((w) => !excused(w, { sha }))   // subject 与 body 都扫
-  if (h.length) {
-    const allow = GIT_SURFACE_ALLOW.find((a) => sha.startsWith(a.sha))
-    const left = allow ? h.filter((w) => !allow.words.includes(w)) : h
-    if (left.length) hits.push({ face: '提交信息', file: sha.slice(0, 10), words: left })
-    else if (!allow) hits.push({ face: '提交信息', file: sha.slice(0, 10), words: h })
-  }
+  if (h.length) hits.push({ face: '提交信息', file: sha.slice(0, 10), words: h })
 }
 // ③ PR/issue + 元数据（gh 不可用时明确标注"未取得"，不计入通过）
 let ghOk = false
