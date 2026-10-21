@@ -55,7 +55,11 @@ for (const re of (Array.isArray(wl._regex) ? wl._regex : [])) FORMS.push(['词�
 function pkgFiles() {
   try {
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-    return pkg.files || ['lib/**', 'README.md', 'LICENSE', 'package.json']
+    if (!Array.isArray(pkg.files) || pkg.files.length === 0) {
+      console.error('external-surface: 无法判定 —— package.json#files 缺失（发布集会退化成全量，闸不可信）')
+      process.exit(2)
+    }
+    return pkg.files
   } catch { return null }
 }
 const TEXT = new Set(['.js', '.mjs', '.cjs', '.json', '.md', '.txt', '.yml', '.yaml', '.ts', '.d.ts'])
@@ -77,7 +81,7 @@ for (const always of ['package.json', 'README.md', 'README.zh.md', 'CHANGELOG.md
   const full = join(ROOT, always)
   if (existsSync(full)) seen.add(full)
 }
-const MINF = Number(process.env.GATE_MIN_FILES || 5)
+const MINF = Number(process.env.GATE_MIN_FILES || 15)
 if (seen.size < MINF) { console.error(`external-surface: 无法判定 —— 只解析出 ${seen.size} 个文件（下限 ${MINF}）（错目录/白名单失效）`); process.exit(2) }
 
 const hits = []

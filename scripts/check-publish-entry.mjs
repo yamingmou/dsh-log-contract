@@ -18,14 +18,14 @@ const problems = []
 // E1
 for (const [k, v] of Object.entries(pkg.scripts || {})) {
   if (typeof v !== 'string') continue
-  if (/npm\s+publish/.test(v) && !/release\.mjs/.test(v)) problems.push(`E1 scripts.${k} 直接调用 npm publish：${v.slice(0, 80)}`)
+  if (/(npm|pnpm|yarn)\s+publish/.test(v) && !/release\.mjs/.test(v)) problems.push(`E1 scripts.${k} 直接调用 npm publish：${v.slice(0, 80)}`)
 }
 // E2
 const wfDir = join(ROOT, '.github', 'workflows')
 if (existsSync(wfDir)) {
   for (const f of readdirSync(wfDir)) {
     const t = readFileSync(join(wfDir, f), 'utf8')
-    if (/npm\s+publish/.test(t) && !/release\.mjs|PREPUBLISH_GATED/.test(t)) problems.push(`E2 .github/workflows/${f} 裸 npm publish（未见 release.mjs 门禁）`)
+    if (/(npm|pnpm|yarn)\s+publish/.test(t) && !/release\.mjs|PREPUBLISH_GATED/.test(t)) problems.push(`E2 .github/workflows/${f} 裸 npm publish（未见 release.mjs 门禁）`)
   }
 }
 // E3
