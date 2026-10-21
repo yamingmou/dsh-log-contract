@@ -79,7 +79,8 @@ try {
       try { diff = git('diff', `${base}..HEAD`, '--', f) } catch { continue }
       const added = diff.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++'))
         .map((l) => l.slice(1).trim())
-        .filter((l) => l && !/^(\/\/|\*|\/\*|#|<!--)/.test(l))
+        .map((l) => l.replace(/\/\/.*$/, '').replace(/\/\*[\s\S]*?\*\//g, '').trim())
+        .filter((l) => l && !/^(\*|#|<!--)/.test(l))
       if (added.length) { substantive = true; break }
     }
   }
