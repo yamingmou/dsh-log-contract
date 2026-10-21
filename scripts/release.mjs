@@ -40,7 +40,7 @@ const fail = (m, code = 1) => { console.error(`\n✗ 发布中止：${m}`); proc
 // ② 发布前检查（单一事实源）
 console.log('[release] 运行发布前检查（scripts/pre-publish.mjs）…')
 {
-  const args = ['scripts/pre-publish.mjs']
+  const args = ['scripts/pre-publish.mjs', '--release']
   if (SKIP_TESTS) args.push('--skip-tests')
   const r = spawnSync('node', args.map((a) => (a.startsWith('--') ? a : join(ROOT, a))), { cwd: ROOT, encoding: 'utf8', stdio: 'inherit' })
   if (r.status !== 0) fail(`发布前检查未通过（exit ${r.status}）—— 报告见 internal/release-reports/`)
