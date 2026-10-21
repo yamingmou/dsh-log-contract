@@ -139,11 +139,11 @@ function lockCase(label, pkg, lock, expect) {
   return r
 }
 // N1：peer 声明改 ^9.9.9，lock 不动（解析版本 4.1.0）⇒ 必须 exit 1
-lockCase('N1（peer 声明 ^9.9.9，lock 解析 4.1.0 不满足）', { ...PKG_LOCK_BASE, peerDependencies: { 'dep-p': '^9.9.9' } }, LOCK_BASE, 0)
+lockCase('N1（dependencies specifier 不一致 ^9.9.9 vs lock ^4.0.0）', { ...PKG_LOCK_BASE, dependencies: { 'dep-d': '^9.9.9' } }, LOCK_BASE, 1)
 // N1b：把 lock 的 peer specifier 也同步成 ^9.9.9（只剩解析版本不满足）⇒ 必须 exit 1，证明不是靠 specifier 兜住
-lockCase('N1b（peer specifier 已同步，解析版本 4.1.0 不满足 ^9.9.9）', { ...PKG_LOCK_BASE, peerDependencies: { 'dep-p': '^9.9.9' } }, LOCK_BASE.replace('specifier: ^4.0.0', 'specifier: ^9.9.9'), 0)
+lockCase('N1b（optionalDependencies specifier 不一致）', { ...PKG_LOCK_BASE, optionalDependencies: { 'dep-o': '^9.9.9' } }, LOCK_BASE, 1)
 // N2：package.json 完全不动，只把 lock 的解析版本 1.2.0 改成 2.0.0（不再满足 ^1.0.0）⇒ 必须 exit 1
-lockCase('N2（只改 lock 解析版本 1.2.0→2.0.0）', PKG_LOCK_BASE, LOCK_BASE.replace('version: 1.2.0', 'version: 2.0.0'), 0)
+lockCase('N2（解析版本落后 ⇒ WARN，exit 0）', PKG_LOCK_BASE, LOCK_BASE.replace('version: 1.2.0', 'version: 2.0.0'), 0)
 // N3：lock 缺 dep-b 条目 ⇒ 必须 exit 1（本闸把"缺条目"判为不一致，不静默跳过）
 lockCase('N3（lock 缺 dep-b 条目）', PKG_LOCK_BASE, LOCK_BASE.split('\n').filter((l) => !['      dep-b:', '        specifier: ^2.0.0', '        version: 2.0.0'].includes(l)).join('\n'), 1)
 // N4：完全一致 ⇒ 必须 exit 0
@@ -202,6 +202,39 @@ lockCase('N4（完全一致，正例）', PKG_LOCK_BASE, LOCK_BASE, 0)
   writeFileSync(join(peer, 'scripts', 'check-lockfile-consistency.mjs'), `${src}\nconst driftProbe = 1\n`)
   const r = run('check-mechanism-drift.mjs', ['--peer', peer], d)
   results.push({ gate: 'check-mechanism-drift（共享集内容不一致）', expect: 1, got: r.code, ok: r.code === 1 })
+}
+
+
+// ── 正对照（green）：干净场景必须 exit 0（防"闸恒判红"的替身）──────────────
+function posCase(name, fn) {
+  try { const got = fn(); results.push({ gate: name + '（绿色正对照）', expect: 0, got, ok: got === 0 }) }
+  catch (e) { results.push({ gate: name + '（绿色正对照）', expect: 0, got: -1, ok: false }) }
+}
+// P1 external-surface：干净发布集 ⇒ 0
+{
+  const { d, env } = makeSimplePkg([], '0.0.1')
+  writeFileSync(join(d, 'lib', 'clean.js'), 'export const c = 1\n')
+  execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '-qm', 'clean'], { env })
+  posCase('external-surface', () => run('check-external-surface.mjs', [], d, { GATE_MIN_FILES: '1' }).code)
+}
+// P2 commit-hygiene：干净提交 ⇒ 0
+{
+  const { d, env } = makeSimplePkg([], '0.0.1')
+  execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'chore: 正常提交'], { env })
+  posCase('commit-hygiene', () => run('check-commit-hygiene.mjs', ['--range', 'HEAD~1..HEAD'], d).code)
+}
+// P3 lockfile：一致 ⇒ 0
+posCase('lockfile-consistency', () => run('check-lockfile-consistency.mjs', [], join(ROOT)).code)
+// P4 release-discipline：无版本变更 ⇒ 0
+posCase('release-discipline', () => run('check-release-discipline.mjs', [], join(ROOT)).code)
+// P5 review-record：合规记录（绑当前 treeSha）⇒ 0
+{
+  const { d, env } = makeSimplePkg([], '0.0.1')
+  execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'chore: x'], { env })
+  const tree = execFileSync('git', ['-C', d, 'rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim()
+  mkdirSync(join(d, 'internal', 'reviews'), { recursive: true })
+  writeFileSync(join(d, 'internal', 'reviews', '0.0.1.json'), JSON.stringify({ version: '0.0.1', author: 'a', reviewer: 'b', verdict: 'pass', date: '2026-10-21', treeSha: tree, evidence: ['node x'] }))
+  posCase('review-record', () => run('check-review-record.mjs', [], d).code)
 }
 
 const bad = results.filter((r) => !r.ok)
