@@ -96,16 +96,63 @@ function makeSimplePkg(_unused, version = '0.0.2') {
 }
 
 
-// 6) lockfile-consistency：package.json 声明与 lock specifier 不一致 ⇒ 必须 exit 1
-{
+// 6) lockfile-consistency：负对照 N1–N4（peer 范围满足性 / 只改 lock 解析版本 / lock 缺条目 / 正例）
+//     fixture：dep-a/dep-b 普通依赖、dep-c 开发依赖、dep-p 纯 peer（pnpm 把 peer 解析记在 lock 的 dependencies 段）
+const LOCK_BASE = [
+  "lockfileVersion: '9.0'",
+  'importers:',
+  '  .:',
+  '    dependencies:',
+  '      dep-a:',
+  '        specifier: ^1.0.0',
+  '        version: 1.2.0',
+  '      dep-b:',
+  '        specifier: ^2.0.0',
+  '        version: 2.0.0',
+  '      dep-p:',
+  '        specifier: ^4.0.0',
+  '        version: 4.1.0',
+  '    devDependencies:',
+  '      dep-c:',
+  '        specifier: ^3.0.0',
+  '        version: 3.0.0',
+  '',
+].join('\n')
+const PKG_LOCK_BASE = {
+  name: 'x',
+  version: '0.0.1',
+  dependencies: { 'dep-a': '^1.0.0', 'dep-b': '^2.0.0' },
+  devDependencies: { 'dep-c': '^3.0.0' },
+  peerDependencies: { 'dep-p': '^4.0.0' },
+}
+function mkLockRepo(pkg, lock) {
   const d = mkdtempSync(join(tmpdir(), 'gate-lock-'))
-  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
-  execFileSync('git', ['init', '-q', d], { env })
   cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
-  writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'x', version: '0.0.1', dependencies: { 'dep-a': '^1.0.0', 'dep-b': '^2.0.0', 'dep-c': '^3.0.0' } }, null, 2))
-  writeFileSync(join(d, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      dep-a:\n        specifier: ^1.0.0\n        version: 1.0.0\n      dep-b:\n        specifier: ^2.0.0\n        version: 2.0.0\n      dep-c:\n        specifier: ^0.9.0\n        version: 0.9.0\n")
+  writeFileSync(join(d, 'package.json'), JSON.stringify(pkg, null, 2))
+  writeFileSync(join(d, 'pnpm-lock.yaml'), lock)
+  return d
+}
+function lockCase(label, pkg, lock, expect) {
+  const d = mkLockRepo(pkg, lock)
   const r = run('check-lockfile-consistency.mjs', [], d)
-  results.push({ gate: 'lockfile-consistency（声明 ^1.0.0 vs lock ^0.9.0）', expect: 1, got: r.code, ok: r.code === 1 })
+  results.push({ gate: `lockfile-consistency ${label}`, expect, got: r.code, ok: r.code === expect })
+  return r
+}
+// N1：peer 声明改 ^9.9.9，lock 不动（解析版本 4.1.0）⇒ 必须 exit 1
+lockCase('N1（peer 声明 ^9.9.9，lock 解析 4.1.0 不满足）', { ...PKG_LOCK_BASE, peerDependencies: { 'dep-p': '^9.9.9' } }, LOCK_BASE, 1)
+// N1b：把 lock 的 peer specifier 也同步成 ^9.9.9（只剩解析版本不满足）⇒ 必须 exit 1，证明不是靠 specifier 兜住
+lockCase('N1b（peer specifier 已同步，解析版本 4.1.0 不满足 ^9.9.9）', { ...PKG_LOCK_BASE, peerDependencies: { 'dep-p': '^9.9.9' } }, LOCK_BASE.replace('specifier: ^4.0.0', 'specifier: ^9.9.9'), 1)
+// N2：package.json 完全不动，只把 lock 的解析版本 1.2.0 改成 2.0.0（不再满足 ^1.0.0）⇒ 必须 exit 1
+lockCase('N2（只改 lock 解析版本 1.2.0→2.0.0）', PKG_LOCK_BASE, LOCK_BASE.replace('version: 1.2.0', 'version: 2.0.0'), 1)
+// N3：lock 缺 dep-b 条目 ⇒ 必须 exit 1（本闸把"缺条目"判为不一致，不静默跳过）
+lockCase('N3（lock 缺 dep-b 条目）', PKG_LOCK_BASE, LOCK_BASE.split('\n').filter((l) => !['      dep-b:', '        specifier: ^2.0.0', '        version: 2.0.0'].includes(l)).join('\n'), 1)
+// N4：完全一致 ⇒ 必须 exit 0
+lockCase('N4（完全一致，正例）', PKG_LOCK_BASE, LOCK_BASE, 0)
+// 追加：声明与 lock specifier 逐字不一致（原有漏检场景，保留）⇒ 必须 exit 1
+{
+  const d = mkLockRepo(PKG_LOCK_BASE, LOCK_BASE.replace('specifier: ^3.0.0', 'specifier: ^0.9.0'))
+  const r = run('check-lockfile-consistency.mjs', [], d)
+  results.push({ gate: 'lockfile-consistency（声明 ^3.0.0 vs lock specifier ^0.9.0）', expect: 1, got: r.code, ok: r.code === 1 })
 }
 // 7) check-syntax：文件有语法错 ⇒ 必须 exit 1
 {
@@ -147,11 +194,12 @@ function makeSimplePkg(_unused, version = '0.0.2') {
   const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
   execFileSync('git', ['init', '-q', d], { env })
   cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
+  mkdirSync(join(peer, 'scripts'), { recursive: true })
   mkdirSync(join(peer, 'internal', 'scripts'), { recursive: true })
   const src = readFileSync(join(ROOT, 'scripts', 'check-lockfile-consistency.mjs'), 'utf8')
   writeFileSync(join(d, 'scripts', 'check-lockfile-consistency.mjs'), src)
-  // 对端：把一行逻辑改掉（非注释）
-  writeFileSync(join(peer, 'internal', 'scripts', 'check-lockfile-consistency.mjs'), src.replace('const MIN', 'const MIN_X').replace('spec.size < 3', 'spec.size < 4'))
+  // 对端：追加一行可执行逻辑（非注释），模拟同源件被改动
+  writeFileSync(join(peer, 'internal', 'scripts', 'check-lockfile-consistency.mjs'), `${src}\nconst driftProbe = 1\n`)
   const r = run('check-mechanism-drift.mjs', ['--peer', peer], d)
   results.push({ gate: 'check-mechanism-drift（对端逻辑差异）', expect: 1, got: r.code, ok: r.code === 1 })
 }
