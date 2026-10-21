@@ -50,14 +50,8 @@ const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const RE = new RegExp([...words.map(esc), ...regexes].join('|'), 'g')
 
 // 允许清单：这些词是"公开历史里已存在的检查器名"，不算内部信息（否则公开 main 无法通过）
-const ALLOWLIST = ['publish-leaks', 'check-publish-set', 'public-projection']
 
-const scan = (text) => {
-  const m = String(text).match(RE)
-  if (!m) return []
-  const uniq = [...new Set(m)]
-  return uniq.filter((w) => !ALLOWLIST.some((a) => w.includes(a)))
-}
+const scan = (text) => { const m = String(text).match(RE); return m ? [...new Set(m)] : [] }
 
 // 发布审查对象 = **会被发布的公开分支**：origin/main + 本地 main（覆盖未推送提交）
 // 内部分支（local/process 等）自身含机制内容，不应作为对外面扫描对象
@@ -81,11 +75,15 @@ try { treeFiles = git('-c', 'core.quotePath=false', 'ls-tree', '-r', '-z', '--na
 const MIN = Number(process.env.GATE_MIN_FILES || 20)
 if (treeFiles.length < MIN) { console.error(`git-surface: 无法判定 —— ${ref} 只有 ${treeFiles.length} 个文件（下限 ${MIN}）（疑似浅克隆/错 ref）`); process.exit(2) }
 
+
+// ── 逐条例外（禁止全局豁免）：词 + sha 或 文件 + 理由 ──
+const EXC_PATH = join(ROOT, 'internal', 'git-surface-exceptions.json')
+let EXCEPTIONS = []
+try { EXCEPTIONS = (JSON.parse(readFileSync(EXC_PATH, 'utf8')).exceptions || []) } catch { EXCEPTIONS = [] }
+const excused = (word, { sha = '', file = '' } = {}) =>
+  EXCEPTIONS.some((e) => e.word === word && ((e.sha && sha.startsWith(e.sha)) || (e.file && file === e.file)))
+
 const hits = []
-// 审定例外：公开历史**已冻结、不可改写**的已知命中（逐条列名 + 理由；只允许这条，不得增长）
-const GIT_SURFACE_ALLOW = [
-  { sha: 'f8be42118', words: ['发布泄漏闸'], reason: '2026-10-20 前的历史提交正文；公开历史按"只读冻结"处理，不改写（改写需另走公开面变更）' },
-]
 // ① 树
 for (const f of treeFiles) {
   // 文件名本身也扫（历史事故：泄漏藏在文件名里）
@@ -93,8 +91,9 @@ for (const f of treeFiles) {
   if (nameHit.length) hits.push({ face: '文件名', file: f, words: [...new Set(nameHit)].slice(0, 5) })
   let blob
   try { blob = git('cat-file', 'blob', `${ref}:${f}`) } catch (e) { console.error(`git-surface: ✗ 无法读取 ${f}（${e.message}）`); process.exit(2) }
-  const h = scan(blob).filter((w) => !ALLOWLIST.some((a) => w.includes(a)))
-  if (h.length) hits.push({ face: '树', file: f, words: h })
+  const h = scan(blob)
+  const hh = h.filter((w) => !excused(w, { file: f }))
+  if (hh.length) hits.push({ face: '树', file: f, words: hh })
 }
 // ② 提交信息
 // 记录分隔用 \x1e（body 可含换行/\x00 不可靠）；字段用 \x1f
@@ -102,7 +101,7 @@ const raw = git('log', ref, '--format=%H%x1f%s%x1f%b%x1e')
 const msgs = raw.split('\x1e').map((s) => s.replace(/^\n/, '')).filter(Boolean)
 for (const rec of msgs) {
   const [sha = '', subject = '', body = ''] = rec.split('\x1f')
-  const h = scan(subject + ' ' + body)   // subject 与 body 都扫
+  const h = scan(subject + ' ' + body).filter((w) => !excused(w, { sha }))   // subject 与 body 都扫
   if (h.length) {
     const allow = GIT_SURFACE_ALLOW.find((a) => sha.startsWith(a.sha))
     const left = allow ? h.filter((w) => !allow.words.includes(w)) : h
