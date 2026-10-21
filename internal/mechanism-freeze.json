@@ -1,13 +1,14 @@
 {
-  "generatedAt": "2026-10-21T13:03:48.479Z",
+  "generatedAt": "2026-10-21T13:04:03.416Z",
   "branch": "local/process",
-  "head": "20779e2a09e3845a16cf7bfc2d0b57f84c818a32",
+  "head": "9c505a0887b6a4766e1cdffbac70ef4ca1d63305",
   "mechanismFiles": [
     "check-commit-hygiene.mjs",
     "check-external-surface.mjs",
     "check-git-surface.mjs",
     "check-lockfile-consistency.mjs",
     "check-mechanism-drift.mjs",
+    "check-mechanism-freeze.mjs",
     "check-mechanism-freshness.mjs",
     "check-pkg-meta.mjs",
     "check-publish-entry.mjs",
