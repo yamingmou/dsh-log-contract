@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-10-21T16:05:03.565Z",
+  "generatedAt": "2026-10-21T16:06:06.339Z",
   "mechanismFiles": [
     "check-commit-hygiene.mjs:911888c557b8",
     "check-external-surface.mjs:42fe3f66708c",
-    "check-git-surface.mjs:0078f9a2c1d5",
+    "check-git-surface.mjs:f60a31cb3da2",
     "check-lockfile-consistency.mjs:afa9cd367975",
     "check-mechanism-drift.mjs:789c63025a18",
     "check-mechanism-freeze.mjs:167fdbdecf1b",
@@ -17,7 +17,7 @@
     "gen-contracts-doc.mjs:a182f37ebc00",
     "mechanism-index.mjs:e6680a39e08a",
     "mechanism-status.mjs:b080bda3ff71",
-    "pre-publish.mjs:11b34ce8f53a",
+    "pre-publish.mjs:4250036e3d41",
     "release.mjs:9433b71e9ad2",
     "self-test-gates.mjs:2d1eb30504d3",
     "wordlist-pin.mjs:68427795eedc"
