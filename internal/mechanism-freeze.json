@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-21T13:04:03.416Z",
+  "generatedAt": "2026-10-21T13:04:11.731Z",
   "branch": "local/process",
-  "head": "9c505a0887b6a4766e1cdffbac70ef4ca1d63305",
+  "head": "e175d0520557d03aedd09281863667b67363f186",
   "mechanismFiles": [
     "check-commit-hygiene.mjs",
     "check-external-surface.mjs",
@@ -13,6 +13,7 @@
     "check-pkg-meta.mjs",
     "check-publish-entry.mjs",
     "check-release-discipline.mjs",
+    "check-release-traceability.mjs",
     "check-review-record.mjs",
     "check-syntax.mjs",
     "gen-contracts-doc.mjs",
