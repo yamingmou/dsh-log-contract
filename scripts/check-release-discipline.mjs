@@ -56,7 +56,20 @@ let range = null
 let headPkg = null
 try {
   headPkg = pkgAt('HEAD')
-  const base = explicitBase || previousVersionCommit()
+  const headVer0 = headPkg?.version
+  // 基线优先：显式 --base；否则用"把版本改成 headVer 的那个提交"自身的 diff（避免混入无关提交）
+  let base = explicitBase
+  if (!base) {
+    try {
+      const commits = git('log', '--format=%H', '-80', '--', 'package.json').split('\n').filter(Boolean)
+      for (const c of commits) {
+        const v = pkgAt(c)?.version
+        const pv = pkgAt(`${c}^`)?.version
+        if (v === headVer0 && pv && pv !== v) { base = `${c}^`; break }
+      }
+    } catch { /* ignore */ }
+    if (!base) base = previousVersionCommit()
+  }
   if (!base) {
     console.error('release-discipline: 无法判定 —— 无法确定基线（浅克隆或无历史）；fail-closed exit 2')
     process.exit(2)
