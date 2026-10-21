@@ -31,9 +31,11 @@ const ROOT = rootIdx >= 0 ? argv[rootIdx + 1] : join(here, '..')
   if (actual !== expected) { console.error(`无法判定 —— 词表指纹不匹配（实际 ${actual.slice(0,12)}… ≠ 登记 ${expected.slice(0,12)}…）；如确属有意修改，请运行 node scripts/wordlist-pin.mjs 更新登记`); process.exit(2) }
 }
 const asJson = argv.includes('--json')
+const wlIdx = argv.indexOf('--wordlist')
+const WL_OVERRIDE = wlIdx >= 0 ? argv[wlIdx + 1] : null
 
 // ── 1) 词表（必须在扫描之前载入）──────────────────────────────
-const wlPath = [join(ROOT, 'internal', 'wordlist.json'), join(here, '..', 'internal', 'wordlist.json')].find(existsSync)
+const wlPath = WL_OVERRIDE || [join(ROOT, 'internal', 'wordlist.json'), join(here, '..', 'internal', 'wordlist.json')].find(existsSync)
 if (!wlPath) { console.error('external-surface: 无法判定 —— 缺 internal/wordlist.json'); process.exit(2) }
 let wl
 try { wl = JSON.parse(readFileSync(wlPath, 'utf8')) } catch (e) { console.error('external-surface: 词表不可解析 ——', e.message); process.exit(2) }
