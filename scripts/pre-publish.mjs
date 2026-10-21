@@ -39,11 +39,15 @@ else if ((st.stdout || '').trim()) add('工作区干净', 'FAIL', `未提交 ${(
 else add('工作区干净', 'PASS')
 
 // 2) 结构性检查（脚本闸）
+const DRIFT_PEER_DIR = process.env.DRIFT_PEER || join(homedir(), 'opena', 'dsh-retrace-private')
+const DRIFT_ARGS = (await import('node:fs')).existsSync(DRIFT_PEER_DIR)
+  ? ['--peer', DRIFT_PEER_DIR, '--warn-only']
+  : ['--warn-only', '--peer', DRIFT_PEER_DIR]
 const gates = [
   ['锁文件一致', 'scripts/check-lockfile-consistency.mjs'],
   ['发布泄漏闸（两包口径）', 'internal/scripts/prepublish-gate.mjs'],
   ['发布入口唯一性', 'scripts/check-publish-entry.mjs'],
-  ['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs'],
+  ['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs', DRIFT_ARGS],
   ['提交卫生', 'scripts/check-commit-hygiene.mjs'],
   ['手册新鲜度', 'scripts/check-mechanism-freshness.mjs'],
   ['发版纪律', 'scripts/check-release-discipline.mjs'],
