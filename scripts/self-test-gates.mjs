@@ -239,6 +239,18 @@ posCase('release-discipline', () => run('check-release-discipline.mjs', [], join
   posCase('review-record', () => run('check-review-record.mjs', [], d).code)
 }
 
+
+// 6) mechanism-freshness：手册过期 ⇒ 必须 exit 1
+{
+  const { d } = mkRepo()
+  const { writeFileSync: wf, mkdirSync: mk } = await import('node:fs')
+  const { join: j } = await import('node:path')
+  mk(j(d, 'internal'), { recursive: true })
+  wf(j(d, 'internal', '机制方法手册-v3.md'), '# outdated manual\n')
+  const r = run('check-mechanism-freshness.mjs', [], d)
+  results.push({ gate: 'mechanism-freshness（手册过期）', expect: 1, got: r.code, ok: r.code === 1 })
+}
+
 const bad = results.filter((r) => !r.ok)
 console.log('闸负对照自检：')
 for (const r of results) console.log(`  ${r.ok ? '✓' : '✗'} ${r.gate} ｜ 期望 exit ${r.expect}，实际 ${r.got}${r.sample ? ` ｜ ${r.sample}` : ''}`)
