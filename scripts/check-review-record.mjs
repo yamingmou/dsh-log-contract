@@ -7,13 +7,17 @@
  *   { "version":"0.3.20", "author":"OfferKuai Team", "reviewer":"<独立者>",
  *     "verdict":"pass", "date":"2026-10-20", "evidence":["<命令/读数/链接>", ...],
  *     "scope":["lib/**","tests"] }
- * 用法：node scripts/check-review-record.mjs [--allow-missing]（--allow-missing 仅供 bootstrap）
- * 退出码：0 通过 / 1 缺失或不合规
+ * 用法：node scripts/check-review-record.mjs [--allow-missing] [--pre-release]
+ *   --allow-missing  仅供 bootstrap：缺记录不判 FAIL（内容不合规仍 FAIL）
+ *   --pre-release    发布前自检：缺记录 ⇒ WARN/exit 0（记录存在但内容不合规仍 FAIL）；
+ *                    正式发布（默认）缺记录 ⇒ FAIL/exit 1
+ * 退出码：0 通过（含 --pre-release 的"待发布补齐"WARN） / 1 缺失或不合规
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 const allowMissing = process.argv.includes('--allow-missing')
+const preRelease = process.argv.includes('--pre-release')
 const root = process.cwd()
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const version = pkg.version
@@ -50,9 +54,23 @@ if (!existsSync(file)) {
     }
   }
 }
-if (problems.length && allowMissing && problems.every((p) => p.startsWith('缺少独立审核记录'))) {
+const missingOnly = problems.length > 0 && problems.every((p) => p.startsWith('缺少独立审核记录'))
+const mustFill = `发布前必须补齐 reviews/${version}.json（reviewer≠author、gitHead=HEAD、evidence 为可复算命令）`
+
+// 发布前自检：缺记录只是"待补齐"，不判 FAIL；记录存在但内容不合规仍按上面的 problems 判 FAIL。
+if (missingOnly && preRelease) {
+  console.log(`review-record: ⚠️ 待发布补齐 —— 缺 reviews/${version}.json（--pre-release：本次不判 FAIL）`)
+  console.log(`  ⇒ ${mustFill}`)
+  process.exit(0)
+}
+if (missingOnly && allowMissing) {
   console.log('review-record: ⚠️ 缺少审核记录，但 --allow-missing 已允许（仅限 bootstrap）')
   process.exit(0)
 }
-if (problems.length) { for (const p of problems) console.log(`  ✗ ${p}`); console.log(`review-record: 未通过（版本 ${version}）`); process.exit(1) }
+if (problems.length) {
+  for (const p of problems) console.log(`  ✗ ${p}`)
+  if (missingOnly) console.log(`  ⇒ ${mustFill}`)
+  console.log(`review-record: 未通过（版本 ${version}）`)
+  process.exit(1)
+}
 console.log(`review-record: ok —— ${version} 有独立审核记录（reviewer=${JSON.parse(readFileSync(file,'utf8')).reviewer}）`)
