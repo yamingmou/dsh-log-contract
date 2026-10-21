@@ -80,7 +80,8 @@ function satisfies(version, range) {
 
 const spec = parseSpecifiers(lock)
 const resolved = parseResolved(lock)
-if (spec.size < 3) { console.error(`lockfile: 无法判定 —— 只解析出 ${spec.size} 个 specifier（格式不识别）`); process.exit(2) }
+const MIN_SPEC = Number(process.env.GATE_MIN_SPECIFIERS || 3)
+if (spec.size < MIN_SPEC) { console.error(`lockfile: 无法判定 —— 只解析出 ${spec.size} 个 specifier（下限 ${MIN_SPEC}，格式不识别或小仓）`); process.exit(2) }
 
 const sections = ['dependencies', 'devDependencies']
 const fails = [], warns = []
