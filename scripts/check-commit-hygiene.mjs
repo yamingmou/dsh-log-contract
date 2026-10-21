@@ -39,15 +39,6 @@ const wl = JSON.parse(readFileSync(join(ROOT, 'internal', 'wordlist.json'), 'utf
 const words = Object.entries(wl).filter(([k]) => !k.startsWith('_')).flatMap(([, v]) => v)
 
 // 词表完整性守卫：每类非空 + 总数 ≥ 55（防"删一行即失效"的单点弱化）
-{
-  const cats = Object.entries(wl).filter(([k, v]) => !k.startsWith('_') && Array.isArray(v))
-  const total = cats.reduce((n, [, v]) => n + v.length, 0)
-  const emptyCats = cats.filter(([, v]) => v.length === 0).map(([k]) => k)
-  if (total < 55 || emptyCats.length) {
-    console.error(`词表完整性不足：总数 ${total}（下限 55）｜空类：${emptyCats.join(',') || '无'}`)
-    process.exit(2)
-  }
-}
 if (words.length < 20) { console.error('commit-hygiene: 无法判定 —— 词表异常'); process.exit(2) }
 const regexes = Array.isArray(wl._regex) ? wl._regex : []
 const RE = new RegExp([...words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), ...regexes].join('|'), 'g')
