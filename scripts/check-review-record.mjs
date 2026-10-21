@@ -49,8 +49,9 @@ if (!existsSync(file)) {
     if (r.reviewer && (/^[xX]+$/.test(String(r.reviewer)) || /^\d+$/.test(String(r.reviewer)))) problems.push('reviewer 像占位值（x/number）')
     // 证据必须像可复算的命令
     if (Array.isArray(r.evidence)) {
-      const ok = r.evidence.every((e) => typeof e === 'string' && /(node |npx |pnpm |git |npm |curl |gh )/.test(e))
-      if (!ok) problems.push('evidence 必须是可复算命令（含 node/npx/pnpm/git/npm/curl/gh 前缀）')
+      const CMD = /^(node |npx |pnpm |npm |git |curl |gh )/
+      const ok = r.evidence.every((e) => typeof e === 'string' && CMD.test(e.trim()))
+      if (!ok) problems.push('evidence 每条必须以命令开头（node/npx/pnpm/npm/git/curl/gh），不接受描述性文字')
     }
   }
 }
