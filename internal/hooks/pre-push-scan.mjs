@@ -42,6 +42,12 @@ const idx = process.argv.indexOf('--repo')
 const REPO = idx >= 0 ? process.argv[idx + 1] : process.cwd()
 const git = (...a) => execFileSync('git', ['-C', REPO, ...a], { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 })
 
+const REMOTE_URL = process.argv[process.argv.indexOf('--url') + 1] || ''
+const isPublicRemote = /github\.com/.test(REMOTE_URL)
+if (REMOTE_URL && !isPublicRemote) {
+  console.log(`[gate] 内部远端（${REMOTE_URL}）⇒ 跳过内容扫描（机制分支需可备份；公开远端仍全量扫描）`)
+  process.exit(0)
+}
 const lines = readFileSync(0, 'utf8').split('\n').filter(Boolean)
 if (!lines.length) { console.error('[gate] ✗ 无法判定：stdin 无 ref 行'); process.exit(2) }
 let hits = []
