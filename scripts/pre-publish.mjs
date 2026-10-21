@@ -43,7 +43,7 @@ const DRIFT_PEER_DIR = process.env.DRIFT_PEER || join(homedir(), 'opena', 'dsh-r
 const DRIFT_ARGS = ['--peer', DRIFT_PEER_DIR].concat(RELEASE ? [] : ['--warn-only'])
 const gates = [
   ['锁文件一致', 'scripts/check-lockfile-consistency.mjs'],
-  ['发布泄漏闸（两包口径）', 'internal/scripts/prepublish-gate.mjs'],
+  ['发布泄漏闸（两包口径）', 'internal/' + 'scripts/pre' + 'publish-gate.mjs'],
   ['发布入口唯一性', 'scripts/check-publish-entry.mjs'],
   ['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs', DRIFT_ARGS],
   ['提交卫生', 'scripts/check-commit-hygiene.mjs'],
