@@ -19,6 +19,7 @@ function walk(dir, out = []) {
   return out;
 }
 
+const FRAGMENTS = /^lib\/dynamic-(host|client)\.js$/
 const files = [...walk('lib'), ...walk('bin'), ...walk('test'), ...walk('scripts')];
 let failed = false;
 for (const file of files) {

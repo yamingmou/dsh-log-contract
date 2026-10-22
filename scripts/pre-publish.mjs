@@ -22,7 +22,8 @@ const PKG_NAME = __pkg.name
 const argv = process.argv.slice(2)
 const SKIP_TESTS = argv.includes('--skip-tests')
 const OFFLINE_OK = argv.includes('--offline-ok')
-const RELEASE = argv.includes('--release')  // 发布模式：审核记录缺失 = FAIL；开发模式 = WARN（待发布前补齐）  // 显式允许离线；否则 registry 不可达 = FAIL
+const RELEASE = argv.includes('--release')
+const SKIP_ALLOW = (() => { const i = argv.indexOf('--skip-allow'); return i >= 0 ? argv[i + 1] : null })()  // 发布模式：审核记录缺失 = FAIL；开发模式 = WARN（待发布前补齐）  // 显式允许离线；否则 registry 不可达 = FAIL
 const PRE_RELEASE = argv.includes('--pre-release') // 发布前自检：缺审核记录 ⇒ WARN（正式发布仍 FAIL）
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
@@ -41,6 +42,7 @@ else add('工作区干净', 'PASS')
 // 2) 结构性检查（脚本闸）
 const DRIFT_PEER_DIR = process.env.DRIFT_PEER || null  // 不硬编码任何私有路径；未设置则跳过漂移检查
 const DRIFT_ARGS = ['--peer', DRIFT_PEER_DIR].concat(RELEASE ? [] : ['--warn-only'])
+const SKIPPABLE = new Set(['全量测试'])  // 声明式：这些项在显式允许时可 SKIP（如 --skip-tests）
 const gates = [
   ['锁文件一致', 'scripts/check-lockfile-consistency.mjs'],
   ['打包白名单覆盖', 'scripts/check-package-files-coverage.mjs'],
