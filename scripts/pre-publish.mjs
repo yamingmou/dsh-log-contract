@@ -140,5 +140,5 @@ writeFileSync(rp, JSON.stringify(report, null, 2))
 console.log(`发布前检查（版本 ${version}）：`)
 const mark = { PASS: '✓', FAIL: '✗', WARN: '⚠', SKIP: '·' }
 for (const i of items) console.log(`  ${mark[i.status] || '?'} [${i.status}] ${i.name}${i.detail ? ` — ${i.detail}` : ''}`)
-console.log(`\n${fail.length ? `✗ ${fail.length} 项未通过 ⇒ 不可发布` : '✅ 全部 PASS ⇒ 可发布'}${soft.length ? ` ｜ ⚠️ ${soft.length} 项 WARN/SKIP（不等同通过）` : ''} ｜ 报告 ${rp.replace(ROOT + '/', '')}`)
+console.log(`\n${fail.length ? `✗ ${fail.length} 项未通过 ⇒ 不可发布` : `✅ 全部 PASS ⇒ 可发布`}${soft.length ? ` ｜ ⚠️ ${soft.length} 项 WARN/SKIP（不等同通过）` : ''} ｜ 报告 ${rp.replace(ROOT + '/', '')}`)
 process.exit(fail.length ? 1 : 0)

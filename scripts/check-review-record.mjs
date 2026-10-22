@@ -33,7 +33,10 @@ if (!existsSync(file)) {
   try { r = JSON.parse(readFileSync(file, 'utf8')) } catch (e) { problems.push(`审核记录不是合法 JSON：${e.message}`) }
   if (r) {
     if (r.version !== version) problems.push(`记录版本 ${r.version} ≠ 当前版本 ${version}`)
-    if (!r.reviewer) problems.push('缺少 reviewer')
+    const PLACEHOLDER = /^(x+|\d+|tbd|test|n\/?a|todo|待定|未指定|待补|placeholder|待填|none|null|test-reviewer|reviewer)$/i
+  if (r.reviewer && PLACEHOLDER.test(String(r.reviewer).trim())) problems.push(`reviewer 是占位值：${r.reviewer}`)
+  if (r.author && PLACEHOLDER.test(String(r.author).trim())) problems.push(`author 是占位值：${r.author}`)
+  if (!r.reviewer) problems.push('缺少 reviewer')
     if (!r.author) problems.push('缺少 author')
     if (r.reviewer && r.author && String(r.reviewer).trim().toLowerCase() === String(r.author).trim().toLowerCase())
       problems.push('reviewer 与 author 相同 —— 不构成独立审核')
