@@ -56,25 +56,29 @@ const scan = (text) => { const m = String(text).match(RE); return m ? [...new Se
 // 发布审查对象 = **会被发布的公开分支**：origin/main + 本地 main（覆盖未推送提交）
 // 内部分支（local/process 等）自身含机制内容，不应作为对外面扫描对象
 const refArgIdx = process.argv.indexOf('--ref')
-const explicitRef = refArgIdx >= 0 ? process.argv[refArgIdx + 1] : null
+const REF_ARG = refArgIdx >= 0 ? process.argv[refArgIdx + 1] : null
 const existsRef = (r) => { try { git('rev-parse', '--verify', r); return true } catch { return false } }
-let ref
-if (explicitRef) {
-  if (!existsRef(explicitRef)) { console.error(`git-surface: 无法判定 —— 指定 ref 不存在：${explicitRef}`); process.exit(2) }
-  ref = explicitRef
-} else if (existsRef('main')) {
-  // main 是 origin/main 的超集（正常快进）⇒ 扫 main 即覆盖未推送提交
-  if (existsRef('origin/main')) {
-    try { git('merge-base', '--is-ancestor', 'origin/main', 'main') } catch { console.error('git-surface: 无法判定 —— main 与 origin/main 已分叉，需分别审查（--ref）'); process.exit(2) }
+// 复审（P0-2）：默认扫**全部公开 ref**（origin/* 分支 + tags），不只是 main
+const refs = (() => {
+  if (REF_ARG) {
+    if (!existsRef(REF_ARG)) { console.error(`git-surface: 无法判定 —— 指定 ref 不存在：${REF_ARG}`); process.exit(2) }
+    return [REF_ARG]
   }
-  ref = 'main'
-} else if (existsRef('origin/main')) ref = 'origin/main'
-else { console.error('git-surface: 无法判定 —— 无可扫描 ref'); process.exit(2) }
-let treeFiles
-try { treeFiles = git('-c', 'core.quotePath=false', 'ls-tree', '-r', '-z', '--name-only', ref).split('\0').filter(Boolean) } catch (e) { console.error('git-surface: 无法判定 —— 取不到树', e.message); process.exit(2) }
-const MIN = Number(process.env.GATE_MIN_FILES || 20)
-if (treeFiles.length < MIN) { console.error(`git-surface: 无法判定 —— ${ref} 只有 ${treeFiles.length} 个文件（下限 ${MIN}）（疑似浅克隆/错 ref）`); process.exit(2) }
+  const list = []
+  try {
+    // 只扫**公开 ref**：origin/* 分支 + 本地 main（超集）。
+    // ⛔ 不扫本地 tags：内部冻结 tag 从未推公开远端，扫它们只会制造假红。
+    for (const r of git('for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin').split('\n').filter(Boolean)) {
+      if (!r.endsWith('/HEAD')) list.push(r)
+    }
+  } catch { /* ignore */ }
+  if (existsRef('main')) list.push('main')
+  if (!list.length) for (const r of ['origin/main', 'HEAD']) if (existsRef(r)) list.push(r)
+  return [...new Set(list)]
+})()
 
+const hits = []
+let scannedFiles = 0, scannedCommits = 0
 
 // ── 逐条例外（禁止全局豁免）：词 + sha 或 文件 + 理由 ──
 const EXC_PATH = join(ROOT, 'internal', 'git-surface-exceptions.json')
@@ -83,27 +87,39 @@ try { EXCEPTIONS = (JSON.parse(readFileSync(EXC_PATH, 'utf8')).exceptions || [])
 const excused = (word, { sha = '', file = '' } = {}) =>
   EXCEPTIONS.some((e) => e.word === word && ((e.sha && sha.startsWith(e.sha)) || (e.file && file === e.file)))
 
-const hits = []
-// ① 树
-for (const f of treeFiles) {
-  // 文件名本身也扫（历史事故：泄漏藏在文件名里）
-  const nameHit = scan(f)
-  if (nameHit.length) hits.push({ face: '文件名', file: f, words: [...new Set(nameHit)].slice(0, 5) })
-  let blob
-  try { blob = git('cat-file', 'blob', `${ref}:${f}`) } catch (e) { console.error(`git-surface: ✗ 无法读取 ${f}（${e.message}）`); process.exit(2) }
-  const h = scan(blob)
-  const hh = h.filter((w) => !excused(w, { file: f }))
-  if (hh.length) hits.push({ face: '树', file: f, words: hh })
+const MIN = Number(process.env.GATE_MIN_FILES || 20)
+for (const ref of refs) {
+  let treeFiles = []
+  try { treeFiles = git('-c', 'core.quotePath=false', 'ls-tree', '-r', '-z', '--name-only', ref).split('\0').filter(Boolean) } catch { continue }
+  scannedFiles += treeFiles.length
+  if (treeFiles.length < MIN) continue          // 浅克隆/空 ref：跳过但由下面的"全空"判定兜底
+  for (const f of treeFiles) {
+    const nameHit = scan(f).filter((w) => !excused(w, { file: f }))
+    if (nameHit.length) hits.push({ face: `文件名@${ref}`, file: f, words: nameHit.slice(0, 5) })
+    let blob
+    try { blob = git('cat-file', 'blob', `${ref}:${f}`) } catch { continue }
+    const h = scan(blob).filter((w) => !excused(w, { file: f }))
+    if (h.length) hits.push({ face: `树@${ref}`, file: f, words: h })
+  }
 }
-// ② 提交信息
-// 记录分隔用 \x1e（body 可含换行/\x00 不可靠）；字段用 \x1f
-const raw = git('log', ref, '--format=%H%x1f%s%x1f%b%x1e')
-const msgs = raw.split('\x1e').map((s) => s.replace(/^\n/, '')).filter(Boolean)
-for (const rec of msgs) {
-  const [sha = '', subject = '', body = ''] = rec.split('\x1f')
-  const h = scan(subject + ' ' + body).filter((w) => !excused(w, { sha }))   // subject 与 body 都扫
-  if (h.length) hits.push({ face: '提交信息', file: sha.slice(0, 10), words: h })
+if (refs.length && !hits.length) { /* 干净 */ }
+
+// ② 提交信息（对所有 ref 的提交去重后扫一次）
+const seen = new Set()
+for (const ref of refs) {
+  let raw = ''
+  try { raw = git('log', ref, '--format=%H%x1f%s%x1f%b%x1e') } catch { continue }
+  for (const rec of raw.split('\x1e').map((s) => s.replace(/^\n/, '')).filter(Boolean)) {
+    const [sha = '', subject = '', body = ''] = rec.split('\x1f')
+    if (seen.has(sha)) continue
+    seen.add(sha)
+    scannedCommits += 1
+    const h = scan(subject + ' ' + body).filter((w) => !excused(w, { sha }))
+    if (h.length) hits.push({ face: '提交信息', file: sha.slice(0, 10), words: h })
+  }
 }
+const ref = refs[0] || 'HEAD'
+
 // ③ PR/issue + 元数据（gh 不可用时明确标注"未取得"，不计入通过）
 let ghOk = false
 const repo = sh('git', ['-C', ROOT, 'config', '--get', 'remote.origin.url'])?.trim().match(/github\.com[:/]([^/]+)\/([^/.]+)/)
@@ -133,7 +149,7 @@ if (!ghOk) {
   if (!ALLOW_NO_GH) { console.error('git-surface: ✗ 默认 fail-closed（gh 面未核 ⇒ 不可判定）；确需跳过请加 --allow-no-gh'); process.exit(2) }
 }
 
-console.log(`git-surface: ref=${ref} ｜ 文件=${treeFiles.length} ｜ 提交=${msgs.length} ｜ gh=${ghOk ? 'ok' : '未取得'} ｜ 命中=${hits.length}`)
+console.log(`git-surface: ref=${ref} ｜ 文件=${scannedFiles} ｜ 提交=${scannedCommits} ｜ gh=${ghOk ? 'ok' : '未取得'} ｜ 命中=${hits.length}`)
 for (const h of hits.slice(0, 15)) console.log(`  ✗ [${h.face}] ${h.file} — ${h.words.slice(0, 5).join(', ')}`)
 if (!hits.length) console.log('git-surface: ok —— GitHub 面零内部信息')
 process.exit(hits.length ? 1 : 0)
