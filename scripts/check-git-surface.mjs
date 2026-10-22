@@ -12,6 +12,7 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -81,7 +82,8 @@ const hits = []
 let scannedFiles = 0, scannedCommits = 0
 
 // ── 逐条例外（禁止全局豁免）：词 + sha 或 文件 + 理由 ──
-const EXC_PATH = join(ROOT, 'internal', 'git-surface-exceptions.json')
+const GATES_HOME = process.env.DSH_GATES_HOME || join(homedir(), '.dsh-gates')
+const EXC_PATH = [join(ROOT, 'internal', 'git-surface-exceptions.json'), join(GATES_HOME, 'git-surface-exceptions.json')].find(existsSync) || join(ROOT, 'internal', 'git-surface-exceptions.json')
 let EXCEPTIONS = []
 try { EXCEPTIONS = (JSON.parse(readFileSync(EXC_PATH, 'utf8')).exceptions || []) } catch { EXCEPTIONS = [] }
 const excused = (word, { sha = '', file = '' } = {}) =>
