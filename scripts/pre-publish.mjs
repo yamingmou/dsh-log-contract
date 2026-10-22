@@ -43,6 +43,7 @@ const DRIFT_PEER_DIR = process.env.DRIFT_PEER || null  // 不硬编码任何私�
 const DRIFT_ARGS = ['--peer', DRIFT_PEER_DIR].concat(RELEASE ? [] : ['--warn-only'])
 const gates = [
   ['锁文件一致', 'scripts/check-lockfile-consistency.mjs'],
+  ['打包白名单覆盖', 'scripts/check-package-files-coverage.mjs'],
   ['发布泄漏闸（两包口径）', 'internal/' + 'scripts/pre' + 'publish-gate.mjs'],
   ['发布入口唯一性', 'scripts/check-publish-entry.mjs'],
   ...(DRIFT_PEER_DIR ? [['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs', ['--peer', DRIFT_PEER_DIR, '--warn-only']]] : []),
