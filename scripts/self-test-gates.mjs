@@ -8,7 +8,7 @@
  * 用法：node scripts/self-test-gates.mjs [--json]
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { cpSync, mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -40,6 +40,11 @@ function mkRepo() {
 }
 function run(script, args, cwd, env = {}) {
   const r = spawnSync('node', [join(cwd, 'scripts', script), ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } })
+  return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
+}
+// 用**本仓脚本**跑（esbuild 等依赖从本仓 node_modules 解析），但扫描面是夹具 cwd
+function runRoot(script, args, cwd, env = {}) {
+  const r = spawnSync('node', [join(ROOT, 'scripts', script), ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
 }
 // 1) git-surface：提交信息里带内部流程词 ⇒ 必须 exit 1
@@ -157,16 +162,13 @@ lockCase('N4（完全一致，正例）', PKG_LOCK_BASE, LOCK_BASE, 0)
   const r = run('check-lockfile-consistency.mjs', [], d)
   results.push({ gate: 'lockfile-consistency（声明 ^3.0.0 vs lock specifier ^0.9.0）', expect: 1, got: r.code, ok: r.code === 1 })
 }
-// 7) check-syntax：文件有语法错 ⇒ 必须 exit 1
+// 7) check-syntax：文件有语法错 ⇒ 必须 exit 1 **且点名该文件**（防"依赖崩了/目录缺了也算红"的替身）
 {
   const d = mkdtempSync(join(tmpdir(), 'gate-syn-'))
-  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
-  execFileSync('git', ['init', '-q', d], { env })
-  cpSync(join(ROOT, 'scripts'), join(d, 'scripts'), { recursive: true })
   mkdirSync(join(d, 'lib'), { recursive: true })
   writeFileSync(join(d, 'lib', 'bad.mjs'), 'export const = ;\n')
-  const r = run('check-syntax.mjs', [], d)
-  results.push({ gate: 'check-syntax（语法错文件）', expect: 1, got: r.code, ok: r.code !== 0 })
+  const r = runRoot('check-syntax.mjs', [], d)
+  results.push({ gate: 'check-syntax（语法错文件）', expect: 1, got: r.code, ok: r.code === 1 && /✘ lib[\\/]bad\.mjs/.test(r.out) })
 }
 // 8) check-pkg-meta：缺 name/version ⇒ 必须非 0
 {
@@ -252,6 +254,63 @@ posCase('release-discipline', () => run('check-release-discipline.mjs', [], join
   wf(j(d, 'internal', '机制方法手册-v3.md'), '# outdated manual\n')
   const r = run('check-mechanism-freshness.mjs', [], d)
   results.push({ gate: 'mechanism-freshness（手册过期）', expect: 1, got: r.code, ok: r.code === 1 })
+}
+
+// ── 机制适用面（mechanism.config.json）负对照 ───────────────────────────────
+// 12) 语法闸 exclude：被配置排除的坏片段 ⇒ 不判红（exit 0 且注明排除）
+{
+  const d = mkdtempSync(join(tmpdir(), 'gate-cfg1-'))
+  mkdirSync(join(d, 'lib'), { recursive: true })
+  mkdirSync(join(d, 'internal'), { recursive: true })
+  writeFileSync(join(d, 'lib', 'frag.mjs'), 'export const = ;\n')          // 生成件片段：独立解析必坏
+  writeFileSync(join(d, 'lib', 'ok.js'), 'export const ok = 1\n')
+  writeFileSync(join(d, 'internal', 'mechanism.config.json'), JSON.stringify({ gates: { 'scripts/check-syntax.mjs': { exclude: ['lib/frag.mjs'], reason: '负对照' } } }))
+  const r = runRoot('check-syntax.mjs', [], d)
+  results.push({ gate: 'mechanism-config（语法闸 exclude 排除坏片段 ⇒ 0）', expect: 0, got: r.code, ok: r.code === 0 && /排除/.test(r.out) && /frag\.mjs/.test(r.out) })
+}
+// 13) exclude 只列一个文件：**未列的坏文件仍必须判红**（未标 ≠ 跳过）
+{
+  const d = mkdtempSync(join(tmpdir(), 'gate-cfg2-'))
+  mkdirSync(join(d, 'lib'), { recursive: true })
+  mkdirSync(join(d, 'internal'), { recursive: true })
+  writeFileSync(join(d, 'lib', 'frag.mjs'), 'export const = ;\n')
+  writeFileSync(join(d, 'lib', 'bad.mjs'), 'export const = ;\n')
+  writeFileSync(join(d, 'internal', 'mechanism.config.json'), JSON.stringify({ gates: { 'scripts/check-syntax.mjs': { exclude: ['lib/frag.mjs'], reason: '负对照' } } }))
+  const r = runRoot('check-syntax.mjs', [], d)
+  results.push({ gate: 'mechanism-config（未 exclude 的坏文件仍判红 ⇒ 1）', expect: 1, got: r.code, ok: r.code === 1 && /✘ lib[\\/]bad\.mjs/.test(r.out) })
+}
+// 14) pre-publish --plan：标 not-applicable 的闸必须 SKIP（带理由），未标的必须列 RUN
+{
+  const { d } = makeSimplePkg([], '0.0.1')
+  writeFileSync(join(d, 'internal', 'mechanism.config.json'), JSON.stringify({ gates: { 'scripts/check-pkg-meta.mjs': { 'not-applicable': '负对照：本仓不适用' } } }))
+  const r = run('pre-publish.mjs', ['--plan'], d)
+  const skipOk = /\[SKIP\] 包元数据/.test(r.out) && /not-applicable：负对照/.test(r.out)
+  const runOk = /\[RUN\][^\n]*语法/.test(r.out)
+  results.push({ gate: 'mechanism-config（not-applicable⇒SKIP 带理由；未标⇒RUN）', expect: 0, got: r.code, ok: r.code === 0 && skipOk && runOk })
+}
+// 15) 坏配置 ⇒ 必须 fail-closed（⛔ 不许静默当"全适用"）
+{
+  const { d } = makeSimplePkg([], '0.0.1')
+  writeFileSync(join(d, 'internal', 'mechanism.config.json'), '{ 非法 JSON')
+  const r = run('pre-publish.mjs', ['--plan'], d)
+  results.push({ gate: 'mechanism-config（坏配置 fail-closed ⇒ 非 0）', expect: 1, got: r.code, ok: r.code === 1 })
+}
+// 16) 真跑 pre-publish：not-applicable 的闸**不执行**（无痕迹），未标的闸**真的执行**（有痕迹且拿到 --exclude）
+{
+  const { d } = makeSimplePkg([], '0.0.1')
+  writeFileSync(join(d, 'scripts', 'check-pkg-meta.mjs'), "import {writeFileSync} from 'node:fs';writeFileSync('marker-na','ran')\n")
+  writeFileSync(join(d, 'scripts', 'check-syntax.mjs'), "import {writeFileSync} from 'node:fs';writeFileSync('marker-run',JSON.stringify(process.argv.slice(2)))\n")
+  writeFileSync(join(d, 'scripts', 'self-test-gates.mjs'), "console.log('stub-negcontrol')\n")   // 防递归
+  writeFileSync(join(d, 'internal', 'mechanism.config.json'), JSON.stringify({ gates: {
+    'scripts/check-pkg-meta.mjs': { 'not-applicable': '负对照：必须 SKIP 且不执行' },
+    'scripts/check-syntax.mjs': { exclude: ['lib/x.js'], reason: '负对照：exclude 必须传到闸' },
+  } }))
+  const r = run('pre-publish.mjs', ['--skip-tests', '--offline-ok'], d, { npm_config_fetch_retries: '0', npm_config_fetch_timeout: '5000' })
+  const naSkipped = /\[SKIP\] 包元数据/.test(r.out) && /必须 SKIP 且不执行/.test(r.out)
+  const naNotRun = !existsSync(join(d, 'marker-na'))
+  const runRan = existsSync(join(d, 'marker-run')) && /--exclude/.test(readFileSync(join(d, 'marker-run'), 'utf8')) && /lib\/x\.js/.test(readFileSync(join(d, 'marker-run'), 'utf8'))
+  const runNotSkip = !/\[SKIP\] 语法/.test(r.out)
+  results.push({ gate: 'mechanism-config（真跑：NA 不执行 / 未标执行且拿 exclude）', expect: 0, got: (naSkipped && naNotRun && runRan && runNotSkip) ? 0 : 1, ok: naSkipped && naNotRun && runRan && runNotSkip, sample: `skip=${naSkipped} 未执行=${naNotRun} 执行+exclude=${runRan} 未被跳过=${runNotSkip}` })
 }
 
 const bad = results.filter((r) => !r.ok)
