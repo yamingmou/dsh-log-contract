@@ -19,7 +19,7 @@ import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, as
 /**
  * 同步写 fd——`process.stdout.write` 在**管道**下是异步的，紧跟着的
  * `process.exit()` 不会等待 flush：>~64KiB 的输出会丢尾，`--json` 因此变成非法 JSON
- * （实测在 [n] 事件夹具与真实 [size] v3 会话上复现，stdout [n]B 处 "Unterminated string"）。
+ * （实测在 3000 事件夹具与真实 [size] v3 会话上复现，stdout 56648B 处 "Unterminated string"）。
  * 这里直接同步写 fd 1/2（非阻塞管道 EAGAIN 时自旋重试），做到"先写完再 exit"。
  */
 function writeAllSync(fd, text) {
@@ -73,14 +73,14 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
               --no-fail-on-migration 退出该档）。
 
   dsh-log-contract fix <session-log> [--remove-markers] [--neutralize] [--neutralize-legacy-markers] [--clip-crossstep] [--drop-failed-turns] [--trim-last N] [--compact-last N] [--tail-renumber D] [--neutralize-orphan] [--extract-turn N] [--keep-ranges a-b,c-d] [--apply] [--backup-dir DIR] [--json]
-      诊断 + 修复（[n]-08 事故固化方案）。先做严格 seq 连续扫描 + 契约体检
+      诊断 + 修复（2026-08 事故固化方案）。先做严格 seq 连续扫描 + 契约体检
       （含 W1/W2 wire 级悬空 tool 检查），再按需修复：
       --remove-markers 移除 retrace/message-editor marker 并全量重编号
                        （用于大范围遮蔽历史 / marker 漏盖 tool/result）
       --clip-crossstep 裁剪 assistant/message 的跨 step sourceEventSeqs（token-meter 不再抛 belongs to another step）
       --neutralize     原地中和 turn-null marker（type→retrace/marker +
                        ignorable:true，删 surfaceOp/sourceEventSeqs，seq/行数不变）
-                       —— token-meter 不再刷屏，会话驻留也安全（[n]-08-30 事故）
+                       —— token-meter 不再刷屏，会话驻留也安全（2026-08-30 事故）
       --neutralize-legacy-markers
                        **一次性根治历史载体债**：只中和
                        assistant/message + data.editor 形态的历史 retrace marker
@@ -146,7 +146,7 @@ function printViolations(violations, maxDetails = 8) {
   }
 }
 
-/** 漂移抬头（[n]-09-14）:漂移清单 + 未internal清单 + "勿据此跑 fix --apply"。 */
+/** 漂移抬头（2026-09-14）:漂移清单 + 未internal清单 + "勿据此跑 fix --apply"。 */
 function driftLines(drift, probes) {
   if (!drift) return '';
   const host = probes ? `${probes.hostPackage}（SESSION_FORMAT_VERSION=${probes.sessionFormatVersion},词表 ${probes.knownTypes} 类）` : '未知';
@@ -166,7 +166,7 @@ function driftLines(drift, probes) {
   return out;
 }
 
-/** 版本支持面（[n]-09-14 用户要求第 1 条）：一行摘要 + 逐条告警。
+/** 版本支持面（2026-09-14 用户要求第 1 条）：一行摘要 + 逐条告警。
  *  `readOnly` = 未验证格式 ⇒ 只读（check 照跑结构层；prewrite/fix 直接拒绝）。 */
 function supportLines(support) {
   if (!support) return '';
@@ -194,7 +194,7 @@ function notAssessableBanner(result) {
 /** 迁移预检（独立维度）文本。
  * @param {object} mig `migrationVerdict()` 结果
  * @param {boolean} partial 待迁移文件（`migration.applies===true`）⇒ 迁移维度只部分覆盖，
- *   不得给无条件绿（[n]-09-14 规格 (i)+(iii)）。
+ *   不得给无条件绿（2026-09-14 规格 (i)+(iii)）。
  */
 function migrationLine(mig, partial = false) {
   if (!mig) return '';
@@ -207,7 +207,7 @@ function migrationLine(mig, partial = false) {
       : `   迁移预检（独立维度，≠"可用/可升级"）：✅ 通过（仅限本工具覆盖范围）\n`)
     : `   迁移预检（独立维度，≠"可用/可升级"）：❌ blocked（${n} 项：官方升级路径会拒）\n`;
   for (const v of (mig.blocked ?? []).slice(0, 5)) {
-    s += `     [${v.id}] seq ${v.seq ?? '-'}${v.eventType ? ` (${v.eventType})` : ''} — ${String(v.message).slice(0, [n])}\n`;
+    s += `     [${v.id}] seq ${v.seq ?? '-'}${v.eventType ? ` (${v.eventType})` : ''} — ${String(v.message).slice(0, 130)}\n`;
   }
   if (n > 5) s += `     …另有 ${n - 5} 项\n`;
   const drops = mig.acceptedDrops ?? { registered: [], unregistered: [] };
@@ -237,7 +237,7 @@ function archiveLines(archive) {
   if (archive.verdict === 'unverifiable') {
     return '   在位可还原（A1，独立维度）：— 未提供归档根目录（不可判定；加 `--archive-root DIR` 或 env DSH_LOG_CONTRACT_ARCHIVE_ROOTS 才评估）\n';
   }
-  const rate = (archive.restorableRate * [n]).toFixed(2);
+  const rate = (archive.restorableRate * 100).toFixed(2);
   let s = `   在位可还原（A1，独立维度，只认结构指针）：${archive.verdict === 'restorable' ? '✅' : '❌'} ${rate}%`
     + `（指针 ${archive.pointers}，去重后 ${archive.effectivePointers ?? archive.pointers}：可还原 ${archive.restorable}`
     + ` ／ relocated ${archive.relocated} ／ 缺失 ${archive.missing} ／ 行缺失 ${archive.lineMissing} ／ sha 不符 ${archive.shaMismatch} ／ 无法解析 ${archive.unresolved}）\n`;
@@ -324,7 +324,7 @@ function cmdCheck(args) {
     const passMark = partial ? '✔' : '✅';
     const icons = { loadable: `${passMark} 可加载`, resumable: `${passMark} 可继续`, compactable: `${passMark} 可压缩`, broken: '❌ 不可用' };
     out(`\n📋 dsh-log-contract check --resume —— ${file}\n`);
-    out(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / [n]).toFixed(1)}KiB → ${(summary.plaintextBytes / [n]).toFixed(1)}KiB）\n`);
+    out(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / 1024).toFixed(1)}KiB → ${(summary.plaintextBytes / 1024).toFixed(1)}KiB）\n`);
     out(`   违规 ${summary.total}（error ${summary.bySeverity.error} / warning ${summary.bySeverity.warning}）\n\n`);
     out(`   分层结论（**本工具规则集内**，不代表"可用"，也不代表官方升级会接受）：\n`);
     const tiers = [
@@ -351,7 +351,7 @@ function cmdCheck(args) {
   }
 
   out(`\n📋 dsh-log-contract check —— ${file}\n`);
-  out(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / [n]).toFixed(1)}KiB → ${(summary.plaintextBytes / [n]).toFixed(1)}KiB）\n`);
+  out(`   事件 ${summary.events} ｜ surface 节点 ${summary.surfaceNodes} ｜ replace 代数 ${summary.replaceGeneration} ｜ 帧 ${summary.frames}（${(summary.compressedBytes / 1024).toFixed(1)}KiB → ${(summary.plaintextBytes / 1024).toFixed(1)}KiB）\n`);
   out(`   违规 ${summary.total}（error ${summary.bySeverity.error} / warning ${summary.bySeverity.warning}）\n`);
   out(supportLines(result.support));
   out(driftLines(result.drift, result.probes));
@@ -393,7 +393,7 @@ function cmdPrewrite(args) {
     ? process.env.DSH_LOG_CONTRACT_IGNORABLE_WHITELIST.split(',').map((x) => x.trim()).filter(Boolean)
     : undefined;
   const baseline = validateSessionLog(log, { ignorableWhitelist: prewriteWhitelist });
-  // 版本支持面（[n]-09-14 用户要求第 1 条）：**未验证格式 ⇒ 只读**，不得给出写入结论。
+  // 版本支持面（2026-09-14 用户要求第 1 条）：**未验证格式 ⇒ 只读**，不得给出写入结论。
   if (baseline.support?.readOnly) {
     fail(`未验证的会话格式（来源 ${baseline.support.file.source}，版本 v${baseline.support.file.version}）——按只读处理，写前校验无法给出可信结论。`
       + ` ${baseline.support.warnings?.[0] ?? ''}`, 3);
@@ -472,7 +472,7 @@ function cmdFix(args) {
   const trimBudget = budgetIdx >= 0 && args[budgetIdx + 1] ? Number(args[budgetIdx + 1]) : undefined;
   const compactIdx = args.indexOf('--compact-last');
   const compactLast = compactIdx >= 0 && args[compactIdx + 1] ? Number(args[compactIdx + 1]) : undefined;
-  // L4 新原语（[n]-08-30 收编外部验证工具）
+  // L4 新原语（2026-08-30 收编外部验证工具）
   const tailIdx = args.indexOf('--tail-renumber');
   const tailRenumberDelta = tailIdx >= 0 && args[tailIdx + 1] ? Number(args[tailIdx + 1]) : undefined;
   const neutralizeOrphan = args.includes('--neutralize-orphan');
@@ -575,7 +575,7 @@ function cmdAuditReport(args) {
     process.exit(0);
   }
   out(`\n📊 dsh-log-contract audit-report —— ${file}\n`);
-  out(`   工具调用 ${report.calls} ｜ 结果 ${report.results} ｜ 孤儿 ${report.orphans} ｜ 配对率 ${(report.pairingRate * [n]).toFixed(1)}%\n`);
+  out(`   工具调用 ${report.calls} ｜ 结果 ${report.results} ｜ 孤儿 ${report.orphans} ｜ 配对率 ${(report.pairingRate * 100).toFixed(1)}%\n`);
   out(`   输出总字节 ${report.outputBytes}`);
   if (report.largest) out(` ｜ 最大 ${report.largest.size}B（${(report.largest.command || '?').slice(0, 40)}）`);
   out(`\n   命令分布（前 ${report.commands.top.length} 个去重）：\n`);
