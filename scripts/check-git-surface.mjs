@@ -152,6 +152,6 @@ if (!ghOk) {
 }
 
 console.log(`git-surface: ref=${ref} ｜ 文件=${scannedFiles} ｜ 提交=${scannedCommits} ｜ gh=${ghOk ? 'ok' : '未取得'} ｜ 命中=${hits.length}`)
-for (const h of hits.slice(0, 15)) console.log(`  ✗ [${h.face}] ${h.file} — ${h.words.slice(0, 5).join(', ')}`)
+for (const h of hits.slice(0, 200)) console.log(`  ✗ [${h.face}] ${h.file} — ${h.words.slice(0, 5).join(', ')}`)
 if (!hits.length) console.log('git-surface: ok —— GitHub 面零内部信息')
 process.exit(hits.length ? 1 : 0)
