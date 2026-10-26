@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "note": "公开历史清理（方案B）审计例外登记：逐条给出理由，禁止增长；新增需 lead 与成员确认。",
+  "exceptions": [
+    {
+      "file": "internal/scripts/prepublish-gate.mjs",
+      "reason": "该文件是『内部词表闸』的定义：正则里必须列出内部词才能检测泄露；且 npm 发布 files 白名单不含 internal/，不会随包外发。",
+      "approvedBy": "plugin-line lead (pending member confirmation)"
+    }
+  ]
+}
