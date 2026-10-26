@@ -45,7 +45,7 @@ function previousVersionCommit() {
   return null
 }
 
-const PKG_NAME = 'dsh-log-contract'
+const PKG_NAME = (() => { try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).name } catch { return 'dsh-log-contract' } })()
 // 只有"版本变更就发生在 HEAD 这个提交"时，才是发布动作；否则是开发分支的日常提交
 let BUMP_IN_HEAD = false
 try { BUMP_IN_HEAD = git('log', '-1', '--format=%H', '--', 'package.json') === git('rev-parse', 'HEAD') } catch { BUMP_IN_HEAD = false }
