@@ -25,12 +25,21 @@ plugin marker semantics).
 
 - **`check <session-log>`** — offline health check: official decoder full decode +
   per-rule contract validation + foldSurface final verification, with a violation
-  report.
+  report and a machine-readable **tail-completeness** field (`tailStatus`).
 - **`prewrite <edit-file> --log <session-log>`** — ★ pre-write validation: any
   write (append / frame-level surgery) passes the three-layer contract before it
-  lands; violations are blocked.
+  lands; violations are blocked (including self-invented `seq` values).
 - **`contracts`** — list the built-in contract rule catalog (each with its
   official source reference).
+- **`check --resume`** — three-tier verdict (`loadable` / `resumable` /
+  `compactable`, plus `not-assessable` when the host cannot judge the file).
+- **`fix` / `extract` / `audit-report`** — repair primitives and read-only
+  session archaeology.
+
+**Capabilities at a glance**: session formats **v0–v4** · 55 contract rules ·
+exit-code contract `0/1/3/4` · three-tier verdicts · pre-write validation ·
+per-rule negative-control tests + rules self-test · tolerant reading (a single
+damaged file degrades to structured results and is counted, never thrown).
 
 ---
 
@@ -67,7 +76,7 @@ line-by-line verification against the official Host source (each rule carries it
 ---
 
 ## Three-layer contract (the model)
-> 30+ rules across the layers below (`contracts` lists them all, each with its
+> 55 rules across the layers below (`contracts` lists them all, each with its
 > official source reference).
 
 | Layer | Rules | What it guards |
@@ -76,6 +85,8 @@ line-by-line verification against the official Host source (each rule carries it
 | **Client engine** | **M1** + **T1 / T2 / I1** | turn-null markers only as replace; token-meter pairing; cross-step source refs; inbox seed-relative replay |
 | **Wire message flow** | **W1 / W2** | tool messages follow an assistant with tool_calls; no user text between tool_calls and results |
 | **Plugin semantics** | P1/P2 | marker id prefixes recognizable; a marker's seq not in its own shadowed set |
+| **Framing** | Z1–Z6 | zstd frame shape (header own first frame; no single-frame re-compression), empty-shell sessions, **tail completeness (`tailStatus`)** |
+| **Reader / aggregation** | **R4 / R5** | a single damaged file must degrade to a structured, countable result (never throw, never abort enumeration); aggregation APIs isolate failures per item |
 
 > Philosophy: first an incremental replay with official-equivalent semantics for
 > **per-event attribution** (pinpoint seq/line), then the official `foldSurface` as
@@ -88,18 +99,18 @@ line-by-line verification against the official Host source (each rule carries it
 
 | Item | Baseline | Note |
 |---|---|---|
-| Host package | `@deepseek-ai/dsh-session@0.1.5-rc.1` | the version this rule set is developed and CI-tested against (CI runs `pnpm check` + `pnpm test`; the four `prepublishOnly` steps are green locally on it) |
-| Session format | **v3** (`SESSION_FORMAT_VERSION = 3`) | v3 uses the runtime vocabulary + official `foldSurface` final check |
-| Declared range | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1` | installable — a declared range is **not** a per-version verification |
-| Known formats | 0 / 1 / 2 / 3 | 0–2 are supported by this package's **vendored** vocabulary + local equivalent fold (`legacyFoldSurface`), independent of the host |
+| Host package | `@deepseek-ai/dsh-session@0.2.0-rc.2` | the version this rule set is developed and CI-tested against (CI runs `pnpm check` + `pnpm test`; the four `prepublishOnly` steps are green locally on it) |
+| Session format | **v4** (`SESSION_FORMAT_VERSION = 4`) | v4 uses the runtime vocabulary + official `foldSurface` final check |
+| Declared range | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1` | installable — a declared range is **not** a per-version verification |
+| Known formats | 0 / 1 / 2 / 3 / 4 | 0–2 are supported by this package's **vendored** vocabulary + local equivalent fold (`legacyFoldSurface`), independent of the host |
 
 **What happens on unverified versions (detected and reported at runtime — never silently judged by stale rules)**:
 
 | Case | Behaviour |
 |---|---|
 | Host **newer than the baseline** | explicit **warning** (`host … is newer than the tested baseline …`); the verdict is still produced but flagged as possibly not applicable |
-| Host older than the baseline (still in peer range) | notice + the host-capability gate decides whether v3 is assessable (`SESSION_FORMAT_VERSION` too low ⇒ `not-assessable`, exit 3) |
-| **Unknown** session format (not in 0/1/2/3) | reported as **unverified format** and handled **read-only**: `check` runs structure rules only; `prewrite` / `fix` **refuse** (exit 3) |
+| Host older than the baseline (still in peer range) | notice + the host-capability gate decides whether the file's format is assessable (`SESSION_FORMAT_VERSION` too low ⇒ `not-assessable`, exit 3) |
+| **Unknown** session format (not in 0/1/2/3/4) | reported as **unverified format** and handled **read-only**: `check` runs structure rules only; `prewrite` / `fix` **refuse** (exit 3) |
 | Format **unrecognisable** (no `header.version` and no distinguishing event shapes) | same: "unverified format" + read-only |
 | File version above the host's supported maximum | `not-assessable` (**not** broken), exit 3; skipped/executed rules are listed |
 
@@ -107,8 +118,38 @@ Implementation: `lib/version-support.js` (`TESTED_BASELINE` / `detectSupport()`,
 Both the human-readable `check` output and the `--json` `support` field carry the baseline summary and the warnings, e.g.:
 
 ```
-version support: host @deepseek-ai/dsh-session@0.1.5-rc.1 (baseline 0.1.5-rc.1) | file format v3 (header, baseline)
+version support: host @deepseek-ai/dsh-session@0.2.0-rc.2 (baseline 0.2.0-rc.2) | file format v4 (header, baseline)
 ```
+
+## 🆕 0.3.28 · Reader tolerance, tail completeness, seq provenance
+Four rules distilled from recent production failures (each pinned by a
+negative-control test — a violating sample must turn red, a compliant one green):
+
+| Rule | Checks | Severity |
+|---|---|---|
+| `R4` | read/parse tolerance: a single damaged file (torn zstd frame, corrupt line, bad chunk row, empty file) must degrade to a **structured, countable** result (`null` / per-row `error` markers / `frameInfo` facts) — never throw and never abort an enumeration/summary run | error |
+| `R5` | aggregation/summary APIs isolate failures **per item** (per-item `try/catch` + a `skipped` counter); one bad item must not sink the batch | error |
+| `E11` | `seq` is assigned by the log layer's continuous cursor only: a pre-write candidate must omit `seq` (auto-assigned) or carry exactly `nextSeq`; producer-side `seq` invention / delete-without-renumber shows up as gaps ⇒ `E2`/`S9` | error |
+| `Z6` | tail completeness must be declared: `tailStatus: complete \| interrupted \| truncated \| unknown` (see the known boundary below) | warning |
+
+Also in 0.3.28: **rules self-test** — the registry, the tests and the generated
+docs are cross-checked (`test/rules-self-test.test.js`): every rule must be
+referenced by a control or a binding assertion in the tests (or carry an
+explicit, justified delegation entry; the red/green strength of each control is
+owned by that rule's own negative-control cases); every emitted violation id
+must be registered. `summary.unreadableRows` and
+`summary.tailStatus` are new machine-readable fields.
+
+**Known boundary (stated honestly)**: `check` / `check --json` guarantee that
+**the events actually read** are self-consistent — they do **not** guarantee the
+file tail is intact. A file whose last frame was cut mid-write can still come
+back `ok=true`; read `summary.tailStatus` (`--json`) to know the tail state.
+`tailStatus` values: `complete` (tail intact) · `interrupted` (torn zstd tail —
+in-flight/interrupted write; the host reader keeps complete records and drops
+the unfinished tail, so it is recoverable) · `truncated` (the tail record itself
+is cut — data is missing) · `unknown` (undecidable: unreadable/empty file).
+`Z6` reports the non-`complete` states as a warning and deliberately does not
+flip `ok`.
 
 ## 🆕 0.3.18 – 0.3.24 · DSH 0.2.x (session format v4) support
 **Session format v4** (`@deepseek-ai/dsh-session` 0.2.x) is now validated by format-version dispatch
@@ -119,7 +160,8 @@ rather than by relaxing the format gate:
 - validation for v3 and earlier is **unchanged** (identical verdicts on [n] real v3 sessions before/after)
 - the format gate still rejects **unknown** future versions (`readOnly`); v5+ remains unassessable by design
 
-**New rules (51 total):**
+**Rules (55 total as of 0.3.28):** the five rules below were added in the
+0.3.18 – 0.3.24 window (see above for the 0.3.28 additions):
 
 | Rule | Checks |
 |---|---|
@@ -157,6 +199,9 @@ omitted.
 | 12 | [n]-10-20 | Two-segment carrier references were written with the audit segment first while an earlier convention started at the range start → readers reported hundreds of **false orphan carriers** ⇒ **P5** write-side pairing + tolerant read-side |  |
 | 13 | [n]-10-20 | `seedLength` was read as a **byte size** by some consumers (it is the number of inherited events), and `parentSession` with missing/0 was treated as corruption ⇒ **I2** semantics pinned |  |
 | 14 | [n]-10-20 | An **unknown but explicitly ignorable** event type blocked an entire migration ⇒ **G4** declarative skip + allow-list |  |
+| 15 | [n]-10-26 | A **truncated zstd frame** made the session-header reader throw `ERR_OUT_OF_RANGE`, and because there was no per-item isolation the whole enumeration/summary run failed (hundreds of failures over 33 days) — **one damaged file sank the whole batch** | **R4** (read/parse tolerance: degrade to a structured, countable result), **R5** (per-item isolation + failure counting in aggregation APIs) |
+| 16 | [n]-10-26 | A file whose **last frame was cut mid-write** still reported `ok=true` — the check certifies only the events it actually read | **Z6** (`tailStatus: complete/interrupted/truncated/unknown`) + the documented tail-completeness boundary |
+| 17 | [n]-10-26 | Producers **inventing `seq` on the write side**, and **deleting rows without renumbering** | **E11** (`seq` assigned by the log layer only; pre-write rejects self-invented `seq`), gap traces pinned to `E2`/`S9` |
 
 > **Takeaway**: these rules are not synthetic theory — each one is pinned by a
 > regression test that reproduces the corrupt shape it guards against. That is what
@@ -205,8 +250,23 @@ Sample output (the CLI reports in Chinese — it is the tool's UI language):
 ❌ 未通过：见上方违规明细（error 级 = 会话不可读/不可写）
 ```
 
-Exit code: 0 = pass (no error-level violations); 1 = error-level violations exist;
-3 = not assessable on this host; 4 = the migration pre-check is blocked (see the upgrade notes below).
+**Exit-code contract** (there is no exit code `2`):
+
+| Code | Meaning |
+|---|---|
+| `0` | pass — no error-level violations (and the migration pre-check is not blocked) |
+| `1` | error-level violations exist (session unreadable/unwritable under this rule set) |
+| `3` | not assessable on this host (file format newer than the host supports) — **not** "broken" |
+| `4` | the migration pre-check is blocked (the official upgrade chain will refuse the file) |
+
+**Three-tier verdict** (`check --resume`, also in `--json` as `resume`):
+`loadable` (structure green) ⊂ `resumable` (+ `I1` inbox replay green) ⊂
+`compactable` (+ `T1`/`T2` token-meter pairing green); a file failing the first
+tier is reported as `broken`, and `not-assessable` is a separate fourth state
+when the host cannot judge the file.
+
+**Tail-completeness boundary**: `ok=true` only certifies that *the events actually
+read* are self-consistent — see the `tailStatus` note in the 0.3.28 section above.
 
 `check` adds **W1/W2 wire-level checks** since 0.2.0: expand the model request
 stream in surface order and catch "dangling tool messages" (a tool result with no
@@ -258,6 +318,9 @@ dsh-log-contract prewrite marker-write.json --log [path]<id>.jsonl.zstd
 
 - A baseline with error-level violations is rejected outright (safety protocol
   step 2: **the pre-surgery baseline must be green**).
+- `seq` must be **omitted** (auto-assigned as `nextSeq`) or exactly `nextSeq` —
+  a self-invented `seq` is rejected (`E11`); on the file side, delete-without-
+  renumber and invented `seq` show up as gaps and are caught by `E2`/`S9`.
 - Only a pass may land — **validate first, commit later** (same idea as the
   official `SurfaceManager.validateNext`).
 
@@ -322,6 +385,14 @@ pnpm check && pnpm test    # syntax check + contract-doc drift gate + all unit t
 - **Synthetic fixtures** (in-repo): legal session / seq gap / empty sourceEventSeqs
   / turn-null append / unknown type / bad chunk row / torn tail frame / unknown
   marker prefix / self-shadowing etc.
+- **Negative controls are mandatory**: every rule must have a violating sample
+  that turns red and a compliant sample that stays green (the incident-derived
+  fixtures above double as those controls).
+- **Rules self-test** (`test/rules-self-test.test.js`): registry completeness,
+  `violation(id)` binding, test coverage per rule (or an explicit justified
+  delegation), and "every emitted id is registered" — so a rule cannot exist
+  without a control, and a control cannot reference a rule that was never
+  registered.
 
 > **Scope of the published package**: it contains the runtime code and documentation only.
 > Local maintainer tooling is not part of the public repository, so `pnpm check` and `pnpm test`
@@ -359,7 +430,18 @@ boundary note in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 
 ---
 
-## ⚠️ Upgrading — behaviour notes (0.3.12 → 0.3.24)
+## ⚠️ Upgrading — behaviour notes (0.3.12 → 0.3.28)
+
+### 0.3.24 → 0.3.28 in one paragraph
+
+Four rules were added (`R4`/`R5` read tolerance and aggregation isolation,
+`E11` seq provenance on the write side, `Z6` tail completeness) and three
+machine-readable fields appeared in `--json` (`summary.tailStatus`,
+`summary.tailStatusReason`, `summary.unreadableRows`). Behaviour changes are narrow: `check` now emits a
+`Z6` **warning** when the tail is not `complete` (verdicts and exit codes are
+unchanged — a torn tail is recoverable under the host reader semantics), and
+`prewrite` rejects a candidate that carries a self-invented `seq` (`E11`, error).
+Rule count: 51 → 55.
 
 ### 0.3.18 → 0.3.24 in one paragraph
 

@@ -22,9 +22,14 @@
 
 给 DSH 会话日志（`*.jsonl` / `*.jsonl.zstd`）装一条保险丝：人眼看不出、程序解析会崩的日志格式漂移，在它这里被拦下并告警。它不判断日志**内容**对不对，只守护日志**结构**是否破坏了下游消费者（Harness 读路径、客户端引擎、插件 marker 语义）的预期。
 
-- **`check <session-log>`** —— 离线体检：官方解码器全量解码 + 契约逐条校验 + foldSurface 终验，产出违规报告。
-- **`prewrite <edit-file> --log <session-log>`** —— ★ 写前校验：任何写入（追加 / 帧级手术）在落盘之前先过三层契约，违约即拦。
+- **`check <session-log>`** —— 离线体检：官方解码器全量解码 + 契约逐条校验 + foldSurface 终验，产出违规报告，并给出机器可判的**尾部完整性**字段（`tailStatus`）。
+- **`prewrite <edit-file> --log <session-log>`** —— ★ 写前校验：任何写入（追加 / 帧级手术）在落盘之前先过三层契约，违约即拦（含写侧自造 `seq`）。
 - **`contracts`** —— 列出内置契约规则目录（每条附官方源码出处）。
+- **`check --resume`** —— 三档结论（`loadable` / `resumable` / `compactable`，宿主判不了时另有 `not-assessable`）。
+- **`fix` / `extract` / `audit-report`** —— 修复原语 + 只读会话考古。
+
+**能力一览**：会话格式 **v0–v4** · 契约规则 **55 条** · 退出码契约 `0/1/3/4` · 三档结论 ·
+写前校验 · 每条规则都有负对照用例 + 规则自检 · 读取容错（单文件损坏降级为结构化结果并计数，不抛出）。
 
 ---
 
@@ -53,7 +58,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 ---
 
 ## 三层契约（判定模型）
-> 30+ 条规则，覆盖以下三层（`contracts` 列出全部，每条附官方源码出处）。
+> 55 条规则，覆盖以下各层（`contracts` 列出全部，每条附官方源码出处）。
 
 | 层 | 规则 | 守护什么 |
 |---|---|---|
@@ -61,6 +66,8 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 | **客户端引擎层** | **M1** + **T1 / T2 / I1** | turn-null marker 只能 replace；token-meter 配对；跨 step 源引用；inbox seed 相对重放 |
 | **wire 消息流** | **W1 / W2** | tool 消息跟在带 tool_calls 的 assistant 之后；user 文本不插在 tool_calls 与结果之间 |
 | **插件语义层** | P1/P2 | marker 前缀可识别；marker 自身 seq 不进自身 shadowed 集 |
+| **帧结构层** | Z1–Z6 | zstd 帧形状（header 独占首帧；不得整体重压单帧）、空壳会话、**尾部完整性（`tailStatus`）** |
+| **读取 / 聚合层** | **R4 / R5** | 单文件损坏必须降级为**结构化、可计数**结果（不抛出、不中断枚举/汇总）；聚合 API 逐项隔离失败 |
 
 > 校验哲学：先用与官方同语义的增量重放做**逐事件归因**（定位到 seq/行号），再跑官方 `foldSurface` 做**终验**（不抛才算过）——两套都绿才过。
 
@@ -71,18 +78,18 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 
 | 项 | 基线 | 说明 |
 |---|---|---|
-| 宿主包 | `@deepseek-ai/dsh-session@0.1.5-rc.1` | 本规则集开发与 CI 验证所用的版本（CI 跑 `pnpm check` + `pnpm test`；`prepublishOnly` 四步在本机该版本上全绿） |
-| 会话格式 | **v3**（`SESSION_FORMAT_VERSION = 3`） | v3 走运行时词表 + 官方 `foldSurface` 终验 |
-| 声明范围 | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1` | 允许安装；**范围内不等于逐个验证过** |
-| 已知格式 | 0 / 1 / 2 / 3 | 0–2 由本包**自带** vendored 词表 + 本地等价折叠（`legacyFoldSurface`）支持，与宿主版本无关 |
+| 宿主包 | `@deepseek-ai/dsh-session@0.2.0-rc.2` | 本规则集开发与 CI 验证所用的版本（CI 跑 `pnpm check` + `pnpm test`；`prepublishOnly` 四步在本机该版本上全绿） |
+| 会话格式 | **v4**（`SESSION_FORMAT_VERSION = 4`） | v4 走运行时词表 + 官方 `foldSurface` 终验 |
+| 声明范围 | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1` | 允许安装；**范围内不等于逐个验证过** |
+| 已知格式 | 0 / 1 / 2 / 3 / 4 | 0–2 由本包**自带** vendored 词表 + 本地等价折叠（`legacyFoldSurface`）支持，与宿主版本无关 |
 
 **未验证的版本会发生什么（运行时检测并报告，不闷着按旧规则判）**：
 
 | 情形 | 行为 |
 |---|---|
 | 宿主**比基线新** | 明确**告警**（`⚠️ 宿主 … 比测试基线 … 新 —— 本规则集未在该宿主上验证…`）；结论仍给出，但标注可能不适用 |
-| 宿主比基线旧（仍在 peer 内） | 提示 + 由宿主能力闸决定能否评估 v3（`SESSION_FORMAT_VERSION` 不足 ⇒ `not-assessable`，退出码 3） |
-| 被检文件格式**未知**（不在 0/1/2/3） | 报「**未验证格式**」并**按只读处理**：`check` 只跑结构层，`prewrite` / `fix` **直接拒绝**（退出码 3） |
+| 宿主比基线旧（仍在 peer 内） | 提示 + 由宿主能力闸决定能否评估该文件格式（`SESSION_FORMAT_VERSION` 不足 ⇒ `not-assessable`，退出码 3） |
+| 被检文件格式**未知**（不在 0/1/2/3/4） | 报「**未验证格式**」并**按只读处理**：`check` 只跑结构层，`prewrite` / `fix` **直接拒绝**（退出码 3） |
 | 格式**无法识别**（无 `header.version` 且事件形状无判别特征） | 同上：报「未验证格式」+ 只读 |
 | 文件版本 > 宿主支持上限 | `not-assessable`（**不是** broken），退出码 3；显式列出跳过/执行的规则 |
 
@@ -90,9 +97,32 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 `check` 的人类可读输出与 `--json` 的 `support` 字段都带基线摘要与逐条告警，例如：
 
 ```
-版本支持：宿主 @deepseek-ai/dsh-session@0.1.5-rc.1（基线 0.1.5-rc.1,baseline） ｜ 文件格式 v3（header,baseline）
-  测试基线：@deepseek-ai/dsh-session@0.1.5-rc.1 ｜ 会话格式 v3（已知 0/1/2/3；peer ^0.1.0-rc.7 || ^0.1.5-rc.1）
+版本支持：宿主 @deepseek-ai/dsh-session@0.2.0-rc.2（基线 0.2.0-rc.2,baseline） ｜ 文件格式 v4（header,baseline）
+  测试基线：@deepseek-ai/dsh-session@0.2.0-rc.2 ｜ 会话格式 v4（已知 0/1/2/3/4；peer ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1）
 ```
+
+## 🆕 0.3.28 · 读取容错 / 尾部完整性 / seq 来源
+从近期真实故障中提炼的四条规则（每条都有负对照用例：违规样本必须判红、合规样本必须绿）：
+
+| 规则 | 判据 | 严重度 |
+|---|---|---|
+| `R4` | 读取/解析容错：单文件损坏（截断 zstd 帧、损坏行、坏 chunk 行、空文件）必须降级为**结构化、可计数**结果（null / 逐行 `error` 标记 / `frameInfo` 事实）——**不得抛出**、不得中断枚举/汇总 | error |
+| `R5` | 汇总/枚举类 API **逐项隔离**失败（per-item try/catch + `skipped` 计数）；一项坏不得毁掉整批 | error |
+| `E11` | seq 只能由日志层连续光标分配：写侧拟写事件要么省略 `seq`（自动赋值）、要么恰好等于 `nextSeq`；生产者自造 seq / 删行不重编号的痕迹由 `E2`/`S9` 判红 | error |
+| `Z6` | 尾部完整性必须显式声明：`tailStatus: complete \| interrupted \| truncated \| unknown`（见下方已知边界） | warning |
+
+0.3.28 另含：**规则自检（rules self-test）**——注册表、测试、生成文档三者互检
+（`test/rules-self-test.test.js`）：每条规则必须在测试里有对照或绑定断言引用
+（或显式登记"判定委托"并给出理由；对照的红/绿强度由各规则自己的负对照用例负责）；
+每个报出的违规码都必须已注册。`--json` 新增机器可判字段
+`summary.tailStatus` 与 `summary.unreadableRows`。
+
+**已知边界（如实表述）**：`check` / `check --json` 只保证"**已读到的事件**自洽"，
+**不保证尾部完整**——最后一帧在写入中被切掉的文件仍可能 `ok=true`；尾部状态请读
+`summary.tailStatus`（`--json`）。取值：`complete`（尾部完整）· `interrupted`
+（zstd 尾帧撕裂 = 写入中断/进行中；宿主读取器保留完整记录、丢弃未写完尾帧，可恢复）·
+`truncated`（尾部记录本身被切，数据缺失）· `unknown`（不可判：不可读/空文件）。
+非 `complete` 时 `Z6` 以 warning 报出，且**刻意不翻转** `ok`。
 
 ## 🆕 0.3.18 – 0.3.24 · 支持 DSH 0.2.x（会话格式 v4）
 **会话格式 v4**（`@deepseek-ai/dsh-session` 0.2.x）改为**按格式版本分派规则**，而不是放宽格式闸门：
@@ -102,7 +132,8 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 - **v3 及更早的判据零改动**（[n] 份真实 v3 会话前后判定完全一致）
 - 格式闸门仍**拒绝未知的未来版本**（`readOnly`）；v5+ 按设计保持"不可评估"
 
-**新增规则（共 51 条）：**
+**规则（0.3.28 起共 55 条）**：下表五条是 0.3.18 – 0.3.24 窗口新增
+（0.3.28 新增的四条见上一节）：
 
 | 规则 | 判据 |
 |---|---|
@@ -138,6 +169,9 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 | 12 | [n]-10-20 | 两段式载体引用有的把「审计段」写在前面、早期约定从区间起点开始 → 读取侧报出**数百个假孤儿载体** ⇒ **P5** 写侧成对 + 读侧容错 |  |
 | 13 | [n]-10-20 | `seedLength` 被部分消费方当作**字节数**（其语义是「继承事件条数」），且 `parentSession` 配缺失/0 被当成损坏 ⇒ **I2** 语义钉死 |  |
 | 14 | [n]-10-20 | 一种**未知但显式可忽略**的事件类型让整条迁移卡死 ⇒ **G4** 声明式跳过 + 白名单 |  |
+| 15 | [n]-10-26 | 一个**截断 zstd 帧**让会话读头抛 `ERR_OUT_OF_RANGE`，而聚合循环没有逐项隔离 ⇒ 整个枚举/汇总能力失败（33 天内数百次）——**单文件损坏 ⇒ 整表失败** | **R4**（读取容错：降级为结构化、可计数结果）、**R5**（聚合 API 逐项隔离 + 失败计数） |
+| 16 | [n]-10-26 | **最后一帧写入中被切**的文件仍报 `ok=true`——体检只认证已读到的事件 | **Z6**（`tailStatus: complete/interrupted/truncated/unknown`）+ 明示口径边界 |
+| 17 | [n]-10-26 | 生产者**写侧自造 seq**、以及**删行不重编号** | **E11**（seq 由日志层分配；写前拒绝自造 seq）、缺口痕迹钉到 `E2`/`S9` |
 
 
 > **结论**：这些规则不是合成理论——每一条都有回归测试复现它守护的那种损坏形态。这就是这里「生产级」的含义。
@@ -182,7 +216,20 @@ dsh-log-contract check [path]<id>.jsonl.zstd --json   # 机器可读
 ❌ 未通过：见上方违规明细（error 级 = 会话不可读/不可写）
 ```
 
-退出码：0 = 通过（无 error 级违规）；1 = 存在 error 级违规。
+**退出码契约**（没有退出码 `2`）：
+
+| 退出码 | 含义 |
+|---|---|
+| `0` | 通过——无 error 级违规（且迁移预检未 blocked） |
+| `1` | 存在 error 级违规（本规则集下会话不可读/不可写） |
+| `3` | 不可在本宿主评估（文件格式新于宿主支持上限）——**不是** "broken" |
+| `4` | 迁移预检 blocked（官方升级链会拒绝该文件） |
+
+**三档结论**（`check --resume`，`--json` 里为 `resume` 字段）：
+`loadable`（结构绿）⊂ `resumable`（+ `I1` inbox 重放绿）⊂ `compactable`
+（+ `T1`/`T2` token-meter 配对绿）；第一档就不过的报 `broken`，宿主判不了时是独立的第四态 `not-assessable`。
+
+**尾部完整性边界**：`ok=true` 只认证"已读到的事件自洽"——详见 0.3.28 一节的 `tailStatus` 说明。
 
 `check` 自 0.2.0 起新增 **W1/W2 wire 级检查**：按 surface 顺序展开模型请求消息流，
 捕获"悬空 tool 消息"（tool 结果没有前置 assistant tool_calls）与"user 文本插在
@@ -226,6 +273,8 @@ dsh-log-contract prewrite marker-write.json --log [path]<id>.jsonl.zstd
 ```
 
 - 基线本身有 error 级违规时直接拒绝校验（安全修复协议第 2 步：**改前基线必须绿**）。
+- `seq` 必须**省略**（自动赋 `nextSeq`）或恰好等于 `nextSeq`——自造 `seq` 直接拒绝（`E11`）；
+  文件侧的"删行不重编号 / 自造 seq"痕迹由 `E2`/`S9` 判红。
 - 判定通过才允许落盘——**validate first, commit later**（与官方 `SurfaceManager.validateNext` 同思路）。
 
 ### 4. 契约目录
@@ -286,6 +335,10 @@ pnpm check && pnpm test    # 语法检查 + 契约文档漂移闸 + 全部单测
 ```
 
 - **合成夹具**（入库）：合法会话 / seq 缺口 / 空 sourceEventSeqs / turn=null append / 未知 type / 坏 chunk 行 / 撕裂尾帧 / 未知 marker 前缀 / 自指 shadowed 等。
+- **负对照是硬要求**：每条规则都必须有"违规样本判红 + 合规样本绿"的对照用例（上面的案例回归夹具同时充当这些对照）。
+- **规则自检**（`test/rules-self-test.test.js`）：注册表完整性、`violation(id)` 绑定、
+  每条规则的测试对照覆盖（或显式登记的判定委托）、以及"每个报出的违规码都已注册"——
+  规则不可能没有对照而存在，对照也不可能引用未注册的规则。
 
 > **发布包范围**：只含运行时代码与文档。维护者本地工具不在公开仓内，
 > 因此 `pnpm check` / `pnpm test` 在干净的克隆里即可通过。
@@ -318,7 +371,15 @@ git config --get core.hooksPath       # 验证：应输出 .githooks
 
 ---
 
-## ⚠️ 升级说明（0.3.12 → 0.3.24）
+## ⚠️ 升级说明（0.3.12 → 0.3.28）
+
+### 0.3.24 → 0.3.28 一段话说清
+
+新增四条规则（`R4`/`R5` 读取容错与聚合隔离、`E11` 写侧 seq 来源、`Z6` 尾部完整性），
+`--json` 新增三个机器可判字段（`summary.tailStatus`、`summary.tailStatusReason`、`summary.unreadableRows`）。
+行为变更很窄：尾部非 `complete` 时 `check` 会多报一条 `Z6` **warning**（判定结论与退出码
+不变——撕裂尾帧在宿主读取器语义下可恢复）；`prewrite` 拒绝携带自造 `seq` 的拟写事件
+（`E11`，error）。规则数 51 → 55。
 
 ### 0.3.18 → 0.3.24 一段话说清
 
@@ -345,7 +406,7 @@ git config --get core.hooksPath       # 验证：应输出 .githooks
 
 | 值 | 含义 |
 |---|---|
-| `full` | 被检文件已是当前宿主的目标格式（无需迁移），覆盖完整（已是当前格式、**无需迁移**）（已是当前格式、**无需迁移**） |
+| `full` | 被检文件已是当前宿主的目标格式（**无需迁移**），覆盖完整 |
 | `partial` | 需要迁移 ⇒ 迁移预检**只覆盖 2 条规则，另有 6 类未覆盖**（≠ 通过；见 `coverage.uncovered`） |
 | `none` | **不可在本宿主评估**（宿主能力不足），不认证任何"可用/可升级"结论 |
 

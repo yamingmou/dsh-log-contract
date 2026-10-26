@@ -22,7 +22,7 @@
 >
 > 严重度：**error** = 违反即会话不可加载/写入被拒（fail-loud）；**warning** = 合法但可疑。
 
-## 规则索引（共 51 条）
+## 规则索引（共 55 条）
 
 | id | 严重度 | 层级 | 规则 |
 |---|---|---|---|
@@ -31,6 +31,8 @@
 | R1 | error | persistence | 每行必须是合法 JSON |
 | R2 | error | persistence | chunk 行必须满足精确信封形状 |
 | R3 | error | persistence | chunk 行展开后成员 seq/time 安全 |
+| R4 | error | persistence | 读取/解析容错：单文件损坏不得抛出、不得中断枚举与汇总 |
+| R5 | error | persistence | 汇总/枚举类 API 逐项隔离（per-item try/catch + 失败计数） |
 | E1 | error | persistence | 每个事件携带非负安全整数 seq |
 | E2 | error | persistence | seq 严格连续（单写入者假设） |
 | S9 | error | persistence | 文件物理序 seq 单调（多写入者交织现场特征） |
@@ -58,6 +60,7 @@
 | E8 | warning | persistence | 事件信封键白名单（多余键：seed/restore 路径会拒） |
 | E9 | error | persistence | system/message 的 source 契约（v3 plugin / v4 system-prompt） |
 | E10 | error | persistence | request/header 的 data.header 字段约束 |
+| E11 | error | persistence | seq 由日志层分配：写侧不得自造（省略 seq，或必须等于 nextSeq） |
 | Z3 | warning | framing | 空会话文件（有 header 无事件）显式报出 |
 | P3 | warning | plugin | tool/call ↔ tool/result 配对完整性（考古 B1） |
 | P4 | warning | plugin | tool/result 输出结构可解析（考古 B2） |
@@ -70,6 +73,7 @@
 | Z2 | error | framing | zstd 帧解码失败 = 单帧全损 |
 | Z4 | error | framing | 首帧必须恰好一行 header |
 | Z5 | error | framing | 多行日志不得压成单帧 |
+| Z6 | warning | framing | 尾部完整性必须显式声明（tailStatus: complete|truncated|interrupted|unknown） |
 | W1 | error | engine | wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后 |
 | W2 | error | engine | wire 流：user 文本不得插在 tool_calls 与其 tool 结果之间 |
 | G1 | warning | migration | 迁移预检：v0 源文件的 subagent/descriptor.data.version 必须为 3 |
@@ -109,6 +113,18 @@
 - **层级**: persistence ｜ **严重度**: error
 - **出处**: @deepseek-ai/dsh-session lib/index.js:[n]-[n]
 - **契约**: 展开后成员 seq 与 time 必须保持安全整数（seq0+len-1 与逐 gap 累加的 time 不溢出）。
+
+### R4 — 读取/解析容错：单文件损坏不得抛出、不得中断枚举与汇总
+
+- **层级**: persistence ｜ **严重度**: error
+- **出处**: [n]-10 实测：一个截断 zstd 帧让会话读头抛 ERR_OUT_OF_RANGE，逐会话读头的聚合/枚举能力整体失败（33 天内数百次）；根因之一是帧扫描的块头 3 字节越界读（readUInt32LE 读了 4 字节）
+- **契约**: **读取/解析入口的行为契约**（判在 rules self-test，不是逐文件判据）：任何单文件**内容级**异常（截断帧、损坏行、坏 chunk 行、空文件、非法 JSON）都必须降级为**结构化结果**——返回 null / 逐行 error 标记 / 帧事实（frameInfo.error / torn / tailStatus / unreadableRows），可被调用方统计；**不得抛出异常**中断"枚举 N 个会话"这类汇总能力。IO 级异常（文件不存在/无权限）不在本条范围（照常抛给调用方处理）。违规样本（截断/损坏文件）必须"判红"（R1/R2/Z1/Z2 或结构化 null + 计数）而不是抛栈；合规样本（健康文件）必须全绿。覆盖入口：读头 readSessionHeader、全量读取 loadSessionLog、尾部查询 tailSeq、帧扫描 scanZstdFrames。
+
+### R5 — 汇总/枚举类 API 逐项隔离（per-item try/catch + 失败计数）
+
+- **层级**: persistence ｜ **严重度**: error
+- **出处**: [n]-10 实测：单文件炸整表的第二个根因——聚合循环"一项坏 ⇒ 整批抛"，既无逐项 try/catch 也无失败计数（坏项不可见、整体不可用）
+- **契约**: 聚合/汇总类 API（逐事件扫描、工具调用审计、逐项配对导出等）必须**逐项**隔离失败：单项异常只丢该项并**计数**（如 skipped/unreadable），整体结果照常返回。违规样本（构造一个读取即抛的畸形事件）必须让 API 返回"结果 + skipped≥1"且不抛；合规样本必须 skipped=0。⛔ "整体抛出"或"静默吞掉且不可统计"都算违规。
 
 ### E1 — 每个事件携带非负安全整数 seq
 
@@ -272,11 +288,17 @@
 - **出处**: @deepseek-ai/dsh-session@0.1.5-rc.1 lib/index.js:[n]-[n]（validateSessionEventData：omit header.system / omit empty tools / omit empty adapterDefaults）
 - **契约**: request/header 必须省略 header.system（系统提示改走 system/message）、空 tools、空 adapterDefaults。实测（反例）：带 header.system 的写入宿主拒、旧契约 0 违规 ⇒ 漏检。
 
+### E11 — seq 由日志层分配：写侧不得自造（省略 seq，或必须等于 nextSeq）
+
+- **层级**: persistence ｜ **严重度**: error
+- **出处**: 官方 append 信封按日志层连续光标分配 seq（dsh-session lib/index.js:[n]-[n] append 信封、:[n] planSurfaceEvent "not contiguous"）；实测两类破坏：① 生产者自行生成 seq 写入 ⇒ E2/S8 类红；② 删除两行不重编号 ⇒ 缺口
+- **契约**: seq 的唯一合法来源是**日志层的连续光标**（写入时分配）。写侧（prewrite）拟写事件**不携带 seq**（由校验器赋 nextSeq），携带时必须等于 nextSeq，否则 E11 拒绝——⛔ 生产者不得自造/自增 seq。文件侧的"写侧自造"痕迹由 E2（缺口/倒退）与 S9（文件物理序回退）判红：删行不重编号 = 缺口 ⇒ E2；自造/回放旧光标 = 与光标不连续或物理序回退 ⇒ E2/S9。离线单看一行无法知道 seq 是谁写的，故文件侧判据是"连续性/物理序"这条可判下界。
+
 ### Z3 — 空会话文件（有 header 无事件）显式报出
 
 - **层级**: framing ｜ **严重度**: warning
 - **出处**: 实测 [n]-09-09 T3（36 条规则全来自有内容事故,空态无覆盖）
-- **契约**: 有 header 但零事件 = 异常空会话（新建即空或写入未落盘）。空态不在任何有内容规则的覆盖下,显式 warning 供人判断。
+- **契约**: 有 header 但零事件 = 异常空会话（新建即空或写入未落盘）。空态不在任何有内容规则的覆盖下,显式 warning 供人判断。**与文件版本无关**：v0–v4 一律判（v4 空壳同样报 Z3）；0 字节/无 header 的空文件另由 H1 判（首行不可解析）+ tailStatus=unknown。
 
 ### P3 — tool/call ↔ tool/result 配对完整性（考古 B1）
 
@@ -343,6 +365,12 @@
 - **层级**: framing ｜ **严重度**: error
 - **出处**: 官方形状：header 第一帧 + 事件批次逐帧追加
 - **契约**: 把整份日志重压成 1 帧会同时触发 Z4；任何"重写会话"的路径都必须**保形**（逐帧解、逐帧回写，或走宿主写入器），不得整体重压缩。
+
+### Z6 — 尾部完整性必须显式声明（tailStatus: complete|truncated|interrupted|unknown）
+
+- **层级**: framing ｜ **严重度**: warning
+- **出处**: [n]-10 实测口径边界：体检只保证"已读到的事件自洽"，最后一帧被切掉仍可能 ok=true；判定实现见 lib/log-reader.js deriveTailStatus（与宿主 readZstdPrefix"保留完整记录、丢弃未写完尾帧"语义对齐）
+- **契约**: 每次体检必须给出机器可判的 `tailStatus`（`complete` 尾部完整｜`interrupted` zstd 尾帧撕裂=写入中断/进行中，宿主可恢复｜`truncated` 末行记录被切断｜`unknown` 帧解码失败/空文件/不可读）。**口径边界**：`ok=true` 只保证"已读到的事件自洽"，**不保证尾部完整**——判读尾部请用 `check --json` 的 `summary.tailStatus`（库级 `validateSessionLog()` 返回值另有顶层 `tailStatus`）。非 complete 时显式报 warning（⛔ 不翻转 ok：撕裂尾帧在宿主读取器语义下是可恢复的边写边读态，见 Z1；真损坏由 Z2/R1 判 error）。离线无法区分"写入中被读到"与"写完前进程中断"（字节形态相同）⇒ 都归 `interrupted`。
 
 ### W1 — wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后
 
