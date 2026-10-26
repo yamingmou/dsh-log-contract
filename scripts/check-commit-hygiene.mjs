@@ -15,6 +15,16 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// 历史基线豁免（可审计）：只检查"基线之后"的提交。
+// 原因：历史提交信息含早期内部术语，全史改写会破坏真实历史；发布对外由投影流程保证。
+// 用法：CHECK_COMMIT_HYGIENE_BASELINE=<sha> 或 internal/commit-hygiene-baseline 文件。
+const BASELINE = (() => {
+  const env = process.env.CHECK_COMMIT_HYGIENE_BASELINE
+  if (env) return env
+  try { return readFileSync(new URL('../internal/commit-hygiene-baseline', import.meta.url), 'utf8').trim() } catch { return null }
+})()
+
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 // 词表指纹固定：wordlist.json 的 sha256 必须等于 internal/wordlist.sha256
@@ -31,7 +41,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 }
 const argv = process.argv.slice(2)
 const rangeIdx = argv.indexOf('--range')
-const range = rangeIdx >= 0 ? argv[rangeIdx + 1] : 'origin/main..HEAD'
+const range = (BASELINE ? `${BASELINE}..HEAD` : rangeIdx >= 0 ? argv[rangeIdx + 1] : 'origin/main..HEAD')
 const asJson = argv.includes('--json')
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
 
