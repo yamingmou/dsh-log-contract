@@ -13,6 +13,21 @@ import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+// ── 语境判别：具体量分成三类 ──────────────────────────────────────────────
+// FLAG  = 内部语料统计（对外禁止）：本机 N 份 / N 处 / N 个（会话/事件/指针/样本/化石）
+// ALLOW = 技术常量（对外可留）：flush/frame/block/threshold/limit/max/budget/window/V8/libuv/zstd/chunk/buffer 语境下的 KiB/MB/GB
+// UNKNOWN = 无法归类的数字（报告但不阻断，需人判）
+const TECH_CONTEXT = /(flush|frame|block|threshold|limit|max|budget|window|V8|libuv|zstd|chunk|buffer|payload|cap\b|上限|阈值|窗口|帧|块)/i
+const CORPUS_CONTEXT = /(本机|实测|语料|样本|会话|事件|化石|指针|份|条|处|万)/i
+function classifyQuantity(matchText, line) {
+  const isStats = /本机|实测|语料|样本|会话|事件|化石|指针/.test(line) || /本机\s*[0-9]+\s*份/.test(matchText)
+  const isTechnical = TECH_CONTEXT.test(line) && !CORPUS_CONTEXT.test(line.replace(/本机/g, ''))
+  if (isStats) return 'FLAG'
+  if (isTechnical) return 'ALLOW'
+  return 'UNKNOWN'
+}
+
 const argv = process.argv.slice(2)
 const arg = (n, d) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : d }
 const pkg = arg('--pkg', 'dsh-log-contract')
@@ -38,10 +53,24 @@ try {
   const walk = (d) => { for (const e of readdirSync(d)) { const p = join(d, e); statSync(p).isDirectory() ? walk(p) : files.push(p) } }
   walk(pub)
   const hits = []
+  const allowed = []
+  const unknown = []
   for (const f of files) {
     let text = ''
     try { text = readFileSync(f, 'utf8') } catch { continue }
-    for (const re of pats) { const m = text.match(re); if (m) { hits.push(`${relative(pub, f)} :: ${m[0]}`); break } }
+    const lines = text.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      for (const re of pats) {
+        const m = line.match(re); if (!m) continue
+        const kind = classifyQuantity(m[0], line)
+        const entry = `${relative(pub, f)}:${i + 1} :: ${m[0]}`
+        if (kind === 'FLAG') hits.push(entry)
+        else if (kind === 'ALLOW') allowed.push(entry)
+        else unknown.push(entry)
+        break
+      }
+    }
   }
   const diffs = []
   for (const f of files) {
@@ -51,8 +80,10 @@ try {
     const b = createHash('sha256').update(readFileSync(gp)).digest('hex')
     if (a !== b) diffs.push(rel)
   }
-  console.log(`pubcheck: ${pkg}@${ver} ｜ 文件 ${files.length} ｜ 词表命中 ${hits.length} ｜ 与 git 不一致 ${diffs.length}`)
-  for (const h of hits.slice(0, 12)) console.log(`  ✗ 泄漏: ${h}`)
+  console.log(`pubcheck: ${pkg}@${ver} ｜ 文件 ${files.length} ｜ FLAG ${hits.length} ｜ ALLOW ${allowed.length} ｜ UNKNOWN ${unknown.length} ｜ 与 git 不一致 ${diffs.length}`)
+  for (const h of hits.slice(0, 12)) console.log(`  ✗ 泄漏(FLAG): ${h}`)
+  for (const a of allowed.slice(0, 6)) console.log(`  · 技术常量(允许): ${a}`)
+  for (const u of unknown.slice(0, 6)) console.log(`  ? 待判(UNKNOWN): ${u}`)
   for (const d of diffs.slice(0, 12)) console.log(`  ≠ 不一致: ${d}`)
   process.exit(hits.length ? 1 : 0)
 } catch (error) {
