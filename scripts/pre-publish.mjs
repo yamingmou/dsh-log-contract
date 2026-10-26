@@ -63,7 +63,7 @@ const gates = [
   ['打包白名单覆盖', 'scripts/check-package-files-coverage.mjs'],
   ['发布泄漏闸（两包口径）', 'internal/' + 'scripts/pre' + 'publish-gate.mjs'],
   ['发布入口唯一性', 'scripts/check-publish-entry.mjs'],
-  ...(DRIFT_PEER_DIR ? [['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs', ['--peer', DRIFT_PEER_DIR, '--warn-only']]] : []),
+  ...(DRIFT_PEER_DIR ? [['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs', ['--peer', DRIFT_PEER_DIR, ...(DRIFT_ARGS || [])]]] : []),
   ['提交卫生', 'scripts/check-commit-hygiene.mjs'],
   ['手册新鲜度', 'scripts/check-mechanism-freshness.mjs'],
   ['机制冻结基线', 'scripts/check-mechanism-freeze.mjs'],
@@ -107,7 +107,7 @@ if (PLAN) {
 }
 
 // 2) 结构性检查（脚本闸）
-const DRIFT_ARGS = ['--peer', DRIFT_PEER_DIR].concat(RELEASE ? [] : ['--warn-only'])
+const DRIFT_ARGS = ['--peer', DRIFT_PEER_DIR].concat(RELEASE ? [] : [...(DRIFT_ARGS || [])])
 const SKIPPABLE = new Set(['全量测试'])  // 声明式：这些项在显式允许时可 SKIP（如 --skip-tests）
 for (const [name, script, gateArgs = []] of gates) {
   const dir = dirOf(script, name)
