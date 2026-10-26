@@ -26,6 +26,15 @@ import { spawnSync } from 'node:child_process'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// 追加：从 internal/wordlist.json 的 _regex 派生正则（含"具体量/语料统计"类），与 publish-leaks 同源
+try {
+  const wl = JSON.parse(readFileSync(new URL('../../internal/wordlist.json', import.meta.url), 'utf8'))
+  for (const r of wl._regex || []) {
+    try { MUST0_RE.push(new RegExp(r, 'i')) } catch {}
+  }
+} catch { /* 无词表则跳过（不假绿：调用方仍会因缺词表告警） */ }
+
+
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SELF = 'scripts/prepublish-gate.mjs'
 
