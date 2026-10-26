@@ -41,7 +41,13 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 }
 const argv = process.argv.slice(2)
 const rangeIdx = argv.indexOf('--range')
-const range = (BASELINE ? `${BASELINE}..HEAD` : rangeIdx >= 0 ? argv[rangeIdx + 1] : 'origin/main..HEAD')
+
+// 基线有效性校验：夹具/其它仓里该 sha 不存在 ⇒ 视为无基线（回退到显式 range 默认值）
+const BASELINE_VALID = (() => {
+  if (!BASELINE) return null
+  try { execFileSync('git', ['cat-file', '-e', `${BASELINE}^{commit}`], { cwd: process.cwd(), stdio: 'ignore' }); return BASELINE } catch { return null }
+})()
+const range = (BASELINE_VALID ? `${BASELINE_VALID}..HEAD` : rangeIdx >= 0 ? argv[rangeIdx + 1] : 'origin/main..HEAD')
 const asJson = argv.includes('--json')
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
 
