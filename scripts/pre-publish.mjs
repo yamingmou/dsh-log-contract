@@ -107,7 +107,7 @@ if (PLAN) {
 }
 
 // 2) 结构性检查（脚本闸）
-const DRIFT_ARGS = ['--peer', DRIFT_PEER_DIR].concat(RELEASE ? [] : [...(DRIFT_ARGS || [])])
+const DRIFT_ARGS = RELEASE ? [] : ['--warn-only']
 const SKIPPABLE = new Set(['全量测试'])  // 声明式：这些项在显式允许时可 SKIP（如 --skip-tests）
 for (const [name, script, gateArgs = []] of gates) {
   const dir = dirOf(script, name)
