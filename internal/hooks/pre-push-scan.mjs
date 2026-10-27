@@ -35,6 +35,18 @@ const words = Object.entries(wl).filter(([k]) => !k.startsWith('_')).flatMap(([,
 const regexes = Array.isArray(wl._regex) ? wl._regex : []
 if (words.length < 20) { console.error('[gate] ✗ 词表异常（条目过少）'); process.exit(2) }
 const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// ── 例外机制（词 + file）：来自 --repo 的 internal/git-surface-exceptions.json ──
+function loadExceptions() {
+  const i = process.argv.indexOf('--repo')
+  const repoDir = i >= 0 ? process.argv[i + 1] : process.cwd()
+  for (const f of [`${repoDir}/internal/git-surface-exceptions.json`, `${process.env.HOME}/.dsh-gates/git-surface-exceptions.json`]) {
+    try { return JSON.parse(readFileSync(f, 'utf8')).exceptions || [] } catch { /* next */ }
+  }
+  return []
+}
+const EXCEPTIONS = loadExceptions()
+const exempt = (word, file) => EXCEPTIONS.some((e) => e.word === word && (!e.file || e.file === file || e.file === '*'))
+
 const RE = new RegExp([...words.map(esc), ...regexes].join('|'), 'g')
 
 const ZERO = /^0+$/
@@ -81,17 +93,3 @@ if (hits.length) { console.error('[gate] ✗ 推送被拒绝（推送面含内�
 console.log('[gate] ok —— 推送面零内部信息')
 
 // ── 例外机制（与 scripts/check-git-surface.mjs 共用文件）：仅支持"词 + file/路径"逐条豁免 ──
-function loadExceptions() {
-  const i = process.argv.indexOf('--repo')
-  const repoDir = i >= 0 ? process.argv[i + 1] : process.cwd()
-  const candidates = [
-    `${repoDir}/internal/git-surface-exceptions.json`,
-    `${process.env.HOME}/.dsh-gates/git-surface-exceptions.json`,
-  ]
-  for (const f of candidates) {
-    try { return JSON.parse(readFileSync(f, 'utf8')).exceptions || [] } catch { /* next */ }
-  }
-  return []
-}
-const EXCEPTIONS = loadExceptions()
-const exempt = (word, file) => EXCEPTIONS.some((e) => e.word === word && (!e.file || e.file === file))
