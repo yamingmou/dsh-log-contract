@@ -21,6 +21,33 @@
       "word": "public-projection",
       "file": "scripts/check-release-traceability.mjs",
       "reason": "可追溯性闸需要读取公开投影树以做 tarball 双向比对（机制脚本，不进公开包）"
+    },
+    {
+      "word": "内部机制",
+      "file": "scripts/self-test-gates.mjs",
+      "reason": "负对照 fixture：闸自检需要该词作为违规样本；文件不进入 npm 发布集（files 白名单仅 lib/bin/docs/README）",
+      "expires": "2026-11-27"
+    },
+    {
+      "word": "三折",
+      "file": "scripts/self-test-gates.mjs",
+      "reason": "同上：闸自检 fixture",
+      "expires": "2026-11-27"
+    },
+    {
+      "word": "dsh-retrace-private",
+      "file": "scripts/gate.mjs",
+      "reason": "工具脚本中引用同侧私有仓路径用于跨仓校验；非发布集文件",
+      "expires": "2026-11-27"
+    },
+    {
+      "word": "comm-1841",
+      "file": "scripts/check-package-files-coverage.mjs",
+      "reason": "注释里的历史工单引用；非发布集文件；待下轮清理",
+      "expires": "2026-11-27"
     }
-  ]
+  ],
+  "_注": {
+    "fixture-exemptions-20261027": "负对照 fixture / 开发工具脚本中的词：文件不在 npm 发布集；例外带 expires=2026-11-27，到期复审"
+  }
 }

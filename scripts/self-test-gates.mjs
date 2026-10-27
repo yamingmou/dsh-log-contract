@@ -20,7 +20,7 @@ const results = []
 const WL = JSON.parse(readFileSync(join(ROOT, 'internal', 'wordlist.json'), 'utf8'))
 const pickWord = (cat, i = 0) => (WL[cat] || [])[i]
 const W_PROCESS = pickWord('内部流程', 0)      // 例：结论类
-const W_MECH = pickWord('mechanism', 0)          // 例：trim类
+const W_MECH = pickWord('内部机制', 0)          // 例：三折类
 
 function mkRepo() {
   const d = mkdtempSync(join(tmpdir(), 'gate-neg-'))
@@ -60,10 +60,10 @@ function runRoot(script, args, cwd, env = {}) {
   const inMsg = /\[提交信息/.test(r.out || '')  // 容忍 face 标签带 @ref 后缀
   results.push({ gate: `git-surface（提交信息含 ${W_PROCESS}，树干净）`, expect: 1, got: r.code, ok: r.code === 1 && inMsg, sample: inMsg ? '[提交信息] 命中' : '未命中提交信息' })
 }
-// 2) external-surface：包内文件含mechanism词 ⇒ 必须 exit 1
+// 2) external-surface：包内文件含内部机制词 ⇒ 必须 exit 1
 {
   const { d, env } = makeSimplePkg([])
-  // 把mechanism词写进一个**会随包发布**的文件（files: lib/**）
+  // 把内部机制词写进一个**会随包发布**的文件（files: lib/**）
   writeFileSync(join(d, 'lib', 'c.js'), `// ${W_MECH}\n`)
   execFileSync('git', ['-C', d, 'add', '-A'], { env }); execFileSync('git', ['-C', d, 'commit', '--allow-empty', '-qm', 'x'], { env })
   const r = run('check-external-surface.mjs', [], d, { GATE_MIN_FILES: '1' })

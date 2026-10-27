@@ -62,7 +62,10 @@ for (const line of lines) {
     let blob
     try { blob = git('cat-file', 'blob', `${localSha}:${f}`) } catch { continue }
     const m = blob.match(RE)
-    if (m) hits.push({ face: 'T1 树', ref: localRef, sha: localSha.slice(0,8), file: f, words: [...new Set(m)].slice(0, 5) })
+    if (m) {
+      const words = [...new Set(m)].filter((w) => !exempt(w, f))
+      if (words.length) hits.push({ face: 'T1 树', ref: localRef, sha: localSha.slice(0,8), file: f, words: words.slice(0, 5) })
+    }
   }
   // T2 提交信息
   if (!remoteSha || ZERO.test(remoteSha)) continue // 新分支：只进 T1（树已覆盖）
@@ -76,3 +79,13 @@ console.log(`[gate] 推送面扫描：refs=${lines.length} ｜ 命中=${hits.len
 for (const h of hits) console.log(`  ✗ [${h.face}] ${h.file} — ${h.words.join(', ')}`)
 if (hits.length) { console.error('[gate] ✗ 推送被拒绝（推送面含内部信息）'); process.exit(1) }
 console.log('[gate] ok —— 推送面零内部信息')
+
+// ── 例外机制（与 scripts/check-git-surface.mjs 共用文件）：仅支持"词 + file/路径"逐条豁免 ──
+function loadExceptions() {
+  try {
+    const raw = readFileSync(new URL('../../internal/git-surface-exceptions.json', import.meta.url), 'utf8')
+    return JSON.parse(raw).exceptions || []
+  } catch { return [] }
+}
+const EXCEPTIONS = loadExceptions()
+const exempt = (word, file) => EXCEPTIONS.some((e) => e.word === word && (!e.file || e.file === file))
