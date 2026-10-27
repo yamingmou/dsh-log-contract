@@ -1,3 +1,10 @@
+## [0.3.30] — 2026-10-27
+
+- `explain <ruleId>`: render a rule's title/severity/layer/source/criteria and pointers to its positive/negative examples, sourced from the rule registry (single authority; no duplicated criteria text).
+- `check --json`: report structure version `schemaVersion: "1"` on the report root, the assessment result object, and the host-capability (unassessable) path; documented in `docs/interface-versioning.md` with compatibility and version-bump rules.
+- External-surface hygiene: corpus-statistics figures in comments/docs generalized (no environment-specific counts); public documentation rebuilt from the rule registry.
+- No breaking changes; existing report keys and exit codes unchanged.
+
 ## [0.3.28] — 2026-10-26 · 读取容错 + 尾部完整性 + seq 来源（规则 51 → 55）
 
 > 本版四条新规则全部来自近期真实故障/盲区的提炼；每条都有**负对照用例**（违规样本必须判红、
@@ -143,7 +150,7 @@
 - **迁移预检新增 G3**（`session/title` 系列 `messageSeqs`,出处 `v0-to-v1:2543-2556`）。
 
 ### 一条**做了又撤回**的规则（如实记录）
-turn/start 状态机规则（G4）原型在 281 个真实 v0 上 **0 误报**、能把残余 mismatch 打到 0,
+turn/start 状态机规则（G4）原型在 多处 v0 上 **0 误报**、能把残余 mismatch 打到 0,
 但机制核查发现**官方把它跑在变换后的 v1/v2 artifact 上**（`v1-to-v2:104`,带 `cut`）,不是原始 v0 ——
 把官方该断言直接喂**原始 v0** 会 `THROW: assistant/chunk does not match an open turn and step`。
 ⇒ **撤回**,并写进工具的 `coverage.uncovered`。
@@ -296,14 +303,14 @@ turn/start 状态机规则（G4）原型在 281 个真实 v0 上 **0 误报**、
 - **P5 carrier 两段配对**：写侧第 2 段 `sourceEventSeqs[0]` = 第 1 段 seq；读侧兼容早期写法
 - **A1 「在位可还原」只认结构化字段**（`archiveRef`/`archive`/`externalized.*`），不再从自由文本推断路径；提供归档根时校验文件/行/sha256，缺根标记 unverifiable
 
-**验证**：377 项测试通过；408/408 份真实 v3 会话违规签名零变化（472=472）；763 份会话中 34 份含归档指针、271,538 条记录可还原 100%
+**验证**：377 项测试通过；408/多份真实语料 v3 会话违规签名零变化（472=472）；多份真实语料中 34 份含归档指针、271,538 条记录可还原 100%
 
 ---
 
 ## [0.3.18] — 2026-10-15 · 会话格式 v4 适配（issue #2 / PR#3）+ Windows 路径判定修复（issue #1）
 
 - **会话格式 v4（DSH 0.2.x）**：按格式版本分派规则，\`tool/result\` 的 \`role\`、\`system/message\` 的 \`source.kind\` 按 v4 语义判定
-  ⇒ 修复 v4 健康会话上的 E6/E9 误报（实测 8 份真实 v4：E6 2898→0、E9 22→0、H2 8→0）；v3 规则判据零改动（15 份真实 v3 日志违规集一致）
+  ⇒ 修复 v4 健康会话上的 E6/E9 误报（多份真实语料真实 v4：E6 2898→0、E9 22→0、H2 8→0）；v3 规则判据零改动（15 份真实 v3 日志违规集一致）
   （贡献：PR#3 · 木马）
 - **Windows**：\`header.cwd\` 绝对路径判定改为平台感知（posix ∥ win32），修复 Windows 上对所有会话误报 H2（issue #1）
 - 预写闸：\`validateAppend()\` 在真实 v4 上通过（不再误拒），v3 形状仍按 v3 拒
