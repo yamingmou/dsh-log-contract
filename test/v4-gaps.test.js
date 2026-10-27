@@ -11,7 +11,7 @@
  *   A1  在位可还原只认结构化归档指针（archiveRef / archive / externalized.*；禁止文本 grep）
  *
  * **真实语料**（只读；仓内不写私有目录名）：
- *   - `DSH_LOG_CONTRACT_REAL_SESSIONS_DIR`：真实会话目录（默认 `~/dsh-v3/sessions`）；
+ *   - `DSH_LOG_CONTRACT_REAL_SESSIONS_DIR`：真实会话目录（默认 `/tmp/dsh-home/sessions`）；
  *   - `DSH_LOG_CONTRACT_BACKUP_DIR`：v0 化石/备份目录（默认 `~/dsh-log-contract-backups`）；
  *   - `DSH_LOG_CONTRACT_ARCHIVE_ROOTS`：归档根（path.delimiter 分隔）。
  */
