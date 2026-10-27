@@ -13,10 +13,19 @@
     "mechanism-config.mjs",
     "mechanism-index.mjs",
     "pre-publish.mjs",
-    "release.mjs",
-    "self-test-gates.mjs"
+    "release.mjs"
   ],
-  "sharedData": ["internal/wordlist.json", "internal/shared-gates.json"],
+  "sharedData": [
+    "internal/wordlist.json",
+    "internal/shared-gates.json"
+  ],
   "_每仓专属": "internal/mechanism.config.json 是**每仓适用面声明**，故意不在 sharedData 里 —— 两仓适用面不同（如契约文档一致只在契约仓适用），内容必须各写各的。",
-  "_待移植": "清单外脚本视为各仓专属；对端缺失 ⇒ 漂移闸报「待移植」= WARN，不阻断"
+  "_待移植": "清单外脚本视为各仓专属；对端缺失 ⇒ 漂移闸报「待移植」= WARN，不阻断",
+  "sharedScripts": [],
+  "_注": {
+    "self-test-gates": "按仓允许差异：各仓可增自己的负对照（如 tag-surface），不要求与对方逐字一致"
+  },
+  "_perRepoAllowed": {
+    "self-test-gates.mjs": "按仓允许差异：各仓可增自己的负对照（如 tag-surface），不要求逐字一致"
+  }
 }

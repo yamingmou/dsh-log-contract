@@ -1,5 +1,6 @@
 {
   "_说明": "每仓机制适用面声明（mechanism.config.json）。闸键 = pre-publish 的脚本路径或步骤名。值：'not-applicable' 或 {'not-applicable': '<理由>'} ⇒ 该闸在本仓不适用，pre-publish 记 SKIP（带理由）；{'exclude': [...]} ⇒ 传给对应闸（如语法闸排除生成件片段）。**未声明 = 全适用，照常执行**。⚠️ 纪律：not-applicable 只许声明'本仓确实不适用'；'适用但缺失/未移植'必须保持 fail-closed FAIL，⛔ 不得用本配置把红变绿。机制母仓（本仓）：全部闸适用 ⇒ gates 为空；两仓差异声明在 dsh-retrace-private/internal/mechanism.config.json。",
-  "_版本": "2026-10-24",
+  "_版本": "2026-10-27",
+  "_漂移策略": "两仓漂移（check-mechanism-drift）降级策略（2026-10-27）：**日常模式**（pre-publish 不带 --release）共享集不一致 = WARN 并记录（追加 ~/.dsh-gates/drift-warnings.jsonl，不阻断日常）；**--release 模式**不一致 = FAIL 阻断发布。⚠️ WARN ≠ 通过，只是不挡日常；⛔ 只降日常阻断，不降发布阻断。",
   "gates": {}
 }

@@ -9,6 +9,8 @@
  *   · 闸标 "not-applicable" ⇒ 本项记 **SKIP**（必须带理由）；
  *   · 闸带 "exclude" ⇒ 以 `--exclude` 传给对应闸（闸自身也会读同一配置）；
  *   · **未声明的闸照常执行**；配置不可解析 ⇒ 直接 exit 1（fail-closed）。
+ * 两仓漂移降级策略（2026-10-27）：日常模式不一致 = **WARN 并记录**（~/.dsh-gates/drift-warnings.jsonl，
+ *   不阻断）；`--release` 模式不一致 = **FAIL 阻断发布**（见 DRIFT_ARGS 与漂移项判定）。
  *
  * 用法：node scripts/pre-publish.mjs [--json] [--skip-tests] [--offline-ok] [--pre-release] [--release]
  *       [--plan] [--skip-allow <闸键,闸键,…>]
@@ -58,11 +60,15 @@ const allowMark = (key, name) => (SKIP_ALLOW.has(key) || SKIP_ALLOW.has(name)) ?
 
 // ── 步骤定义（--plan 与执行共用同一份清单） ─────────────────────────────────
 const DRIFT_PEER_DIR = process.env.DRIFT_PEER || null  // 不硬编码任何私有路径；未设置则跳过漂移检查
+// 漂移降级策略（2026-10-27）：日常（dev）= --warn-only ⇒ 不一致只 WARN 并记录（不阻断）；
+// --release = 严格 ⇒ 不一致 FAIL 阻断发布。⛔ 只降"日常阻断"，不降"发布阻断"
+const DRIFT_ARGS = RELEASE ? [] : ['--warn-only']
 const gates = [
   ['锁文件一致', 'scripts/check-lockfile-consistency.mjs'],
   ['打包白名单覆盖', 'scripts/check-package-files-coverage.mjs'],
   ['发布泄漏闸（两包口径）', 'internal/' + 'scripts/pre' + 'publish-gate.mjs'],
   ['发布入口唯一性', 'scripts/check-publish-entry.mjs'],
+  ['tag 面', 'scripts/check-tag-surface.mjs'],
   ...(DRIFT_PEER_DIR ? [['两仓机制件漂移', 'scripts/check-mechanism-drift.mjs', ['--peer', DRIFT_PEER_DIR, ...(DRIFT_ARGS || [])]]] : []),
   ['提交卫生', 'scripts/check-commit-hygiene.mjs'],
   ['手册新鲜度', 'scripts/check-mechanism-freshness.mjs'],
@@ -107,7 +113,6 @@ if (PLAN) {
 }
 
 // 2) 结构性检查（脚本闸）
-const DRIFT_ARGS = RELEASE ? [] : ['--warn-only']
 const SKIPPABLE = new Set(['全量测试'])  // 声明式：这些项在显式允许时可 SKIP（如 --skip-tests）
 for (const [name, script, gateArgs = []] of gates) {
   const dir = dirOf(script, name)
@@ -123,6 +128,12 @@ for (const [name, script, gateArgs = []] of gates) {
     continue
   }
   const out = raw.split('\n')
+  // 漂移降级策略：日常 warn-only 下不一致 ⇒ WARN（闸已记录、不阻断），⛔ 不冒充 PASS；release 下闸 exit 1 ⇒ FAIL
+  if (name === '两仓机制件漂移') {
+    const mismatch = /内容不一致 [1-9]/.test(raw) || raw.includes('⚠️ 存在内容不一致')
+    add(name, r.status !== 0 ? 'FAIL' : (mismatch ? 'WARN' : 'PASS'), r.status === 0 && !mismatch ? '' : out.slice(-3).join(' ｜ ').slice(0, 160), script)
+    continue
+  }
   // 审核记录在 --pre-release 下缺记录是"待发布补齐"WARN（exit 0 但输出 ⚠️）：如实降为 WARN，不冒充 PASS
   if (name === '独立审核记录' && r.status === 0 && raw.includes('⚠️')) {
     add(name, 'WARN', out.slice(-2).join(' ｜ ').slice(0, 160), script)
