@@ -195,9 +195,9 @@ describe('逐条违规规则', () => {
   it('H2：header.cwd 接受 POSIX / Windows 盘符 / UNC 形态 → 不报 H2', () => {
     const absoluteCwds = [
       '/tmp',                              // POSIX
-      '/Users/max/opena',                  // POSIX（macOS 开发机实测形态）
+      '/home/user/opena',                  // POSIX（macOS 开发机实测形态）
       'C:\\Users\\max\\opena',             // Windows 盘符 + 反斜杠
-      'C:/Users/max/opena',                // Windows 盘符 + 正斜杠
+      'C:/home/user/opena',                // Windows 盘符 + 正斜杠
       '\\\\server\\share\\sessions',       // Windows UNC（反斜杠）
       '//server/share/sessions',           // Windows UNC（正斜杠）
     ];
