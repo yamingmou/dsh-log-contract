@@ -14,7 +14,7 @@
  */
 import fs from 'node:fs';
 import { delimiter as pathDelimiter } from 'node:path';
-import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport } from '../lib/index.js';
+import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, explainRule, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport } from '../lib/index.js';
 
 /**
  * 同步写 fd——`process.stdout.write` 在**管道**下是异步的，紧跟着的
@@ -121,6 +121,12 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
 
   dsh-log-contract contracts
       列出内置契约规则目录（含官方源码出处）。
+
+  dsh-log-contract explain <ruleId> [--json]
+      规则解读：标题 / 判据（原文引自规则注册表，⛔ 不另立文本）/ 正反例指针
+      （指向 test/ 里的对照用例与夹具）/ 相关命令。
+      未知 id ⇒ 明确提示 + 非零退出；--json 输出稳定键集（id/found/title/severity/
+      layer/source/criteria/examples/relatedCommands/doc）。
 
   dsh-log-contract --version / --help
 `;
@@ -304,7 +310,7 @@ function cmdCheck(args) {
   const exitCode = notAssessable ? 3 : (!ok ? 1 : (migGate ? 4 : 0));
 
   if (json) {
-    const payload = { file, ok, assessable: !notAssessable, assessmentScope: scope, host: hostCapability(), support: result.support ?? null, probes: result.probes ?? null, drift: result.drift ?? null, migration, summary, violations, archive: result.archive ?? null, ignorableDrops: result.ignorableDrops ?? null };
+    const payload = { schemaVersion: result.schemaVersion ?? '1', file, ok, assessable: !notAssessable, assessmentScope: scope, host: hostCapability(), support: result.support ?? null, probes: result.probes ?? null, drift: result.drift ?? null, migration, summary, violations, archive: result.archive ?? null, ignorableDrops: result.ignorableDrops ?? null };
     if (notAssessable) payload.notAssessable = result.notAssessable;
     if (resume) payload.resume = resumeVerdict(result);
     out(JSON.stringify(payload, null, 2) + '\n');
@@ -458,6 +464,51 @@ function cmdContracts() {
   }
 }
 
+/**
+ * `explain <ruleId>` —— 规则解读（标题 / 判据 / 正反例指针 / 相关命令）。
+ * 数据源 = `lib/contracts.js` 规则注册表（单一权威，判据原文引用）；
+ * 未知 id ⇒ 明确提示 + 非零退出（--json 时输出同键稳定结构 + found:false）。
+ */
+function cmdExplain(args) {
+  const json = args.includes('--json');
+  const id = args.find((a) => !a.startsWith('-'));
+  if (!id) fail(USAGE);
+  const info = explainRule(id);
+  if (!info.found) {
+    if (json) {
+      out(JSON.stringify(info, null, 2) + '\n');
+    } else {
+      errOut(`❌ ${info.hint}\n`);
+    }
+    process.exit(1);
+  }
+  if (json) {
+    out(JSON.stringify(info, null, 2) + '\n');
+    process.exit(0);
+  }
+  out(`\n📘 dsh-log-contract explain —— ${info.id}\n\n`);
+  out(`  id ${info.id} ｜ 严重度 ${info.severity} ｜ 层级 ${info.layer}\n`);
+  out(`  标题  ${info.title}\n`);
+  out(`  出处  ${info.source}\n\n`);
+  out('  判据 / 触发条件（原文引自规则注册表 lib/contracts.js；⛔ 不另立第二权威）：\n');
+  out(`    ${info.criteria}\n\n`);
+  out('  正/反例指针（测试 / 夹具）：\n');
+  const rows = [
+    ...info.examples.negative.map((p) => ['反例', p]),
+    ...info.examples.positive.map((p) => ['正例', p]),
+    ...info.examples.unclassified.map((p) => ['对照', p]),
+  ];
+  if (rows.length === 0) {
+    out(`    ${info.examples.note ?? '（未找到该 id 的对照引用——以规则注册表判据为准）'}\n`);
+  } else {
+    for (const [kind, p] of rows.slice(0, 12)) out(`    [${kind}] ${p}\n`);
+  }
+  out('\n  相关命令：\n');
+  for (const c of info.relatedCommands) out(`    - ${c}\n`);
+  out(`\n  完整目录：${info.doc}（由规则注册表生成）\n\n`);
+  process.exit(0);
+}
+
 function cmdFix(args) {
   const json = args.includes('--json');
   const removeMarkers = args.includes('--remove-markers');
@@ -603,4 +654,5 @@ else if (cmd === 'audit-report') cmdAuditReport(args.slice(1));
 else if (cmd === 'prewrite') cmdPrewrite(args.slice(1));
 else if (cmd === 'fix') cmdFix(args.slice(1));
 else if (cmd === 'contracts') cmdContracts();
+else if (cmd === 'explain') cmdExplain(args.slice(1));
 else fail(`未知子命令 "${cmd}"\n\n${USAGE}`);
