@@ -5,3 +5,6 @@ coverage/
 dist/
 backups/
 internal/reviews/
+
+# 独立审核记录：不入树（review-record 闸按 treeSha 绑定代码树）
+reviews/*.json
