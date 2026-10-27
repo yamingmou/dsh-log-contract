@@ -45,6 +45,18 @@
       "file": "scripts/check-package-files-coverage.mjs",
       "reason": "注释里的历史工单引用；非发布集文件；待下轮清理",
       "expires": "2026-11-27"
+    },
+    {
+      "word": "*",
+      "file": "internal/*",
+      "reason": "开发工具/词表定义目录：不进入 npm 发布集（files=lib/bin/docs/README），含词表本身与闸定义，必然含内部词；对 lib/bin/docs/README 的扫描保持严格",
+      "expires": "2026-11-27"
+    },
+    {
+      "word": "*",
+      "file": "scripts/check-git-surface.mjs",
+      "reason": "开发工具脚本：引用分支名/词表等机制词；非发布集文件",
+      "expires": "2026-11-27"
     }
   ],
   "_注": {
