@@ -129,7 +129,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 
 - `tool/result` 按 v4 形状校验（`role: 'tool'`、无 `tool-result` 包裹块）
 - `system/message` 接受 v4 的 `source.kind: 'system-prompt'`
-- **v3 及更早的判据零改动**（408 份真实 v3 会话前后判定完全一致）
+- **v3 及更早的判据零改动**（多份真实语料 v3 会话前后判定完全一致）
 - 格式闸门仍**拒绝未知的未来版本**（`readOnly`）；v5+ 按设计保持"不可评估"
 
 **规则（0.3.28 起共 55 条）**：下表五条是 0.3.18 – 0.3.24 窗口新增
