@@ -82,10 +82,16 @@ console.log('[gate] ok —— 推送面零内部信息')
 
 // ── 例外机制（与 scripts/check-git-surface.mjs 共用文件）：仅支持"词 + file/路径"逐条豁免 ──
 function loadExceptions() {
-  try {
-    const raw = readFileSync(new URL('../../internal/git-surface-exceptions.json', import.meta.url), 'utf8')
-    return JSON.parse(raw).exceptions || []
-  } catch { return [] }
+  const i = process.argv.indexOf('--repo')
+  const repoDir = i >= 0 ? process.argv[i + 1] : process.cwd()
+  const candidates = [
+    `${repoDir}/internal/git-surface-exceptions.json`,
+    `${process.env.HOME}/.dsh-gates/git-surface-exceptions.json`,
+  ]
+  for (const f of candidates) {
+    try { return JSON.parse(readFileSync(f, 'utf8')).exceptions || [] } catch { /* next */ }
+  }
+  return []
 }
 const EXCEPTIONS = loadExceptions()
 const exempt = (word, file) => EXCEPTIONS.some((e) => e.word === word && (!e.file || e.file === file))
