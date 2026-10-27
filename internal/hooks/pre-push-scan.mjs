@@ -45,7 +45,13 @@ function loadExceptions() {
   return []
 }
 const EXCEPTIONS = loadExceptions()
-const exempt = (word, file) => EXCEPTIONS.some((e) => e.word === word && (!e.file || e.file === file || e.file === '*'))
+const exempt = (word, file) => EXCEPTIONS.some((e) => {
+  const wordOk = e.word === '*' || e.word === word
+  if (!wordOk) return false
+  if (!e.file || e.file === '*') return true
+  if (e.file.endsWith('/*')) return file.startsWith(e.file.slice(0, -1))
+  return e.file === file
+})
 
 const RE = new RegExp([...words.map(esc), ...regexes].join('|'), 'g')
 
