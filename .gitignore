@@ -8,3 +8,6 @@ internal/reviews/
 
 # 独立审核记录：不入树（review-record 闸按 treeSha 绑定代码树）
 reviews/*.json
+
+# 内部工具/机制件：本地保留、不入公开树
+internal/
