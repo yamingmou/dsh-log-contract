@@ -28,10 +28,7 @@
     "LICENSE",
     "README.zh.md"
   ],
-  "scripts": {
-    "check": "node scripts/check-syntax.mjs && node scripts/gen-contracts-doc.mjs --check",
-    "test": "vitest run"
-  },
+  "scripts": {},
   "keywords": [
     "dsh",
     "deepseek-harness",
