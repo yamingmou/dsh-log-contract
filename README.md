@@ -402,6 +402,8 @@ pnpm check && pnpm test    # syntax check + contract-doc drift gate + all unit t
   without a control, and a control cannot reference a rule that was never
   registered.
 
+> The dev gate `scripts/check-tag-surface.mjs --json` also reports `clean` (the compliant tag list, mutually exclusive with `violations`), so "green" on the tag surface is an explicit list — not merely an empty `violations` array.
+
 > **Scope of the published package**: it contains the runtime code and documentation only.
 > Local maintainer tooling is not part of the public repository, so `pnpm check` and `pnpm test`
 > work from a clean clone.
