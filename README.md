@@ -41,6 +41,25 @@ exit-code contract `0/1/3/4` · three-tier verdicts · pre-write validation ·
 per-rule negative-control tests + rules self-test · tolerant reading (a single
 damaged file degrades to structured results and is counted, never thrown).
 
+**Quick start**:
+
+```bash
+pnpm add -D dsh-log-contract          # or: npm install
+dsh-log-contract check <session-log>  # offline health check
+dsh-log-contract prewrite <edit-file> --log <session-log>   # ★ block bad writes before they land
+```
+
+Using `dsh-retrace`? No separate install — the plugin already declares this
+package as a dependency. Full reference: [CLI](#cli).
+
+**Compatibility** — full matrix: [Version support](#version-support-host--session-format)
+
+| Session formats | Tested baseline | Declared host range |
+|---|---|---|
+| **v0–v4** | `@deepseek-ai/dsh-session@0.2.0-rc.2` (format v4) | `^0.1.0-rc.7 \|\| ^0.1.5-rc.1 \|\| ^0.2.0-rc.1` |
+
+Requires Node ≥ 22 (built-in `node:zlib` zstd). Release history: [CHANGELOG.md](./CHANGELOG.md).
+
 ---
 
 ## Where it sits in the business layer
@@ -121,7 +140,7 @@ Both the human-readable `check` output and the `--json` `support` field carry th
 version support: host @deepseek-ai/dsh-session@0.2.0-rc.2 (baseline 0.2.0-rc.2) | file format v4 (header, baseline)
 ```
 
-## 🆕 0.3.28 · Reader tolerance, tail completeness, seq provenance
+## Reader tolerance · tail completeness · seq provenance
 Four rules distilled from recent production failures (each pinned by a
 negative-control test — a violating sample must turn red, a compliant one green):
 
@@ -151,7 +170,7 @@ is cut — data is missing) · `unknown` (undecidable: unreadable/empty file).
 `Z6` reports the non-`complete` states as a warning and deliberately does not
 flip `ok`.
 
-## 🆕 0.3.18 – 0.3.24 · DSH 0.2.x (session format v4) support
+## DSH 0.2.x support (session format v4)
 **Session format v4** (`@deepseek-ai/dsh-session` 0.2.x) is now validated by format-version dispatch
 rather than by relaxing the format gate:
 
