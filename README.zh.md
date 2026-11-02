@@ -14,9 +14,6 @@
 
 </div>
 
-# dsh-log-contract · 日志契约守护
-
-
 > DSH（DeepSeek Harness）会话日志的**结构契约保险丝**：离线体检 + 写前校验。
 > 本包名 **`dsh-log-contract`**；早期工作名 `log-contract-validator`。
 
@@ -30,6 +27,24 @@
 
 **能力一览**：会话格式 **v0–v4** · 契约规则 **55 条** · 退出码契约 `0/1/3/4` · 三档结论 ·
 写前校验 · 每条规则都有负对照用例 + 规则自检 · 读取容错（单文件损坏降级为结构化结果并计数，不抛出）。
+
+**快速开始**：
+
+```bash
+pnpm add -D dsh-log-contract          # 或：npm install
+dsh-log-contract check <session-log>  # 离线体检
+dsh-log-contract prewrite <edit-file> --log <session-log>   # ★ 写前拦截违约写入
+```
+
+在用 `dsh-retrace`？无需单独安装——插件已声明本包为依赖。完整参考：[CLI 用法](#cli-用法)。
+
+**兼容性** —— 完整矩阵：[版本支持](#版本支持宿主--会话格式)
+
+| 会话格式 | 验证基线 | 声明宿主范围 |
+|---|---|---|
+| **v0–v4** | `@deepseek-ai/dsh-session@0.2.0-rc.2`（格式 v4） | `^0.1.0-rc.7 \|\| ^0.1.5-rc.1 \|\| ^0.2.0-rc.1` |
+
+需要 Node ≥ 22（自带 `node:zlib` zstd）。发布历史：[CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
@@ -101,7 +116,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
   测试基线：@deepseek-ai/dsh-session@0.2.0-rc.2 ｜ 会话格式 v4（已知 0/1/2/3/4；peer ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1）
 ```
 
-## 🆕 0.3.28 · 读取容错 / 尾部完整性 / seq 来源
+## 读取容错 · 尾部完整性 · seq 来源
 从近期真实故障中提炼的四条规则（每条都有负对照用例：违规样本必须判红、合规样本必须绿）：
 
 | 规则 | 判据 | 严重度 |
@@ -124,7 +139,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 `truncated`（尾部记录本身被切，数据缺失）· `unknown`（不可判：不可读/空文件）。
 非 `complete` 时 `Z6` 以 warning 报出，且**刻意不翻转** `ok`。
 
-## 🆕 0.3.18 – 0.3.24 · 支持 DSH 0.2.x（会话格式 v4）
+## 支持 DSH 0.2.x（会话格式 v4）
 **会话格式 v4**（`@deepseek-ai/dsh-session` 0.2.x）改为**按格式版本分派规则**，而不是放宽格式闸门：
 
 - `tool/result` 按 v4 形状校验（`role: 'tool'`、无 `tool-result` 包裹块）
