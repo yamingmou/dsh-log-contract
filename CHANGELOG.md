@@ -1,6 +1,11 @@
 # Changelog
 
-按版本倒序（新 → 旧）。格式：`## [x.y.z] — YYYY-MM-DD · 摘要`。
+按版本倒序（新 → 旧）。格式：`## [0.3.31] — 2026-11-04
+
+- 兼容性：`@deepseek-ai/dsh-session` 的 peer 支持面扩展，新增对 `0.1.7-rc.2`（当前 DSH 2.x 宿主）的覆盖；`0.3.0` 仍按预期排除
+- 版本支持面（`lib/version-support.js`）同步更新，并补充对应断言
+
+## [x.y.z] — YYYY-MM-DD · 摘要`。
 ## [0.3.30] — 2026-10-31
 
 - `explain <ruleId>`: render a rule's title/severity/layer/source/criteria and pointers to its positive/negative examples, sourced from the rule registry (single authority; no duplicated criteria text).

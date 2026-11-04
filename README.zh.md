@@ -42,7 +42,7 @@ dsh-log-contract prewrite <edit-file> --log <session-log>   # ★ 写前拦截�
 
 | 会话格式 | 验证基线 | 声明宿主范围 |
 |---|---|---|
-| **v0–v4** | `@deepseek-ai/dsh-session@0.2.0-rc.2`（格式 v4） | `^0.1.0-rc.7 \|\| ^0.1.5-rc.1 \|\| ^0.2.0-rc.1` |
+| **v0–v4** | `@deepseek-ai/dsh-session@0.2.0-rc.2`（格式 v4） | `^0.1.0-rc.7 \|\| ^0.1.5-rc.1 \|\| ^0.1.7-rc.2 \|\| ^0.2.0-rc.1` |
 
 需要 Node ≥ 22（自带 `node:zlib` zstd）。发布历史：[CHANGELOG.md](./CHANGELOG.md)。
 
@@ -95,7 +95,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 |---|---|---|
 | 宿主包 | `@deepseek-ai/dsh-session@0.2.0-rc.2` | 本规则集开发与 CI 验证所用的版本（CI 跑 `pnpm check` + `pnpm test`；`prepublishOnly` 四步在本机该版本上全绿） |
 | 会话格式 | **v4**（`SESSION_FORMAT_VERSION = 4`） | v4 走运行时词表 + 官方 `foldSurface` 终验 |
-| 声明范围 | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1` | 允许安装；**范围内不等于逐个验证过** |
+| 声明范围 | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1` | 允许安装；**范围内不等于逐个验证过** |
 | 已知格式 | 0 / 1 / 2 / 3 / 4 | 0–2 由本包**自带** vendored 词表 + 本地等价折叠（`legacyFoldSurface`）支持，与宿主版本无关 |
 
 **未验证的版本会发生什么（运行时检测并报告，不闷着按旧规则判）**：
@@ -113,7 +113,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 
 ```
 版本支持：宿主 @deepseek-ai/dsh-session@0.2.0-rc.2（基线 0.2.0-rc.2,baseline） ｜ 文件格式 v4（header,baseline）
-  测试基线：@deepseek-ai/dsh-session@0.2.0-rc.2 ｜ 会话格式 v4（已知 0/1/2/3/4；peer ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1）
+  测试基线：@deepseek-ai/dsh-session@0.2.0-rc.2 ｜ 会话格式 v4（已知 0/1/2/3/4；peer ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1）
 ```
 
 ## 读取容错 · 尾部完整性 · seq 来源
@@ -163,7 +163,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 
 **Windows**：`H2` 的 `header.cwd` 绝对路径判断改为**平台感知**（`win32` 与 `posix` 都认）。
 
-**兼容性**：Node ≥ 22；`@deepseek-ai/dsh-session` `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1`；会话格式 v0–v4。
+**兼容性**：Node ≥ 22；`@deepseek-ai/dsh-session` `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1`；会话格式 v0–v4。
 
 ## 案例记录 ——「生产级保证」不是口号
 下面每一条都来自**生产会话中实际出现的日志损坏形态**——正是这些案例促成了本工具。日期与形态真实，会话 id 与文件名省略。

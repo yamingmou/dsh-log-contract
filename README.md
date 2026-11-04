@@ -56,7 +56,7 @@ package as a dependency. Full reference: [CLI](#cli).
 
 | Session formats | Tested baseline | Declared host range |
 |---|---|---|
-| **v0–v4** | `@deepseek-ai/dsh-session@0.2.0-rc.2` (format v4) | `^0.1.0-rc.7 \|\| ^0.1.5-rc.1 \|\| ^0.2.0-rc.1` |
+| **v0–v4** | `@deepseek-ai/dsh-session@0.2.0-rc.2` (format v4) | `^0.1.0-rc.7 \|\| ^0.1.5-rc.1 \|\| ^0.1.7-rc.2 \|\| ^0.2.0-rc.1` |
 
 Requires Node ≥ 22 (built-in `node:zlib` zstd). Release history: [CHANGELOG.md](./CHANGELOG.md).
 
@@ -120,7 +120,7 @@ line-by-line verification against the official Host source (each rule carries it
 |---|---|---|
 | Host package | `@deepseek-ai/dsh-session@0.2.0-rc.2` | the version this rule set is developed and CI-tested against (CI runs `pnpm check` + `pnpm test`; the four `prepublishOnly` steps are green locally on it) |
 | Session format | **v4** (`SESSION_FORMAT_VERSION = 4`) | v4 uses the runtime vocabulary + official `foldSurface` final check |
-| Declared range | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1` | installable — a declared range is **not** a per-version verification |
+| Declared range | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1` | installable — a declared range is **not** a per-version verification |
 | Known formats | 0 / 1 / 2 / 3 / 4 | 0–2 are supported by this package's **vendored** vocabulary + local equivalent fold (`legacyFoldSurface`), independent of the host |
 
 **What happens on unverified versions (detected and reported at runtime — never silently judged by stale rules)**:
@@ -195,7 +195,7 @@ and repair rebuilds `.jsonl.zstd` with streaming frames (header frame + chunked 
 
 **Windows:** the `header.cwd` absolute-path check in `H2` is platform-aware (`win32` and `posix` both accepted).
 
-**Compatibility:** Node ≥ 22; `@deepseek-ai/dsh-session` `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.2.0-rc.1`; session formats v0–v4.
+**Compatibility:** Node ≥ 22; `@deepseek-ai/dsh-session` `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1`; session formats v0–v4.
 
 ## Case log — why "production-grade" is not a slogan
 Each entry below is a **real log-corruption shape** from production sessions — the cases that
