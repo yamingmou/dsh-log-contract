@@ -22,7 +22,7 @@
 >
 > 严重度：**error** = 违反即会话不可加载/写入被拒（fail-loud）；**warning** = 合法但可疑。
 
-## 规则索引（共 55 条）
+## 规则索引（共 57 条）
 
 | id | 严重度 | 层级 | 规则 |
 |---|---|---|---|
@@ -74,6 +74,8 @@
 | Z4 | error | framing | 首帧必须恰好一行 header |
 | Z5 | error | framing | 多行日志不得压成单帧 |
 | Z6 | warning | framing | 尾部完整性必须显式声明（tailStatus: complete|truncated|interrupted|unknown） |
+| Z7 | warning | framing | 单帧尺寸上限（>8MB warn；>32MB 升档，初版仍 warn；阈值集中常量） |
+| Z8 | error | framing | zstd 帧校验和必存（descriptor 的 Content_Checksum 位） |
 | W1 | error | engine | wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后 |
 | W2 | error | engine | wire 流：user 文本不得插在 tool_calls 与其 tool 结果之间 |
 | G1 | warning | migration | 迁移预检：v0 源文件的 subagent/descriptor.data.version 必须为 3 |
@@ -371,6 +373,18 @@
 - **层级**: framing ｜ **严重度**: warning
 - **出处**: 2026-10 实测口径边界：体检只保证"已读到的事件自洽"，最后一帧被切掉仍可能 ok=true；判定实现见 lib/log-reader.js deriveTailStatus（与宿主 readZstdPrefix"保留完整记录、丢弃未写完尾帧"语义对齐）
 - **契约**: 每次体检必须给出机器可判的 `tailStatus`（`complete` 尾部完整｜`interrupted` zstd 尾帧撕裂=写入中断/进行中，宿主可恢复｜`truncated` 末行记录被切断｜`unknown` 帧解码失败/空文件/不可读）。**口径边界**：`ok=true` 只保证"已读到的事件自洽"，**不保证尾部完整**——判读尾部请用 `check --json` 的 `summary.tailStatus`（库级 `validateSessionLog()` 返回值另有顶层 `tailStatus`）。非 complete 时显式报 warning（⛔ 不翻转 ok：撕裂尾帧在宿主读取器语义下是可恢复的边写边读态，见 Z1；真损坏由 Z2/R1 判 error）。离线无法区分"写入中被读到"与"写完前进程中断"（字节形态相同）⇒ 都归 `interrupted`。
+
+### Z7 — 单帧尺寸上限（>8MB warn；>32MB 升档，初版仍 warn；阈值集中常量）
+
+- **层级**: framing ｜ **严重度**: warning
+- **出处**: 2026-11 实测反例 E2/R2（2026-11 实测反例  C1 采纳）；阈值为本包口径：2026-11-05 真实语料实测（口径 $DSH_HOME/sessions 全量、1,551 会话/约 25.8 万帧、实测时刻 11:45 CST，活跃会话仍在写）：>8MB 共 15 帧、集中在 8 个在写 v4 大会话（最大 26.4MB），无 >32MB
+- **契约**: 任一 zstd 帧的**压缩后字节数**（`scanZstdFrames()` 的 `size`，含帧头与 checksum 尾）超阈值即违规：>8MB ⇒ warning；>32MB ⇒ 升档违规（初版两档均 warning）。**阈值集中在 `lib/checks.js` 的 `FRAME_SIZE_LIMITS` / `FRAME_SIZE_SEVERITY` 常量块，升 ERROR 只改常量、判定与测试不动。** 理由：单帧越大 ⇒ Z2「单帧全损」一次丢得越多、读取内存峰值越高；宿主写盘按批次分帧，缩短批次即可。判据实现 `lib/checks.js` `frameMetadataViolations()`，元数据由 `lib/log-reader.js` `scanZstdFrames()` 逐帧带出。**不是加载性错误**（大帧照常能加载）；实测 15 帧/8 个在写 v4 会话的 WARN 属**预期噪声**，不阻断（⛔ 不要为消 WARN 改阈值或加白名单）。
+
+### Z8 — zstd 帧校验和必存（descriptor 的 Content_Checksum 位）
+
+- **层级**: framing ｜ **严重度**: error
+- **出处**: 2026-11 实测反例（校验和缺失；zstd descriptor bit 2）；zstd 帧头 descriptor bit 2 = Content_Checksum；本包写回路径 lib/repair.js 用 ZSTD_c_checksumFlag=1；2026-11-05 真实语料实测（1,551 会话/约 25.8 万帧）：17 帧（10 个 2026-09-27 老 v3 会话）缺该位、v4 会话 0 例
+- **契约**: 每一帧的 descriptor 必须置 `Content_Checksum` 位（bit 2），即帧尾带 4 字节 xxhash64；缺位时帧内容无法自证完整（bitrot/截断只有解码失败才暴露，宿主读路径**不校验** checksum，缺位不会被发现）。**按文件格式版本分档（闸门零误报，2026-11-05 判定）**：v4+ 帧缺位 ⇒ **error**（面向新格式/我方写入器）；v0–v3 帧缺位 ⇒ **warning**（历史写入器产物，宿主仍能正常加载，判 error 会把"能加载的老会话"误报成 broken —— 实测 10 个老 v3 会话 / 17 帧即此类）。判据实现：`lib/log-reader.js` `scanZstdFrames()` 逐帧解析 descriptor 并输出 `{start,end,size,checksum}`（向后兼容：仍可按 `[start,end]` 解构），`lib/checks.js` `frameMetadataViolations(frames, { fileVersion })` 判定。⚠️ ID 说明：本规则**不是** Z3——Z3 是既有「空会话文件」warning，语义与用例不动。
 
 ### W1 — wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后
 
