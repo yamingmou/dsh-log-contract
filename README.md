@@ -36,29 +36,10 @@ plugin marker semantics).
 - **`fix` / `extract` / `audit-report`** — repair primitives and read-only
   session archaeology.
 
-**Capabilities at a glance**: session formats **v0–v4** · 55 contract rules ·
+**Capabilities at a glance**: session formats **v0–v4** · 57 contract rules ·
 exit-code contract `0/1/3/4` · three-tier verdicts · pre-write validation ·
 per-rule negative-control tests + rules self-test · tolerant reading (a single
 damaged file degrades to structured results and is counted, never thrown).
-
-**Quick start**:
-
-```bash
-pnpm add -D dsh-log-contract          # or: npm install
-dsh-log-contract check <session-log>  # offline health check
-dsh-log-contract prewrite <edit-file> --log <session-log>   # ★ block bad writes before they land
-```
-
-Using `dsh-retrace`? No separate install — the plugin already declares this
-package as a dependency. Full reference: [CLI](#cli).
-
-**Compatibility** — full matrix: [Version support](#version-support-host--session-format)
-
-| Session formats | Tested baseline | Declared host range |
-|---|---|---|
-| **v0–v4** | `@deepseek-ai/dsh-session@0.2.0-rc.2` (format v4) | `^0.1.0-rc.7 \|\| ^0.1.5-rc.1 \|\| ^0.1.7-rc.2 \|\| ^0.2.0-rc.1` |
-
-Requires Node ≥ 22 (built-in `node:zlib` zstd). Release history: [CHANGELOG.md](./CHANGELOG.md).
 
 ---
 
@@ -95,7 +76,7 @@ line-by-line verification against the official Host source (each rule carries it
 ---
 
 ## Three-layer contract (the model)
-> 55 rules across the layers below (`contracts` lists them all, each with its
+> 57 rules across the layers below (`contracts` lists them all, each with its
 > official source reference).
 
 | Layer | Rules | What it guards |
@@ -140,7 +121,7 @@ Both the human-readable `check` output and the `--json` `support` field carry th
 version support: host @deepseek-ai/dsh-session@0.2.0-rc.2 (baseline 0.2.0-rc.2) | file format v4 (header, baseline)
 ```
 
-## Reader tolerance · tail completeness · seq provenance
+## 🆕 0.3.28 · Reader tolerance, tail completeness, seq provenance
 Four rules distilled from recent production failures (each pinned by a
 negative-control test — a violating sample must turn red, a compliant one green):
 
@@ -170,7 +151,7 @@ is cut — data is missing) · `unknown` (undecidable: unreadable/empty file).
 `Z6` reports the non-`complete` states as a warning and deliberately does not
 flip `ok`.
 
-## DSH 0.2.x support (session format v4)
+## 🆕 0.3.18 – 0.3.24 · DSH 0.2.x (session format v4) support
 **Session format v4** (`@deepseek-ai/dsh-session` 0.2.x) is now validated by format-version dispatch
 rather than by relaxing the format gate:
 
@@ -179,7 +160,7 @@ rather than by relaxing the format gate:
 - validation for v3 and earlier is **unchanged** (identical verdicts on 408 real v3 sessions before/after)
 - the format gate still rejects **unknown** future versions (`readOnly`); v5+ remains unassessable by design
 
-**Rules (55 total as of 0.3.28):** the five rules below were added in the
+**Rules (55 as of 0.3.28, 57 as of 0.3.32):** the five rules below were added in the
 0.3.18 – 0.3.24 window (see above for the 0.3.28 additions):
 
 | Rule | Checks |
