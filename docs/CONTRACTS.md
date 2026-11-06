@@ -74,7 +74,7 @@
 | Z4 | error | framing | 首帧必须恰好一行 header |
 | Z5 | error | framing | 多行日志不得压成单帧 |
 | Z6 | warning | framing | 尾部完整性必须显式声明（tailStatus: complete|truncated|interrupted|unknown） |
-| Z7 | warning | framing | 单帧尺寸上限（>8MB warn；>32MB 升档，初版仍 warn；阈值集中常量） |
+| Z7 | warning | framing | 单帧尺寸（工程提示：>8MB warn；>32MB BIG32）；可见性硬门是 Z4 |
 | Z8 | error | framing | zstd 帧校验和必存（descriptor 的 Content_Checksum 位） |
 | W1 | error | engine | wire 流：tool 消息必须跟在带 tool-call 的 assistant 消息之后 |
 | W2 | error | engine | wire 流：user 文本不得插在 tool_calls 与其 tool 结果之间 |
@@ -360,7 +360,7 @@
 
 - **层级**: framing ｜ **严重度**: error
 - **出处**: 宿主 assertZstdHeaderFrame（0.1.5-rc.2 lib/index.js:2184）：首帧非"恰好一行"即抛
-- **契约**: 官方写盘形状是 header **独占第一帧**。首帧装多行时宿主抛错，且抛点在 listArtifacts **遍历全库**、无 per-session 容错 ⇒ **整个客户端起不来**（2026-09-16 真机事故：有人把整份日志重压成单帧写回）。
+- **契约**: 官方写盘形状是 header **独占第一帧**。首帧装多行时宿主抛错，且抛点在 listArtifacts **遍历全库**、无 per-session 容错 ⇒ **整个客户端起不来**（2026-09-16 真机事故：有人把整份日志重压成单帧写回）。**2026-11 阶梯对照实证：这是"会话消失/点不开"的唯一硬门**（同内容 64MB、首帧塞 63 行 ⇒ host 日志 `session header is missing` ⇒ 不可见；首帧 1 行则 60.57MB 也正常）。
 
 ### Z5 — 多行日志不得压成单帧
 
@@ -374,11 +374,11 @@
 - **出处**: 2026-10 实测口径边界：体检只保证"已读到的事件自洽"，最后一帧被切掉仍可能 ok=true；判定实现见 lib/log-reader.js deriveTailStatus（与宿主 readZstdPrefix"保留完整记录、丢弃未写完尾帧"语义对齐）
 - **契约**: 每次体检必须给出机器可判的 `tailStatus`（`complete` 尾部完整｜`interrupted` zstd 尾帧撕裂=写入中断/进行中，宿主可恢复｜`truncated` 末行记录被切断｜`unknown` 帧解码失败/空文件/不可读）。**口径边界**：`ok=true` 只保证"已读到的事件自洽"，**不保证尾部完整**——判读尾部请用 `check --json` 的 `summary.tailStatus`（库级 `validateSessionLog()` 返回值另有顶层 `tailStatus`）。非 complete 时显式报 warning（⛔ 不翻转 ok：撕裂尾帧在宿主读取器语义下是可恢复的边写边读态，见 Z1；真损坏由 Z2/R1 判 error）。离线无法区分"写入中被读到"与"写完前进程中断"（字节形态相同）⇒ 都归 `interrupted`。
 
-### Z7 — 单帧尺寸上限（>8MB warn；>32MB 升档，初版仍 warn；阈值集中常量）
+### Z7 — 单帧尺寸（工程提示：>8MB warn；>32MB BIG32）；可见性硬门是 Z4
 
 - **层级**: framing ｜ **严重度**: warning
-- **出处**: 2026-11 实测反例 E2/R2（2026-11 实测反例  C1 采纳）；阈值为本包口径：2026-11-05 真实语料实测（口径 $DSH_HOME/sessions 全量、1,551 会话/约 25.8 万帧、实测时刻 11:45 CST，活跃会话仍在写）：>8MB 共 15 帧、集中在 8 个在写 v4 大会话（最大 26.4MB），无 >32MB
-- **契约**: 任一 zstd 帧的**压缩后字节数**（`scanZstdFrames()` 的 `size`，含帧头与 checksum 尾）超阈值即违规：>8MB ⇒ warning；>32MB ⇒ 升档违规（初版两档均 warning）。**阈值集中在 `lib/checks.js` 的 `FRAME_SIZE_LIMITS` / `FRAME_SIZE_SEVERITY` 常量块，升 ERROR 只改常量、判定与测试不动。** 理由：单帧越大 ⇒ Z2「单帧全损」一次丢得越多、读取内存峰值越高；宿主写盘按批次分帧，缩短批次即可。判据实现 `lib/checks.js` `frameMetadataViolations()`，元数据由 `lib/log-reader.js` `scanZstdFrames()` 逐帧带出。**不是加载性错误**（大帧照常能加载）；实测 15 帧/8 个在写 v4 会话的 WARN 属**预期噪声**，不阻断（⛔ 不要为消 WARN 改阈值或加白名单）。
+- **出处**: 2026-11 阶梯实验（7 档：4.07/8.21/15.44/22.18/32.80/49.44/60.57MB，同内容仅改单帧大小）⇒ 侧栏可见/可打开全部正常、console error 0；**大帧本身不导致会话消失**。真悬崖=Z4（首帧≠1 行 header ⇒ 不可见/点不开，同内容 64MB 首帧 63 行对照实证）。阈值为本包工程纪律：>8MB 共 15 帧/8 个在写 v4 大会话（最大 26.4MB），无 >32MB
+- **契约**: 任一 zstd 帧的**压缩后字节数**（`scanZstdFrames()` 的 `size`）超阈值即给**工程提示**：>8MB ⇒ warning；>32MB ⇒ BIG32 提示；**⛔ 不参与 ok / 退出码（不是功能阻断线）**。**可见性硬门是 Z4（首帧必须恰好一行 header）**。阈值集中在 `lib/checks.js` 的 `FRAME_SIZE_LIMITS` / `FRAME_SIZE_SEVERITY` 常量块；理由：单帧越大 ⇒ Z2「单帧全损」一次丢得越多、读取内存峰值越高；宿主写盘按批次分帧，缩短批次即可。判据实现 `lib/checks.js` `frameMetadataViolations()`。⚠ 归因修正（2026-11 阶梯实验）：此前"大帧致会话消失"的结论**已推翻**，不要把 8MB 当功能阻断线。
 
 ### Z8 — zstd 帧校验和必存（descriptor 的 Content_Checksum 位）
 
