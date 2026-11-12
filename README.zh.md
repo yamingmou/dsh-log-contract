@@ -236,6 +236,23 @@ dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json   # 机器可读
 tool_calls 与其结果之间"——这类问题 DeepSeek 曾容忍，但 MiMo 等严格端点会直接
 `INVALID_REQUEST`（2026-08-27 实锤）。
 
+### 1.1 错误表达契约检查（`error-contract`）
+
+对「错误是怎么抛的」做静态扫描（源码文本；不做 AST）：
+E1 一个码多成因 / E2 message 是常量 / E3 终态词用于非终态因 / E4 `cause` 未透出 /
+E5 无条件成功（候选）/ E6 声称无执行点（候选）。
+
+```bash
+dsh-log-contract error-contract lib/ bin/ --json                 # T1（我方代码）：命中 ⇒ exit 1
+dsh-log-contract error-contract <pkg>/lib/index.js --target T2    # T2（第三方）：只登记，exit 0
+dsh-log-contract error-contract lib/ --keys thresholdRatio,headroom   # E6① 声明 key 的读取点
+dsh-log-contract error-contract lib/ --config cordis.patch.yml       # E6① 从 YAML config 段派生
+```
+
+⚠️ **输出是可疑清单，不是缺陷认定**：规则是启发式的、必然有假阳性——每条命中带原始
+`evidence` 供人工复核；白名单条目必须带 `expires` 到期日（缺失/非法/过期 ⇒ exit 2，fail-closed）。
+完整判据、假阳性风险与白名单格式：[docs/ERROR-CONTRACT.md](docs/ERROR-CONTRACT.md)。
+
 ### 2. 修复（`fix`）
 
 ```bash
