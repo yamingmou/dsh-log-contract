@@ -13,8 +13,8 @@
  *   contracts                     列出内置契约规则目录
  */
 import fs from 'node:fs';
-import { delimiter as pathDelimiter } from 'node:path';
-import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, explainRule, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport } from '../lib/index.js';
+import { delimiter as pathDelimiter, join as pathJoin } from 'node:path';
+import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, explainRule, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport, ERROR_CONTRACT_RULES, checkErrorContract, normalizePath } from '../lib/index.js';
 
 /**
  * 同步写 fd——`process.stdout.write` 在**管道**下是异步的，紧跟着的
@@ -127,6 +127,26 @@ const USAGE = `dsh-log-contract —— 日志契约守护（DSH session log cont
       （指向 test/ 里的对照用例与夹具）/ 相关命令。
       未知 id ⇒ 明确提示 + 非零退出；--json 输出稳定键集（id/found/title/severity/
       layer/source/criteria/examples/relatedCommands/doc）。
+
+  dsh-log-contract error-contract <path...> [--json] [--target T1|T2] [--whitelist <file>]
+                                  [--keys <json|a,b,c>] [--config <cordis.patch.yml>]
+                                  [--exclude <path[,path]>] [--strict]
+      错误表达契约静态检查（E1–E6 · 可疑清单，⛔ 不是"某包违规"的认定）。
+      E1 一个码多成因 / E2 message 是常量 / E3 终态词用于非终态因 / E4 cause 未透出 /
+      E5 无条件成功（候选）/ E6 声称无执行点（候选）。
+      path 可为文件或目录（目录递归 *.js/*.mjs/*.cjs + README*.md）；--target T1 我方代码
+      （命中 ⇒ exit 1）/ T2 官方产物（只登记 ⇒ 默认 exit 0，--strict 才非 0）。
+      --whitelist <file>  逐条例外 JSON：{entries:[{rule,file,line?,reason,expires}]}
+                          expires 必填 YYYY-MM-DD；缺失/非法/过期 ⇒ exit 2（fail-closed）。
+      --keys / --config   E6① 的配置声明来源：--keys 给 JSON 数组/逗号列表，--config 从
+                          YAML 的 config: 段派生 key，再查代码里有无读取点。
+      --exclude <path>    显式排除（可重复/逗号分隔；目录前缀匹配）。默认已跳过
+                          node_modules/.git/reports；扫仓库根时用 --exclude test,contract
+                          把测试与未接线骨架排除在发布面之外。
+      --json 输出稳定键集（schemaVersion/family/target/rules/findings/summary）；
+              每条 finding 带 id/rule/severity/evidence。
+      退出码：0 绿 ｜ 1 T1 命中（T2 默认不阻断，--strict 才 1）｜ 2 无法判定
+              （target 非法/路径不存在/无参/白名单不合规）。
 
   dsh-log-contract --version / --help
 `;
@@ -311,6 +331,9 @@ function cmdCheck(args) {
 
   if (json) {
     const payload = { schemaVersion: result.schemaVersion ?? '1', file, ok, assessable: !notAssessable, assessmentScope: scope, host: hostCapability(), support: result.support ?? null, probes: result.probes ?? null, drift: result.drift ?? null, migration, summary, violations, archive: result.archive ?? null, ignorableDrops: result.ignorableDrops ?? null };
+    // 新增键（additive，同 schemaVersion 下既有键不删/不改义）：错误表达契约规则目录。
+    // findings 需要源码输入，故只在 `error-contract` 子命令产出；此处只给规则清单。
+    payload.errorContract = { family: 'error-expression', rules: ERROR_CONTRACT_RULES.map((r) => ({ id: r.id, severity: r.severity, title: r.title, layer: r.layer, target: r.target, falsePositiveRisk: r.falsePositiveRisk })), note: '静态规则目录；源码扫描用 error-contract 子命令' };
     if (notAssessable) payload.notAssessable = result.notAssessable;
     if (resume) payload.resume = resumeVerdict(result);
     out(JSON.stringify(payload, null, 2) + '\n');
@@ -450,6 +473,142 @@ function cmdPrewrite(args) {
   printViolations(result.violations);
   out('\n');
   process.exit(1);
+}
+
+/**
+ * `error-contract <path...>` —— 错误表达契约静态检查（E1–E6 · 可疑清单，⛔ 非缺陷认定）。
+ * 输入：源码文件或目录（递归 *.js|*.mjs|*.cjs；*.md 仅做 E6 不变式句候选扫描）。
+ * --target T1（我方代码，命中 error/warning ⇒ exit 1）｜T2（官方产物，只登记 ⇒ 默认 exit 0，--strict 才非 0）
+ * --whitelist <file>：{entries:[{rule,file,line?,reason,expires}]}；expires 必填（缺失/非法/过期 ⇒ exit 2 fail-closed）。
+ */
+function cmdErrorContract(args) {
+  const json = args.includes('--json');
+  const strict = args.includes('--strict');
+  const valOf = (flag) => {
+    const i = args.indexOf(flag);
+    return i >= 0 && i + 1 < args.length ? args[i + 1] : null;
+  };
+  // N2：无法判定/用法错误一律 exit 2（与「红=1 / 绿=0」区分）
+  const target = String(valOf('--target') || 'T1').toUpperCase();
+  if (target !== 'T1' && target !== 'T2') {
+    errOut(`error-contract: --target 只允许 T1/T2（实际 ${target}）—— 无法判定 ⇒ exit 2\n`);
+    process.exit(2);
+  }
+  const whitelistPath = valOf('--whitelist');
+  const configPath = valOf('--config');
+  const keysArg = valOf('--keys');
+  const VALUE_FLAGS = new Set(['--target', '--whitelist', '--config', '--keys', '--exclude']);
+  // N8：显式排除（可重复 / 逗号分隔；目录前缀匹配，归一化后比较）
+  const excludes = [];
+  args.forEach((a, i) => {
+    if (a === '--exclude' && args[i + 1]) {
+      for (const x of String(args[i + 1]).split(',').map((v) => v.trim()).filter(Boolean)) excludes.push(normalizePath(x));
+    }
+  });
+  // 语义：含 '/' ⇒ 前缀匹配（相对/绝对路径）；不含 '/' ⇒ 按任意路径段（目录名）匹配
+  const isExcluded = (p) => excludes.some((x) => (x.includes('/')
+    ? (p === x || p.startsWith(`${x}/`))
+    : (p === x || p.startsWith(`${x}/`) || p.endsWith(`/${x}`) || p.includes(`/${x}/`))));
+  const paths = args.filter((a, i) => {
+    if (a.startsWith('-')) return false;
+    return !VALUE_FLAGS.has(args[i - 1]);
+  });
+  if (paths.length === 0) {
+    errOut(`error-contract: 至少给一个路径（文件或目录）—— 无法判定 ⇒ exit 2\n\n`);
+    errOut(USAGE);
+    process.exit(2);
+  }
+
+  // N1：输入路径归一（去尾斜杠/折叠 //），保证 findings.file 与白名单比较同一口径
+  const files = [];
+  const walk = (p) => {
+    const np = normalizePath(p);
+    if (isExcluded(np)) return;
+    const st = fs.statSync(np);
+    if (st.isDirectory()) {
+      for (const name of fs.readdirSync(np)) {
+        if (name === 'node_modules' || name === '.git' || name === 'reports') continue;
+        walk(pathJoin(np, name));
+      }
+      return;
+    }
+    if (!/\.(mjs|cjs|js)$/i.test(np) && !/\.md$/i.test(np)) return;
+    files.push({ file: normalizePath(np), text: fs.readFileSync(np, 'utf8') });
+  };
+  for (const p of paths) {
+    if (!fs.existsSync(normalizePath(p))) {
+      errOut(`error-contract: 路径不存在: ${p} —— 无法判定 ⇒ exit 2\n`);
+      process.exit(2);
+    }
+    walk(p);
+  }
+
+  let whitelist = [];
+  if (whitelistPath) {
+    try {
+      whitelist = JSON.parse(fs.readFileSync(whitelistPath, 'utf8')).entries ?? [];
+    } catch (e) {
+      errOut(`error-contract: 白名单读取/解析失败（无法判定 ⇒ exit 2）: ${e.message}\n`);
+      process.exit(2);
+    }
+  }
+
+  // N3：E6① 配置声明 key 的读取点检查（--keys 直接给，或 --config 从 YAML 派生）
+  const declaredKeys = [];
+  if (keysArg) {
+    try {
+      if (/\.json$/i.test(keysArg)) {
+        const j = JSON.parse(fs.readFileSync(keysArg, 'utf8'));
+        for (const k of (Array.isArray(j) ? j : (j.keys ?? []))) declaredKeys.push(typeof k === 'string' ? { name: k } : k);
+      } else {
+        for (const k of keysArg.split(',').map((x) => x.trim()).filter(Boolean)) declaredKeys.push({ name: k });
+      }
+    } catch (e) {
+      errOut(`error-contract: --keys 读取/解析失败（无法判定 ⇒ exit 2）: ${e.message}\n`);
+      process.exit(2);
+    }
+  }
+  if (configPath) {
+    let text = '';
+    try { text = fs.readFileSync(configPath, 'utf8'); }
+    catch (e) { errOut(`error-contract: --config 读取失败（无法判定 ⇒ exit 2）: ${e.message}\n`); process.exit(2); }
+    let inConfig = false;
+    text.split('\n').forEach((line, i) => {
+      const noComment = line.replace(/#.*$/, '');
+      if (/^config\s*:/.test(noComment)) { inConfig = true; return; }
+      if (inConfig && /^\S/.test(noComment) && noComment.trim()) { inConfig = false; return; }
+      if (!inConfig) return;
+      const m = noComment.match(/^\s+([A-Za-z_][\w-]*)\s*:/);
+      if (m) declaredKeys.push({ name: m[1], line: i + 1, file: normalizePath(configPath) });
+    });
+  }
+
+  const report = checkErrorContract({ files, target, whitelist, declaredKeys });
+  if (report.summary.whitelistProblems.length) {
+    errOut(`error-contract: ⛔ 白名单不合规（fail-closed ⇒ exit 2）:\n${report.summary.whitelistProblems.map((x) => `  - ${x}`).join('\n')}\n`);
+    process.exit(2);
+  }
+  const hits = report.findings.filter((f) => f.severity === 'error' || f.severity === 'warning');
+  const candidates = report.findings.filter((f) => f.severity === 'info');
+  const exitCode = target === 'T2' ? (strict && report.findings.length ? 1 : 0) : (hits.length ? 1 : 0);
+
+  if (json) {
+    out(JSON.stringify(report, null, 2) + '\n');
+    process.exit(exitCode);
+  }
+
+  out(`\n🔎 dsh-log-contract error-contract —— target=${target} ｜ 扫 ${files.length} 个文件 ｜ 可疑 ${report.findings.length}（白名单抑制 ${report.summary.suppressed}）\n`);
+  out('   ⚠️ 启发式检查：输出的是**可疑清单**，不是"某包违规"的认定；每条请开 --json 看 evidence 后人工复核。\n');
+  out(`   E1 多成因 ${report.summary.byRule.E1 || 0} ｜ E2 常量 message ${report.summary.byRule.E2 || 0} ｜ E3 终态词 ${report.summary.byRule.E3 || 0} ｜ E4 cause 未透出 ${report.summary.byRule.E4 || 0} ｜ E5 无条件成功 ${report.summary.byRule.E5 || 0} ｜ E6 无执行点 ${report.summary.byRule.E6 || 0}\n`);
+  for (const f of report.findings) {
+    const loc = f.line ? `:${f.line}` : '';
+    out(`   [${f.severity}] ${f.id} ${f.file}${loc} — ${f.message}\n`);
+  }
+  if (!report.findings.length) out('   ✔ 未发现可疑点（注意：规则集只覆盖 E1–E6，未覆盖 ≠ 无问题）\n');
+  out(`\n   目标口径：T1=我方代码（要修）｜T2=官方产物（只登记/报上游）—— 两类不混报。\n`);
+  if (candidates.length) out(`   ℹ️ 其中 ${candidates.length} 条为候选（E5/E6），默认不阻断，需人工确认。\n`);
+  out('\n');
+  process.exit(exitCode);
 }
 
 function cmdContracts() {
@@ -654,5 +813,6 @@ else if (cmd === 'audit-report') cmdAuditReport(args.slice(1));
 else if (cmd === 'prewrite') cmdPrewrite(args.slice(1));
 else if (cmd === 'fix') cmdFix(args.slice(1));
 else if (cmd === 'contracts') cmdContracts();
+else if (cmd === 'error-contract') cmdErrorContract(args.slice(1));
 else if (cmd === 'explain') cmdExplain(args.slice(1));
 else fail(`未知子命令 "${cmd}"\n\n${USAGE}`);

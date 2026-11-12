@@ -282,6 +282,25 @@ preceding assistant tool_calls) and "user text between tool_calls and their
 results" — tolerated by some endpoints, `INVALID_REQUEST` on strict ones
 (MiMo, verified 2026-08-27).
 
+### 1.1 Error-expression contract scan (`error-contract`)
+
+Static scan of *how errors are raised* (source text; no AST):
+E1 one code with many causes · E2 constant message · E3 terminal word on a non-terminal
+cause · E4 `cause` not surfaced · E5 unconditional success (candidate) · E6 claims with no
+enforcement point (candidate).
+
+```bash
+dsh-log-contract error-contract lib/ bin/ --json                 # T1 (our code): hits ⇒ exit 1
+dsh-log-contract error-contract <pkg>/lib/index.js --target T2    # T2 (third-party): report only, exit 0
+dsh-log-contract error-contract lib/ --keys thresholdRatio,headroom   # E6① declared-key reads
+dsh-log-contract error-contract lib/ --config cordis.patch.yml       # E6① from YAML config keys
+```
+
+⚠️ **Output is a suspicion list, not a verdict**: the rules are heuristics and necessarily
+carry false positives — every finding ships raw `evidence` for human review; whitelist
+entries must carry an `expires` date (missing/invalid/expired ⇒ exit 2, fail-closed).
+Full criteria, false-positive risks and whitelist format: [docs/ERROR-CONTRACT.md](docs/ERROR-CONTRACT.md).
+
 ### 2. Repair (`fix`)
 
 ```bash

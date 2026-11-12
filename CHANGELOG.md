@@ -1,3 +1,10 @@
+## [0.3.35] — 2026-11-13
+
+- 新增错误表达契约检查 E1–E6（一码多成因 / message 常量 / 终态词误用等）：输出为**可疑清单，不是缺陷认定**
+- 新 CLI 子命令 `error-contract <path...> [--json] [--target T1|T2] [--keys|--config] [--whitelist] [--exclude] [--strict]`
+- `check --json` 新增 additive 键 `errorContract`（既有键与 schemaVersion 不变）
+- 文档：`docs/ERROR-CONTRACT.md`；路径归一化与退出码 0/1/2 与文档一致
+
 ## [0.3.33] — 2026-11-06
 
 - 归因修正（Z7）：阶梯实验（单帧 4.07–60.57MB）显示**大帧本身不会导致会话消失**；真悬崖是 **Z4（首帧必须恰好一行 header）**
