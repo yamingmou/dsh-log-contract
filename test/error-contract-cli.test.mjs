@@ -139,7 +139,6 @@ function findOfficialFixture() {
   }
   const fixed = [
     '/Applications/DSH Desktop.app/Contents/Resources/app/node_modules/@deepseek-ai/dsh-subagent/lib/index.js',
-    join(homedir(), 'opena', 'dsh-lab-016a2', 'node_modules', '@deepseek-ai', 'dsh-subagent', 'lib', 'index.js'),
   ].map(res).filter(Boolean);
   if (fixed.length) return fixed[0];
   try {
