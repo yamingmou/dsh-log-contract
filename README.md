@@ -36,7 +36,7 @@ plugin marker semantics).
 - **`fix` / `extract` / `audit-report`** — repair primitives and read-only
   session archaeology.
 
-**Capabilities at a glance**: session formats **v0–v4** · 57 contract rules ·
+**Capabilities at a glance**: session formats **v0–v4** · **63 contract rules (57 log-contract + 6 error-expression)** ·
 exit-code contract `0/1/3/4` · three-tier verdicts · pre-write validation ·
 per-rule negative-control tests + rules self-test · tolerant reading (a single
 damaged file degrades to structured results and is counted, never thrown).
@@ -76,8 +76,10 @@ line-by-line verification against the official Host source (each rule carries it
 ---
 
 ## Three-layer contract (the model)
-> 57 rules across the layers below (`contracts` lists them all, each with its
-> official source reference).
+> **63 rules in two families**: **57 log-contract rules** across the layers below
+> (each with its official source reference) + **6 error-expression rules** (E1–E6, see
+> §1.1). `contracts` lists the 57 log-contract rules; the error-expression catalogue is
+> returned by `check --json` under `errorContract`, and `error-contract` scans source text for it.
 
 | Layer | Rules | What it guards |
 |---|---|---|
@@ -160,7 +162,7 @@ rather than by relaxing the format gate:
 - validation for v3 and earlier is **unchanged** (identical verdicts on 408 real v3 sessions before/after)
 - the format gate still rejects **unknown** future versions (`readOnly`); v5+ remains unassessable by design
 
-**Rules (55 as of 0.3.28, 57 as of 0.3.32):** the five rules below were added in the
+**Rules (55 as of 0.3.28, 57 as of 0.3.32; 63 total as of 0.3.36 — 57 log-contract + 6 error-expression):** the five rules below were added in the
 0.3.18 – 0.3.24 window (see above for the 0.3.28 additions):
 
 | Rule | Checks |
@@ -284,7 +286,8 @@ results" — tolerated by some endpoints, `INVALID_REQUEST` on strict ones
 
 ### 1.1 Error-expression contract scan (`error-contract`)
 
-Static scan of *how errors are raised* (source text; no AST):
+Static scan of *how errors are raised* (source text; no AST). This is the **6-rule
+error-expression family** (E1–E6; 63 = 57 log-contract + 6 here):
 E1 one code with many causes · E2 constant message · E3 terminal word on a non-terminal
 cause · E4 `cause` not surfaced · E5 unconditional success (candidate) · E6 claims with no
 enforcement point (candidate).
