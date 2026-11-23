@@ -1,3 +1,7 @@
+## [0.3.40] — 2026-11-23
+
+- 文档订正：`docs/CONTRACTS.md` 生成说明与 IDENTITY 登记指引不再引用包内不存在的 `scripts/` 目录（npm 包只含 lib/bin/docs/*.md）
+- 注释中性化：三处内部表述改为中性说明（无行为变更）
 ## [0.3.39] — 2026-11-23
 
 - 对外发布件仅保留对外的 CLI/契约脚本（`gen-contracts-doc` / `identity-register`）；移除非对外工具脚本与本地记录目录

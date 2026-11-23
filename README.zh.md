@@ -87,7 +87,7 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 `check --json` 以 `identity` 段输出（`family` / `rules` / `ok` / `version` / `digest` / `runtime` /
 `registry` / `findings[]`（含 `file:line`）/ `summary`）；登记表缺失时 `identity.ok = null`
 （**unverifiable**，不冒充通过——npm 包只含 `docs/**/*.md`）。换版本或改运行时代码后重登记：
-`pnpm identity:register`（或 `node scripts/identity-register.mjs [version]`）。
+`pnpm identity:register`（仅源码仓；npm 包不含 `scripts/` 目录）。
 
 ---
 

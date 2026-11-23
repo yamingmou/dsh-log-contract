@@ -51,8 +51,8 @@ export function buildContractsDoc(rules) {
 
   return `# 契约规则目录（CONTRACTS）
 
-> **自动生成**（2026-09-06 起）：本文件由 \`node scripts/gen-contracts-doc.mjs\`
-> 从 \`lib/contracts.js\` 的 \`CONTRACT_RULES\` 注册表生成——**勿手改**，规则只增不减，
+> **自动生成**（2026-09-06 起）：本文件由 \`lib/contracts.js\` 的 \`CONTRACT_RULES\`
+> 注册表生成（生成器不随 npm 包发布）——**勿手改**，规则只增不减，
 > 新增规则后跑一次生成即同步（此前手工维护滞后 15+ 条）。
 > **漂移闸**：\`pnpm check\` 会跑 \`--check\` 逐字节比对，改了注册表没重生成 ⇒ 直接红。
 >

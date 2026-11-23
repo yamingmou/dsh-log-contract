@@ -110,7 +110,7 @@ the declared version promises.
 `digest`, `runtime`, `registry`, `findings[]` with `file:line`, `summary`); `identity.ok` is
 `null` (**unverifiable**, never "pass") when the registry is absent — npm tarballs ship
 `docs/**/*.md` only. After a version bump or a runtime-code change, re-register:
-`pnpm identity:register` (or `node scripts/identity-register.mjs [version]`).
+`pnpm identity:register` (source checkout only; the npm package does not ship `scripts/`).
 
 ---
 

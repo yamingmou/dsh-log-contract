@@ -75,7 +75,7 @@
 - **防噪音**：只改文档/测试/机制件（不改运行时代码）⇒ `identity.digest` 不变 ⇒ 绿；
   只改代码不动版本 ⇒ `ID2` 红（"同号改代码"必须换号并重新登记摘要）。
 - 登记表 `docs/identity-registry.json` **不随 npm 包发布**（npm 只打包 `docs/**/*.md`） ⇒ 安装包内 `identity.ok = null`（unverifiable）。
-- 换版本或改运行时代码后**重登记摘要**：`pnpm identity:register`（或 `node scripts/identity-register.mjs [version]`）。登记旧摘要/伪造摘要 ⇒ `ID2` 红（发布前闸，不是可选项）。
+- 换版本或改运行时代码后**重登记摘要**：`pnpm identity:register`（仅源码仓；npm 包不含 `scripts/` 目录）。登记旧摘要/伪造摘要 ⇒ `ID2` 红（发布前闸，不是可选项）。
 
 ## 何时升版
 
