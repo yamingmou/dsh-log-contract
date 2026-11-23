@@ -1,3 +1,9 @@
+## [0.3.38] — 2026-11-23
+
+- 新增 IDENTITY（版本同一性）契约组：ID1 一物一号（同版本两个摘要 ⇒ 红）；ID2 号可验（package.json ↔ 登记摘要 ↔ 产物实算摘要 三者一致；只改文档 ⇒ 绿，同号改代码/伪造 ⇒ 红）
+- 运行身份摘要口径：lib/**/*.js + bin/**/*.mjs 逐文件 sha256 → 排序后整体 sha256；登记表 `docs/identity-registry.json`
+- `check --json` 新增 identity 段；schemaVersion 2→3
+
 ## [0.3.37] — 2026-11-23
 
 - S9 诊断增强：物理序 seq 非单调时给出病因分类（old-cursor-replay / concurrent-writer / format-mix）+ 置信度 + 判定式 + 提示；判定与退出码不变

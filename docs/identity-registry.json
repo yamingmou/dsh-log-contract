@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "family": "version-identity",
+  "algorithm": "sha256( sorted(path+sha256(file)) over lib/**/*.js + bin/**/*.mjs )",
+  "note": "IDENTITY 契约登记表：版本 → 运行时代码内容摘要（只含运行身份；文档/测试/机制件不计入）。发布前必须把由产物实算的摘要登记进来（ID2）；同一版本不得出现两个不同摘要（ID1）。本文件随仓入库，但 npm 只打包 docs/**/*.md ⇒ 安装包内不含本表（identity 为 unverifiable）。",
+  "entries": [
+    {
+      "version": "0.3.38",
+      "digest": "sha256:dffc8b3b062111a53db2d0b01c9f72046f13641f2ab532480ac0bbefb7516a57",
+      "note": "IDENTITY 契约引入时登记（一物一号 / 号可验）；运行身份 = lib/**/*.js + bin/**/*.mjs 清单 hash"
+    }
+  ]
+}

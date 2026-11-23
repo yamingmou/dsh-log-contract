@@ -14,7 +14,7 @@
  */
 import fs from 'node:fs';
 import { delimiter as pathDelimiter, join as pathJoin } from 'node:path';
-import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, explainRule, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport, ERROR_CONTRACT_RULES, checkErrorContract, normalizePath } from '../lib/index.js';
+import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, explainRule, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport, ERROR_CONTRACT_RULES, checkErrorContract, normalizePath, checkIdentity, IDENTITY_RULES, packageRoot } from '../lib/index.js';
 
 /**
  * 同步写 fd——`process.stdout.write` 在**管道**下是异步的，紧跟着的
@@ -339,6 +339,10 @@ function cmdCheck(args) {
     // 新增键（additive，同 schemaVersion 下既有键不删/不改义）：错误表达契约规则目录。
     // findings 需要源码输入，故只在 `error-contract` 子命令产出；此处只给规则清单。
     payload.errorContract = { family: 'error-expression', rules: ERROR_CONTRACT_RULES.map((r) => ({ id: r.id, severity: r.severity, title: r.title, layer: r.layer, target: r.target, falsePositiveRisk: r.falsePositiveRisk })), note: '静态规则目录；源码扫描用 error-contract 子命令' };
+    // IDENTITY 段（schemaVersion 3 · additive）：版本同一性（判据 −1：跑的东西是不是你以为的那个）。
+    // ⛔ 只给诊断，不进 ok/退出码；登记表缺失（npm 安装包不含 internal/）⇒ ok:null（unverifiable）。
+    const identity = checkIdentity({ root: packageRoot() });
+    payload.identity = { ...identity, rules: IDENTITY_RULES.map((r) => ({ id: r.id, severity: r.severity, title: r.title, layer: r.layer })) };
     if (notAssessable) payload.notAssessable = result.notAssessable;
     if (resume) payload.resume = resumeVerdict(result);
     out(JSON.stringify(payload, null, 2) + '\n');

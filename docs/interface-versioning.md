@@ -10,7 +10,7 @@
 |---|---|
 | 字段名 | `schemaVersion` |
 | 位置 | `check --json` 报告**顶层**；同值同步进 `validateSessionLog()` 返回对象顶层 |
-| 当前值 | `"2"`（字符串，暂不采用 semver；见下文 v2） |
+| 当前值 | `"3"`（字符串，暂不采用 semver；见下文 v2 / v3） |
 | 覆盖范围 | 仅 `check --json` 这一份报告结构。`prewrite --json` 是**另一份结构**，暂不带本字段（当前 CLI 亦无 `plan` 子命令） |
 
 `schemaVersion` 标记的是**报告结构**（字段集合 / 字段类型 / 字段含义）的版本：
@@ -53,9 +53,32 @@
   "未分类诊断"，按原 S9 文案处理。
 - 分类枚举后续只增（新取值按 unknown 降级）；新增取值**不**再单独升版。
 
+## v3（本版）：IDENTITY 段（版本同一性诊断 · 兼容递增）
+
+`schemaVersion` 由 `"2"` → `"3"`。**只增顶层键**：新增 `identity` 段（判据 −1"跑的东西是不是你以为的那个"），
+既有键与 `ok`/退出码**语义不变**（identity 是**独立诊断维度**，不进 `ok`）。
+
+| 键 | 形状 | 说明 |
+|---|---|---|
+| `identity.family` | `"version-identity"` | 报告域（与 `error-expression` 并列，靠 family 分派） |
+| `identity.rules` | `[{id,severity,title,layer}]` | IDENTITY 规则目录（ID1 一物一号 / ID2 号可验） |
+| `identity.ok` | `true \| false \| null` | `null` = unverifiable（登记表缺失/不可读：npm 安装包不含 `internal/`）——**不冒充通过** |
+| `identity.version` | `string \| null` | `package.json` 声明版本（或调用方注入） |
+| `identity.digest` | `sha256:…` | 由**产物**实算的运行身份摘要（`lib/**/*.js` + `bin/**/*.mjs` 逐文件 sha256 → 排序后再 sha256） |
+| `identity.runtime.files` | `number` | 计入摘要的运行时代码文件数 |
+| `identity.registry` | `{file, present, entries}` | 登记表位置与条目数 |
+| `identity.findings[]` | `[{id,severity,title,file,line,message}]` | 判红项：`ID1`（同一版本两个摘要）/`ID2`（声明↔登记↔实算不一致、未登记、摘要伪造）；**带 file:line 证据** |
+| `identity.summary.byRule` | `object` | 按规则计数 |
+
+兼容性与边界：
+- **v2 消费者读 v3 报告**：忽略未知键 `identity` 即可；`ok`/`violations`/退出码语义未变。
+- **防噪音**：只改文档/测试/机制件（不改运行时代码）⇒ `identity.digest` 不变 ⇒ 绿；
+  只改代码不动版本 ⇒ `ID2` 红（"同号改代码"必须换号并重新登记摘要）。
+- 登记表 `docs/identity-registry.json` **不随 npm 包发布**（npm 只打包 `docs/**/*.md`） ⇒ 安装包内 `identity.ok = null`（unverifiable）。
+
 ## 何时升版
 
-**不兼容才升**（`"1"` → `"2"`）：
+**不兼容才升**（版本号只增，如 `"2"` → `"3"`）：
 
 | 变更 | 升版？ |
 |---|---|
@@ -77,7 +100,7 @@
 
 | 报告域 | 命令 | 版本字段 | 备注 |
 |---|---|---|---|
-| 日志契约（session log contract） | `check --json` | 顶层 `schemaVersion`（当前 `"2"`） | 本文正文主要讲这一域 |
+| 日志契约（session log contract） | `check --json` | 顶层 `schemaVersion`（当前 `"3"`） | 本文正文主要讲这一域 |
 | 错误表达契约（error-expression） | `error-contract --json` | 顶层 `schemaVersion`（当前 `"1"`）+ `family: "error-expression"` | 与日志契约**互不影响**：任一域升版不牵动另一域 |
 
 - 两个域的 id 集合可能重名（都有 `E1`…），消费者**必须按 `family` 分派**，⛔ 不要按 id 字面合并。

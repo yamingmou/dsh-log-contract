@@ -8,7 +8,7 @@
  *   - format-mix：同一物理流混有 legacy（v0–v2）与 modern（v3+）形态，尤其与声明版本矛盾。
  *
  * 每类都给正例 + 反例；另锁「判定不变」（S9 error/只报一条/原 message 仍在）与
- * `check --json` 的 schemaVersion=2 + 新字段。
+ * `check --json` 的 schemaVersion=3（v2 引入 S9 诊断；v3 加 identity 段）+ 新字段。
  */
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
@@ -155,7 +155,7 @@ describe('format-mix（跨版本重放，正/反例）', () => {
 });
 
 describe('集成：validateSessionLog / check --json', () => {
-  it('validateSessionLog：S9 带诊断字段，schemaVersion 升到 2，判定仍 error', () => {
+  it('validateSessionLog：S9 带诊断字段，schemaVersion 已达 v3，判定仍 error', () => {
     const result = validateSessionLog(logOf(HEADER_V0, [plain(0), plain(2), plain(1)]));
     const s9 = result.violations.filter((v) => v.id === 'S9');
     expect(s9).toHaveLength(1);
@@ -163,19 +163,19 @@ describe('集成：validateSessionLog / check --json', () => {
     expect(s9[0].category).toBe(S9_CATEGORIES.OLD_CURSOR_REPLAY);
     expect(typeof s9[0].confidence).toBe('number');
     expect(s9[0].hint).toContain('loaded=no');
-    expect(result.schemaVersion).toBe('2');
+    expect(result.schemaVersion).toBe('3');
     const round = JSON.parse(JSON.stringify(result.violations));
     expect(round.find((v) => v.id === 'S9').category).toBe(S9_CATEGORIES.OLD_CURSOR_REPLAY);
   });
 
-  it('check --json：schemaVersion=2 + S9 的 category/confidence/hint/basis 可机读', () => {
+  it('check --json：schemaVersion=3 + S9 的 category/confidence/hint/basis 可机读', () => {
     const dir = mkdtempSync(join(tmpdir(), 's9-cli-'));
     const file = join(dir, 'session.jsonl');
     const lines = [JSON.stringify(HEADER_V0), JSON.stringify(plain(0)), JSON.stringify(plain(2)), JSON.stringify(plain(1))];
     writeFileSync(file, lines.join('\n') + '\n');
     const r = spawnSync(process.execPath, [BIN, 'check', file, '--json'], { encoding: 'utf8' });
     const payload = JSON.parse(r.stdout);
-    expect(payload.schemaVersion).toBe('2');
+    expect(payload.schemaVersion).toBe('3');
     const s9 = payload.violations.find((v) => v.id === 'S9');
     expect(s9.category).toBe(S9_CATEGORIES.OLD_CURSOR_REPLAY);
     expect(s9.confidence).toBeGreaterThan(0);
