@@ -30,7 +30,8 @@
   ],
   "scripts": {
     "check": "node scripts/gen-contracts-doc.mjs --check",
-    "test": "vitest run"
+    "test": "vitest run",
+    "identity:register": "node scripts/identity-register.mjs"
   },
   "keywords": [
     "dsh",

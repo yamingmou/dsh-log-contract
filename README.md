@@ -96,6 +96,24 @@ line-by-line verification against the official Host source (each rule carries it
 
 ---
 
+## Identity contract (ID1 / ID2) — "is what runs what you think it is?"
+A **separate report family** (`version-identity`): not counted in the 57 log-contract rules,
+and **not part of `ok` / exit codes** — it answers whether the artifact you run is the one
+the declared version promises.
+
+| Rule | What it guards |
+|---|---|
+| `ID1` | **One version, one digest**: the registry (`docs/identity-registry.json`) must not map one version to two different content digests ⇒ red with `file:line` evidence (duplicate entries sharing the same digest do not fire). |
+| `ID2` | **The number is verifiable**: the digest is computed **from the artifact** — runtime identity = `lib/**/*.js` + `bin/**/*.mjs`, per-file sha256 → sorted → sha256 — and bound to `package.json.version`. Unregistered version, mismatched or **forged** digest, or *same version after a code change* ⇒ red. **Doc-only changes keep the digest unchanged ⇒ green** (no noise). |
+
+`check --json` exposes it as the `identity` section (`family`, `rules`, `ok`, `version`,
+`digest`, `runtime`, `registry`, `findings[]` with `file:line`, `summary`); `identity.ok` is
+`null` (**unverifiable**, never "pass") when the registry is absent — npm tarballs ship
+`docs/**/*.md` only. After a version bump or a runtime-code change, re-register:
+`pnpm identity:register` (or `node scripts/identity-register.mjs [version]`).
+
+---
+
 ## Version support (host / session format)
 **Tested baseline (the versions this rule set was verified against)**:
 

@@ -75,6 +75,22 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 
 ---
 
+## 身份契约（ID1 / ID2）——「跑的东西是不是你以为的那个」
+**独立报告域**（`family: version-identity`）：**不并入** 57 条日志契约计数，也**不进** `ok`/退出码——
+它回答"你跑的产物是不是声明版本承诺的那一份"。
+
+| 规则 | 守护什么 |
+|---|---|
+| `ID1` | **一物一号**：登记表（`docs/identity-registry.json`）里同一版本不得对应两个不同内容摘要 ⇒ 判红（带 `file:line` 证据；重复登记但摘要相同不报，防噪音）。 |
+| `ID2` | **号可验**：摘要必须由**产物**实算——运行身份 = `lib/**/*.js` + `bin/**/*.mjs` 逐文件 sha256 → 按路径排序后再 sha256——并与 `package.json.version` 绑定。未登记版本、摘要不符或**伪造**、"同号改了代码" ⇒ 判红；**只改文档/测试/机制件 ⇒ 摘要不变 ⇒ 绿**（防噪音）。 |
+
+`check --json` 以 `identity` 段输出（`family` / `rules` / `ok` / `version` / `digest` / `runtime` /
+`registry` / `findings[]`（含 `file:line`）/ `summary`）；登记表缺失时 `identity.ok = null`
+（**unverifiable**，不冒充通过——npm 包只含 `docs/**/*.md`）。换版本或改运行时代码后重登记：
+`pnpm identity:register`（或 `node scripts/identity-register.mjs [version]`）。
+
+---
+
 ## 版本支持（宿主 / 会话格式）
 **测试基线（本规则集验证过的版本）**：
 

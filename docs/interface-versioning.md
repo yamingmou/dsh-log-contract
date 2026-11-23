@@ -62,7 +62,7 @@
 |---|---|---|
 | `identity.family` | `"version-identity"` | 报告域（与 `error-expression` 并列，靠 family 分派） |
 | `identity.rules` | `[{id,severity,title,layer}]` | IDENTITY 规则目录（ID1 一物一号 / ID2 号可验） |
-| `identity.ok` | `true \| false \| null` | `null` = unverifiable（登记表缺失/不可读：npm 安装包不含 `internal/`）——**不冒充通过** |
+| `identity.ok` | `true \| false \| null` | `null` = unverifiable（登记表缺失/不可读：npm 安装包不含该文件）——**不冒充通过** |
 | `identity.version` | `string \| null` | `package.json` 声明版本（或调用方注入） |
 | `identity.digest` | `sha256:…` | 由**产物**实算的运行身份摘要（`lib/**/*.js` + `bin/**/*.mjs` 逐文件 sha256 → 排序后再 sha256） |
 | `identity.runtime.files` | `number` | 计入摘要的运行时代码文件数 |
@@ -75,6 +75,7 @@
 - **防噪音**：只改文档/测试/机制件（不改运行时代码）⇒ `identity.digest` 不变 ⇒ 绿；
   只改代码不动版本 ⇒ `ID2` 红（"同号改代码"必须换号并重新登记摘要）。
 - 登记表 `docs/identity-registry.json` **不随 npm 包发布**（npm 只打包 `docs/**/*.md`） ⇒ 安装包内 `identity.ok = null`（unverifiable）。
+- 换版本或改运行时代码后**重登记摘要**：`pnpm identity:register`（或 `node scripts/identity-register.mjs [version]`）。登记旧摘要/伪造摘要 ⇒ `ID2` 红（发布前闸，不是可选项）。
 
 ## 何时升版
 
