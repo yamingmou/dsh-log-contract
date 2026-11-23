@@ -271,11 +271,11 @@ when the host cannot judge the file.
 read* are self-consistent — see the `tailStatus` note in the 0.3.28 section above.
 
 **Report structure versioning (`schemaVersion`)**: every `check --json` report
-carries a top-level `schemaVersion` (currently `"1"`) that versions the **report
+carries a top-level `schemaVersion` (currently `"2"`) that versions the **report
 structure** itself — field set / types / meanings — not the tool version and not
 the log format version. Within one version, reports are additive only (existing
 top-level keys are never removed, renamed or redefined); a report **without** the
-field is to be read as `"1"`. Full compatibility promise and bump rules:
+field is to be read as `"1"`. `"2"` adds S9 diagnosis fields (`category`/`confidence`/`hint`/`basis`) without changing the S9 verdict. Full compatibility promise and bump rules:
 [docs/interface-versioning.md](./docs/interface-versioning.md).
 
 `check` adds **W1/W2 wire-level checks** since 0.2.0: expand the model request

@@ -10,7 +10,7 @@
 |---|---|
 | 字段名 | `schemaVersion` |
 | 位置 | `check --json` 报告**顶层**；同值同步进 `validateSessionLog()` 返回对象顶层 |
-| 当前值 | `"1"`（字符串，暂不采用 semver） |
+| 当前值 | `"2"`（字符串，暂不采用 semver；见下文 v2） |
 | 覆盖范围 | 仅 `check --json` 这一份报告结构。`prewrite --json` 是**另一份结构**，暂不带本字段（当前 CLI 亦无 `plan` 子命令） |
 
 `schemaVersion` 标记的是**报告结构**（字段集合 / 字段类型 / 字段含义）的版本：
@@ -25,11 +25,33 @@
   在它出现之前的报告结构就是 v1。
 - 枚举类字段新增取值属于兼容变更；消费者对未知取值应降级归入 unknown，不得崩溃。
 
-### 已新增的可选键（同 `schemaVersion: "1"`）
+### 已新增的可选键（`schemaVersion: "1"` 期间）
 
 | 键 | 引入 | 形状 | 说明 |
 |---|---|---|---|
 | `errorContract` | 0.3.x | `{ family: "error-expression", rules: [{id,severity,title,layer,target,falsePositiveRisk}], note }` | 错误表达契约（E1–E6）的**规则目录**；源码扫描结果不在此键内（用 `error-contract` 子命令的独立报告）。旧消费者忽略此键即可。 |
+
+---
+
+## v2（本版）：S9 诊断字段（兼容递增）
+
+`schemaVersion` 由 `"1"` → `"2"`。**这次升版是按"新增枚举/诊断结构要能被消费者识别"显式登记**，
+结构上仍是**只增不改**：顶层键集合不变，仅 `violations[]` 里 S9 违规**新增可选字段**。
+
+| 键 | 形状 | 说明 |
+|---|---|---|
+| `violations[].category` | `"old-cursor-replay" \| "concurrent-writer" \| "format-mix"` | 物理序非单调的**诊断分类**；仅 S9 违规携带 |
+| `violations[].confidence` | `number`（0–1） | 分类置信度（启发式，非概率保证） |
+| `violations[].hint` | `string` | 处置提示（含"建议 loaded=no 重载后再写"） |
+| `violations[].basis` | `string` | 判定式（回卷步数/方向反转/内容重复/格式代/声明版本/连续回放步数） |
+| `violations[].diagnosis` | `{ category, confidence, basis, hint }` | 与上述四键同值的对象（便于整体消费） |
+
+兼容性：
+- **v1 消费者读 v2 报告**：顶层键与 S9 的 `id/severity/seq/lineNo/message` 语义**未变**，
+  新增字段按"未知键忽略"处理即可；S9 **判定不变**（仍为 error，仍只报首个物理序倒退）。
+- **v2 消费者读 v1 报告**：S9 违规可能缺 `category/confidence/basis/diagnosis` ⇒ 视为
+  "未分类诊断"，按原 S9 文案处理。
+- 分类枚举后续只增（新取值按 unknown 降级）；新增取值**不**再单独升版。
 
 ## 何时升版
 
@@ -55,7 +77,7 @@
 
 | 报告域 | 命令 | 版本字段 | 备注 |
 |---|---|---|---|
-| 日志契约（session log contract） | `check --json` | 顶层 `schemaVersion`（当前 `"1"`） | 本文正文主要讲这一域 |
+| 日志契约（session log contract） | `check --json` | 顶层 `schemaVersion`（当前 `"2"`） | 本文正文主要讲这一域 |
 | 错误表达契约（error-expression） | `error-contract --json` | 顶层 `schemaVersion`（当前 `"1"`）+ `family: "error-expression"` | 与日志契约**互不影响**：任一域升版不牵动另一域 |
 
 - 两个域的 id 集合可能重名（都有 `E1`…），消费者**必须按 `family` 分派**，⛔ 不要按 id 字面合并。

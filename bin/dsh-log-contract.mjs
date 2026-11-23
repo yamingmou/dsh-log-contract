@@ -166,6 +166,11 @@ function printViolations(violations, maxDetails = 8) {
       .filter(Boolean).join(' / ');
     const head = `  [${v.severity}] ${v.id} ${loc ? `@ ${loc}` : ''}${v.eventType ? ` (${v.eventType})` : ''}`;
     out(`${head}\n      ${v.message}\n`);
+    // S9 诊断（本版）：分类/置信度/判定式/建议；判定本身不变（仍 error、仍只报首个倒退）
+    if (v.id === 'S9' && v.category) {
+      out(`      诊断：${v.category}（置信度 ${v.confidence}）｜判定式：${v.basis ?? '-'}\n`);
+      out(`      ${v.hint ?? ''}\n`);
+    }
     if (Array.isArray(v.missingSeqs) && v.missingSeqs.length > maxDetails) {
       out(`      …另有 ${v.missingSeqs.length - maxDetails} 个缺失 seq 未列出\n`);
     }

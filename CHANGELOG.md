@@ -1,3 +1,9 @@
+## [0.3.37] — 2026-11-23
+
+- S9 诊断增强：物理序 seq 非单调时给出病因分类（old-cursor-replay / concurrent-writer / format-mix）+ 置信度 + 判定式 + 提示；判定与退出码不变
+- `check --json` schemaVersion 1→2（只增可选字段，v1↔v2 互读）
+- 新增 17 条诊断用例
+
 ## [0.3.36] — 2026-11-13
 
 - 修复：`check-syntax` 覆盖 `contract/**`；self-test 正对照改隔离夹具；freeze 基线更新
