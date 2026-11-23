@@ -4,10 +4,10 @@ node_modules/
 coverage/
 dist/
 backups/
-internal/reviews/
 
-# 独立审核记录：不入树（review-record 闸按 treeSha 绑定代码树）
+# 本地私有目录（开发者自用，不入公开仓库）
+.local/
+private/
+
+# 本地记录：不入树
 reviews/*.json
-
-# 内部工具/机制件：本地保留、不入公开仓库
-internal/

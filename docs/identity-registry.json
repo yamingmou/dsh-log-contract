@@ -8,6 +8,11 @@
       "version": "0.3.38",
       "digest": "sha256:dffc8b3b062111a53db2d0b01c9f72046f13641f2ab532480ac0bbefb7516a57",
       "note": "IDENTITY 契约引入时登记（一物一号 / 号可验）；运行身份 = lib/**/*.js + bin/**/*.mjs 清单 hash"
+    },
+    {
+      "version": "0.3.39",
+      "digest": "sha256:8ae78d9fa4e0da7fe2b7aadecb6a8adba1ea568ef80205cbf1af3ba5af12e519",
+      "note": "由 scripts/identity-register.mjs 登记（运行身份 = lib/**/*.js + bin/**/*.mjs 清单 hash）"
     }
   ]
 }

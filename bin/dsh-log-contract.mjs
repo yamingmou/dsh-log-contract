@@ -340,7 +340,7 @@ function cmdCheck(args) {
     // findings 需要源码输入，故只在 `error-contract` 子命令产出；此处只给规则清单。
     payload.errorContract = { family: 'error-expression', rules: ERROR_CONTRACT_RULES.map((r) => ({ id: r.id, severity: r.severity, title: r.title, layer: r.layer, target: r.target, falsePositiveRisk: r.falsePositiveRisk })), note: '静态规则目录；源码扫描用 error-contract 子命令' };
     // IDENTITY 段（schemaVersion 3 · additive）：版本同一性（判据 −1：跑的东西是不是你以为的那个）。
-    // ⛔ 只给诊断，不进 ok/退出码；登记表缺失（npm 安装包不含 internal/）⇒ ok:null（unverifiable）。
+    // ⛔ 只给诊断，不进 ok/退出码；登记表缺失（npm 安装包不含该 JSON）⇒ ok:null（unverifiable）。
     const identity = checkIdentity({ root: packageRoot() });
     payload.identity = { ...identity, rules: IDENTITY_RULES.map((r) => ({ id: r.id, severity: r.severity, title: r.title, layer: r.layer })) };
     if (notAssessable) payload.notAssessable = result.notAssessable;
