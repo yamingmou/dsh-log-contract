@@ -123,8 +123,10 @@ outside `ok` / exit codes. It ships three assertion helpers for real run records
 | `R-3` | `assertFailClosed({ required, provided, result })` | any missing required input (field / file / context) ⇒ the verdict must be **incompatible**, with a visible reason naming the missing input — a missing input never matches (`fail-open` is red) |
 | `R-1` | `assertFailureLatched(history)` | a failure is **latched**: after `failed: true`, no later snapshot (recover / reload / cache clear) may write `failed: false` |
 | `R-2a` | `assertWriteOutcome({ write, artifact })` | a failed or unknown write must never leave the artifact marked `complete` — withdraw it or mark it `partial` / `unavailable` / `withdrawn` |
+| `R-2b` | `assertWithdrawalHasReason({ withdrawals, reasonField?, reasonSupported? })` | a withdrawal response must carry a **consumer-readable reason** field; a reason that only lives in logs/telemetry is red; implementations without such a field report `ok:null` (unverifiable) |
+| `R-6` | `assertIdempotentSideEffects({ operations, keyField? })` | side effects are grouped by a **stable key**: at most one execution per key, later attempts must be cached or explicitly "duplicate"; records without keys report `ok:null` (precondition: the key is supplied by the runtime) |
 
-`checkRunContract({...})` runs them together and lists the assertions you did not supply under
+`checkRunContract({...})` runs them together (unverifiable results stay `null`) and lists the assertions you did not supply under
 `skipped`; when **none** ran, `ok` is `null` (unverifiable — never "pass"). Usage, positive/negative examples and the open items for R-2b
 (reason field) and R-6 (idempotency key) are in [docs/RUN-CONTRACT.md](docs/RUN-CONTRACT.md).
 

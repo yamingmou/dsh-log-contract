@@ -206,7 +206,7 @@ describe('集成：check --json 的 identity 段 + schemaVersion', () => {
     fs.writeFileSync(file, JSON.stringify({ type: 'session', version: 4, id: 'x', createdAt: 1 }) + '\n');
     const res = spawnSync(process.execPath, [CLI, 'check', file, '--json'], { encoding: 'utf8' });
     const payload = JSON.parse(res.stdout);
-    expect(payload.schemaVersion).toBe('4');
+    expect(payload.schemaVersion).toBe('5');
     // 既有键（不破坏）
     for (const k of ['ok', 'assessable', 'assessmentScope', 'host', 'support', 'migration', 'summary', 'violations']) {
       expect(Object.hasOwn(payload, k), `既有键 ${k} 丢了`).toBe(true);

@@ -20,6 +20,8 @@ import {
   checkRunContract,
   isMissingInput,
   reasonMentions,
+  assertWithdrawalHasReason,
+  assertIdempotentSideEffects,
 } from '../lib/run-contract.js';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -27,7 +29,7 @@ const CLI = path.join(ROOT, 'bin', 'dsh-log-contract.mjs');
 
 describe('规则目录', () => {
   it('三条规则齐全，id/family/layer/severity 稳定', () => {
-    expect(RUN_CONTRACT_RULES.map((r) => r.id)).toEqual(['R-3', 'R-1', 'R-2a']);
+    expect(RUN_CONTRACT_RULES.map((r) => r.id)).toEqual(['R-3', 'R-1', 'R-2a', 'R-2b', 'R-6']);
     for (const r of RUN_CONTRACT_RULES) {
       expect(r.family).toBe(RUN_CONTRACT_FAMILY);
       expect(r.severity).toBe('error');
@@ -162,20 +164,96 @@ describe('R-2a · 写失败不得标完整', () => {
   });
 });
 
+describe('R-2b · 撤回必须带消费方可读的原因', () => {
+  it('正例：撤回类响应带非空 reason ⇒ 绿', () => {
+    const r = assertWithdrawalHasReason({ withdrawals: [{ kind: 'withdrawal', target: 'x', reason: 'user asked' }] });
+    expect(r.ok).toBe(true);
+    expect(r.checked).toBe(1);
+  });
+
+  it('反例：撤回类响应缺 reason ⇒ R-2b 红', () => {
+    const r = assertWithdrawalHasReason({ withdrawals: [{ withdrawn: true, target: 'x' }] });
+    expect(r.ok).toBe(false);
+    expect(r.findings[0].id).toBe('R-2b');
+    expect(r.findings[0].message).toContain('消费方可读');
+  });
+
+  it('反例：原因只出现在日志/旁路 ⇒ 仍红，并点名旁路字段', () => {
+    const r = assertWithdrawalHasReason({ withdrawals: [{ kind: 'withdrawal', target: 'x', log: 'revoked by policy' }] });
+    expect(r.ok).toBe(false);
+    expect(r.findings[0].sideChannels).toEqual(['log']);
+    expect(r.findings[0].message).toContain('旁路');
+  });
+
+  it('不可判定：实现侧无 reason 字段（reasonSupported:false）⇒ ok=null（不冒充通过）', () => {
+    const r = assertWithdrawalHasReason({ withdrawals: [{ withdrawn: true }], reasonSupported: false });
+    expect(r.ok).toBeNull();
+    expect(r.skipped).toContain('no-reason-field');
+  });
+
+  it('不可判定：没有撤回类条目 ⇒ ok=null（不适用）', () => {
+    const r = assertWithdrawalHasReason({ withdrawals: [{ kind: 'write', effect: 'applied' }] });
+    expect(r.ok).toBeNull();
+    expect(r.skipped).toBe('no-withdrawal-items');
+  });
+});
+
+describe('R-6 · 副作用幂等（同键只执行一次）', () => {
+  it('正例：同键首次执行 + 第二次返回缓存 ⇒ 绿', () => {
+    const r = assertIdempotentSideEffects({ operations: [
+      { key: 'call-1', effect: 'applied' },
+      { key: 'call-1', effect: 'cached' },
+    ] });
+    expect(r.ok).toBe(true);
+    expect(r.keys).toBe(1);
+  });
+
+  it('反例：同键副作用执行两次 ⇒ R-6 红', () => {
+    const r = assertIdempotentSideEffects({ operations: [
+      { key: 'call-1', applied: true },
+      { key: 'call-1', applied: true },
+    ] });
+    expect(r.ok).toBe(false);
+    expect(r.findings[0].id).toBe('R-6');
+    expect(r.findings[0].applied).toBe(2);
+  });
+
+  it('反例：同键第二次结果不可判定（未标缓存/重复）⇒ 红', () => {
+    const r = assertIdempotentSideEffects({ operations: [
+      { key: 'call-1', effect: 'applied' },
+      { key: 'call-1' },
+    ] });
+    expect(r.ok).toBe(false);
+    expect(r.findings.some((f) => f.message.includes('不可判定'))).toBe(true);
+  });
+
+  it('不可判定：记录里没有稳定键 ⇒ ok=null（缺前置，不冒充通过）', () => {
+    const r = assertIdempotentSideEffects({ operations: [{ effect: 'applied' }, { effect: 'applied' }] });
+    expect(r.ok).toBeNull();
+    expect(r.skipped).toBe('no-stable-keys');
+  });
+
+  it('正例：不同键各自执行一次 ⇒ 绿', () => {
+    const r = assertIdempotentSideEffects({ operations: [{ key: 'a', applied: true }, { key: 'b', applied: true }] });
+    expect(r.ok).toBe(true);
+    expect(r.keys).toBe(2);
+  });
+});
+
 describe('checkRunContract · 汇总与"未提供≠通过"', () => {
   it('空输入 ⇒ 一条断言都没跑 ⇒ ok=null（unverifiable，不冒充通过）', () => {
     const rep = checkRunContract({});
     expect(rep.ok).not.toBe(true);
     expect(rep.ok).toBeNull();
     expect(rep.checks).toEqual([]);
-    expect(rep.skipped).toEqual(['R-1', 'R-2a', 'R-3']);
+    expect(rep.skipped).toEqual(['R-1', 'R-2a', 'R-3', 'R-2b', 'R-6']);
   });
 
   it('只提供部分输入 ⇒ skipped 列出未跑断言，ok 只由已跑项决定', () => {
     const rep = checkRunContract({ history: [{ phase: 'run', failed: false }] });
     expect(rep.family).toBe(RUN_CONTRACT_FAMILY);
     expect(rep.checks.map((c) => c.id)).toEqual(['R-1']);
-    expect(rep.skipped).toEqual(['R-2a', 'R-3']);
+    expect(rep.skipped).toEqual(['R-2a', 'R-3', 'R-2b', 'R-6']);
     expect(rep.ok).toBe(true);
   });
 
@@ -200,12 +278,12 @@ describe('集成：check --json 的 runContract 段', () => {
     fs.writeFileSync(file, JSON.stringify({ type: 'session', version: 4, id: 'x', createdAt: 1 }) + '\n');
     const res = spawnSync(process.execPath, [CLI, 'check', file, '--json'], { encoding: 'utf8' });
     const payload = JSON.parse(res.stdout);
-    expect(payload.schemaVersion).toBe('4');
+    expect(payload.schemaVersion).toBe('5');
     for (const k of ['ok', 'assessable', 'assessmentScope', 'host', 'support', 'migration', 'summary', 'violations', 'identity', 'errorContract']) {
       expect(Object.hasOwn(payload, k), `既有键 ${k} 丢了`).toBe(true);
     }
     expect(payload.runContract.family).toBe('run-contract');
-    expect(payload.runContract.rules.map((r) => r.id)).toEqual(['R-3', 'R-1', 'R-2a']);
+    expect(payload.runContract.rules.map((r) => r.id)).toEqual(['R-3', 'R-1', 'R-2a', 'R-2b', 'R-6']);
     expect(payload.runContract.note).toContain('RUN-CONTRACT');
   });
 });

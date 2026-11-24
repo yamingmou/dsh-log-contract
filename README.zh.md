@@ -100,8 +100,10 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 | `R-3` | `assertFailClosed({ required, provided, result })` | 任一必需输入（字段/文件/上下文）缺失 ⇒ 判定必须是**不兼容**且原因点名缺项；缺失永不匹配（判成兼容即红） |
 | `R-1` | `assertFailureLatched(history)` | 失败**置位**：出现 `failed: true` 后，任何后续快照（恢复/重载/清缓存）都不得写回 `failed: false` |
 | `R-2a` | `assertWriteOutcome({ write, artifact })` | 写失败或结果未知时，产物不得标 `complete`——必须撤回或标 `partial` / `unavailable` / `withdrawn` |
+| `R-2b` | `assertWithdrawalHasReason({ withdrawals, reasonField?, reasonSupported? })` | 撤回类响应必须带**消费方可读的原因**字段；原因只在日志/遥测旁路 ⇒ 红；实现侧无该字段 ⇒ `ok:null`（unverifiable） |
+| `R-6` | `assertIdempotentSideEffects({ operations, keyField? })` | 按**稳定幂等键**分组：同键副作用执行 ≤1 次，后续必须缓存或显式"重复"；记录无键 ⇒ `ok:null`（缺前置：键由运行时提供） |
 
-`checkRunContract({...})` 可一起跑；未提供的断言列在 `skipped`；**一条都没跑**时 `ok: null`（unverifiable，⛔ 不冒充通过）。用法、正反例，
+`checkRunContract({...})` 可一起跑（unverifiable 项保持 `null`）；未提供的断言列在 `skipped`；**一条都没跑**时 `ok: null`（unverifiable，⛔ 不冒充通过）。用法、正反例，
 以及 R-2b（reason 字段）/ R-6（幂等键）的前置项清单见 [docs/RUN-CONTRACT.md](docs/RUN-CONTRACT.md)。
 
 ---

@@ -79,6 +79,64 @@ assertWriteOutcome({ write: { ok: false, error: 'EIO' }, artifact: { complete: t
 // ⇒ findings[0].id === 'R-2a'
 ```
 
+## R-2b · 撤回必须带消费方可读的原因（场景①）
+
+**判据**：撤回类响应（`kind/type` 含 withdraw、或 `withdrawn === true`、或 `status === "withdrawn"`）
+必须携带**消费方可读**的原因字段（默认 `reason`，非空字符串）。原因只出现在 `log`、`metadata`、
+`telemetry` 等**旁路** ⇒ 仍判红——消费方读不到日志里的原因，不等于撤回有原因。
+实现侧**没有**原因字段概念时，传 `reasonSupported: false` ⇒ `ok: null`（unverifiable，⛔ 不冒充通过）。
+
+```js
+import { assertWithdrawalHasReason } from 'dsh-log-contract';
+
+// ✅ 合规：原因在响应本身
+assertWithdrawalHasReason({ withdrawals: [{ kind: 'withdrawal', target: 'x', reason: 'user asked' }] }).ok === true;
+
+// ⛔ 违规：没有 reason（原因只在日志旁路）
+assertWithdrawalHasReason({ withdrawals: [{ withdrawn: true, target: 'x', log: 'revoked by policy' }] });
+// ⇒ findings[0].id === 'R-2b'（sideChannels: ['log']）
+
+// ⚪ 不可判定：实现侧没有该字段
+assertWithdrawalHasReason({ withdrawals: [{ withdrawn: true }], reasonSupported: false }).ok === null;
+```
+
+> 场景②（"初始化中"被当成空值继续判断）属另一条判据（`initialized !== true` 却继续），本包暂未实现。
+
+## R-6 · 副作用必须幂等（同键只执行一次）
+
+**核查结论（先查再判）**：运行记录里**已有天然稳定键**——`tool/call` 的 `data.callId`
+被持久化、且由 `tool/result` 的 `data.message.source.callId` 引用（本包 `P3` 配对即用它），
+`turn+step`、消息 `id` 同样稳定。因此 R-6 可落为**接口级可机检**：调用方按稳定键把执行记录
+喂进来，断言「同键副作用执行次数 ≤ 1；第二次必须返回缓存或显式"重复"」。
+**仍缺的前置清单**：
+
+| 缺什么 | 谁提供 | 最小补法 |
+|---|---|---|
+| 重试**复用同一幂等键**的声明 | 写入/调用路径（运行时） | 调用的重试沿用首次的键（tool call id 已持久化，直接复用即可） |
+| 第二次执行**返回缓存或显式"重复"**的标记 | 副作用执行器（工具/写入实现） | 记录里写 `effect: "cached" \| "duplicate"`（或 `applied: false`），让"未重复执行"可判 |
+
+记录不带键时无法判定 ⇒ `ok: null`（unverifiable，⛔ 不冒充通过）。
+
+```js
+import { assertIdempotentSideEffects } from 'dsh-log-contract';
+
+// ✅ 合规：同键首次执行 + 第二次返回缓存
+assertIdempotentSideEffects({ operations: [
+  { key: 'call-1', effect: 'applied' },
+  { key: 'call-1', effect: 'cached' },
+] }).ok === true;
+
+// ⛔ 违规：同键执行两次
+assertIdempotentSideEffects({ operations: [
+  { key: 'call-1', applied: true },
+  { key: 'call-1', applied: true },
+] });
+// ⇒ findings[0].id === 'R-6'
+
+// ⚪ 不可判定：记录里没有稳定键（缺前置）
+assertIdempotentSideEffects({ operations: [{ effect: 'applied' }] }).ok === null;
+```
+
 ## 一起跑
 
 ```js
@@ -93,8 +151,9 @@ const report = checkRunContract({ history, write, artifact, required, provided, 
 
 | 候选 | 状态 | 前置项 |
 |---|---|---|
-| **R-2b** 撤回必须带原因 | 未实现 | 撤回事件需要**必填 `reason`** 字段（现结构只有 `originalText`，没有原因语义）⇒ 先补字段契约，再加断言 |
-| **R-6** 副作用必须幂等 | 未实现 | 需要先立"副作用携带稳定**幂等键**"契约（当前没有该概念）；无幂等键时判定只能是"缺前置" |
+| **R-2b 场景①** 撤回必须带原因 | **已落断言**（`assertWithdrawalHasReason`） | 记录里出现撤回类响应即可判；实现侧没有原因字段时标 unverifiable（`reasonSupported:false`） |
+| **R-2b 场景②** 初始化中不得按空值继续 | 未实现 | 判据：`initialized !== true` 却按空值/不存在继续判断 ⇒ 红（不需新字段）；需在初始化窗口的判定点接入 |
+| **R-6** 副作用必须幂等 | **已落接口级断言**（`assertIdempotentSideEffects`） | 天然键已有（tool call id / turn+step / 消息 id）；**仍缺**："重试复用同键 + 第二次返回缓存/重复"的声明（记录不带键 ⇒ unverifiable） |
 
 `check --json` 的 `runContract` 段只承载**规则目录**（`rules` + `note`）；真实判定由调用方
 把运行记录喂给上面的断言函数（与 `errorContract` 段同一口径）。
