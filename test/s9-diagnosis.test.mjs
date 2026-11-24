@@ -163,7 +163,7 @@ describe('集成：validateSessionLog / check --json', () => {
     expect(s9[0].category).toBe(S9_CATEGORIES.OLD_CURSOR_REPLAY);
     expect(typeof s9[0].confidence).toBe('number');
     expect(s9[0].hint).toContain('loaded=no');
-    expect(result.schemaVersion).toBe('3');
+    expect(result.schemaVersion).toBe('4');
     const round = JSON.parse(JSON.stringify(result.violations));
     expect(round.find((v) => v.id === 'S9').category).toBe(S9_CATEGORIES.OLD_CURSOR_REPLAY);
   });
@@ -175,7 +175,7 @@ describe('集成：validateSessionLog / check --json', () => {
     writeFileSync(file, lines.join('\n') + '\n');
     const r = spawnSync(process.execPath, [BIN, 'check', file, '--json'], { encoding: 'utf8' });
     const payload = JSON.parse(r.stdout);
-    expect(payload.schemaVersion).toBe('3');
+    expect(payload.schemaVersion).toBe('4');
     const s9 = payload.violations.find((v) => v.id === 'S9');
     expect(s9.category).toBe(S9_CATEGORIES.OLD_CURSOR_REPLAY);
     expect(s9.confidence).toBeGreaterThan(0);

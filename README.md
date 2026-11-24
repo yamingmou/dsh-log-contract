@@ -114,6 +114,22 @@ the declared version promises.
 
 ---
 
+## Runtime contract (R-3 / R-1 / R-2a) — "will it silently change while running?"
+A **separate report family** (`run-contract`, exposed as `check --json` → `runContract`), again
+outside `ok` / exit codes. It ships three assertion helpers for real run records:
+
+| Rule | Assertion | What it guards |
+|---|---|---|
+| `R-3` | `assertFailClosed({ required, provided, result })` | any missing required input (field / file / context) ⇒ the verdict must be **incompatible**, with a visible reason naming the missing input — a missing input never matches (`fail-open` is red) |
+| `R-1` | `assertFailureLatched(history)` | a failure is **latched**: after `failed: true`, no later snapshot (recover / reload / cache clear) may write `failed: false` |
+| `R-2a` | `assertWriteOutcome({ write, artifact })` | a failed or unknown write must never leave the artifact marked `complete` — withdraw it or mark it `partial` / `unavailable` / `withdrawn` |
+
+`checkRunContract({...})` runs them together and lists the assertions you did not supply under
+`skipped`; when **none** ran, `ok` is `null` (unverifiable — never "pass"). Usage, positive/negative examples and the open items for R-2b
+(reason field) and R-6 (idempotency key) are in [docs/RUN-CONTRACT.md](docs/RUN-CONTRACT.md).
+
+---
+
 ## Version support (host / session format)
 **Tested baseline (the versions this rule set was verified against)**:
 

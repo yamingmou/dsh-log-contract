@@ -14,7 +14,7 @@
  */
 import fs from 'node:fs';
 import { delimiter as pathDelimiter, join as pathJoin } from 'node:path';
-import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, explainRule, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport, ERROR_CONTRACT_RULES, checkErrorContract, normalizePath, checkIdentity, IDENTITY_RULES, packageRoot } from '../lib/index.js';
+import { loadSessionLog, validateSessionLog, resumeVerdict, migrationVerdict, assessmentScope, createPreWriter, repairSession, readSessionHeader, CONTRACT_RULES, ruleById, explainRule, extractToolOutputs, auditToolCalls, hostCapability, HOST_MAX_FILE_VERSION, detectSupport, ERROR_CONTRACT_RULES, checkErrorContract, normalizePath, checkIdentity, IDENTITY_RULES, packageRoot, RUN_CONTRACT_RULES } from '../lib/index.js';
 
 /**
  * 同步写 fd——`process.stdout.write` 在**管道**下是异步的，紧跟着的
@@ -343,6 +343,10 @@ function cmdCheck(args) {
     // ⛔ 只给诊断，不进 ok/退出码；登记表缺失（npm 安装包不含该 JSON）⇒ ok:null（unverifiable）。
     const identity = checkIdentity({ root: packageRoot() });
     payload.identity = { ...identity, rules: IDENTITY_RULES.map((r) => ({ id: r.id, severity: r.severity, title: r.title, layer: r.layer })) };
+    // RUN CONTRACT 段（schemaVersion 4 · additive）：运行时契约规则目录（R-3 / R-1 / R-2a）。
+    // 断言接口见 lib/run-contract.js（assertFailClosed / assertFailureLatched / assertWriteOutcome）；
+    // 本段只给规则清单（真实判定需调用方喂运行记录），⛔ 不进 ok/退出码。
+    payload.runContract = { family: 'run-contract', rules: RUN_CONTRACT_RULES.map((r) => ({ id: r.id, severity: r.severity, title: r.title, layer: r.layer })), note: '运行时契约规则目录；断言接口见 docs/RUN-CONTRACT.md（真实判定需调用方提供运行记录）' };
     if (notAssessable) payload.notAssessable = result.notAssessable;
     if (resume) payload.resume = resumeVerdict(result);
     out(JSON.stringify(payload, null, 2) + '\n');

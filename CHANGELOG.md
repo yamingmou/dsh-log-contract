@@ -1,3 +1,10 @@
+## [0.3.41] — 2026-11-24
+
+- 新增运行时契约组（`run-contract`，`check --json` 的 `runContract` 段）：**R-3** 任一输入缺失 ⇒ 判不兼容且原因点名缺项；**R-1** 失败置位后，恢复/重载/清缓存不得清零；**R-2a** 写失败或结果未知时，产物不得标"完整"
+- 新增断言接口：`assertFailClosed` / `assertFailureLatched` / `assertWriteOutcome` / `checkRunContract`（用法与正反例见 `docs/RUN-CONTRACT.md`；R-2b / R-6 的前置项在该文档列出，未实现）
+- `check --json` 的 `schemaVersion` 升至 `"4"`（只增 `runContract` 段；既有键与 `ok`/退出码语义不变）
+- 运行身份摘要重登记为 0.3.41（旧条目保留，只增不减）
+
 ## [0.3.40] — 2026-11-23
 
 - 文档订正：`docs/CONTRACTS.md` 生成说明与 IDENTITY 登记指引不再引用包内不存在的 `scripts/` 目录（npm 包只含 lib/bin/docs/*.md）

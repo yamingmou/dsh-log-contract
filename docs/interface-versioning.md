@@ -10,7 +10,7 @@
 |---|---|
 | 字段名 | `schemaVersion` |
 | 位置 | `check --json` 报告**顶层**；同值同步进 `validateSessionLog()` 返回对象顶层 |
-| 当前值 | `"3"`（字符串，暂不采用 semver；见下文 v2 / v3） |
+| 当前值 | `"4"`（字符串，暂不采用 semver；见下文 v2 / v3 / v4） |
 | 覆盖范围 | 仅 `check --json` 这一份报告结构。`prewrite --json` 是**另一份结构**，暂不带本字段（当前 CLI 亦无 `plan` 子命令） |
 
 `schemaVersion` 标记的是**报告结构**（字段集合 / 字段类型 / 字段含义）的版本：
@@ -75,11 +75,26 @@
 - **防噪音**：只改文档/测试/机制件（不改运行时代码）⇒ `identity.digest` 不变 ⇒ 绿；
   只改代码不动版本 ⇒ `ID2` 红（"同号改代码"必须换号并重新登记摘要）。
 - 登记表 `docs/identity-registry.json` **不随 npm 包发布**（npm 只打包 `docs/**/*.md`） ⇒ 安装包内 `identity.ok = null`（unverifiable）。
-- 换版本或改运行时代码后**重登记摘要**：`pnpm identity:register`（仅源码仓；npm 包不含 `scripts/` 目录）。登记旧摘要/伪造摘要 ⇒ `ID2` 红（发布前闸，不是可选项）。
+- 换版本或改运行时代码后**重登记摘要**：`pnpm identity:register`（仅源码仓；npm 包不含 `scripts/` 目录）。登记旧摘要/伪造摘要 ⇒ `ID2` 红（发布前检查，不是可选项）。
+
+## v4（本版）：RUN CONTRACT 段（运行时契约 · 兼容递增）
+
+`schemaVersion` 由 `"3"` → `"4"`。**只增顶层键**：新增 `runContract` 段（三条断言的规则目录），
+既有键与 `ok`/退出码**语义不变**（真实判定由调用方把运行记录喂给断言函数）。
+
+| 键 | 形状 | 说明 |
+|---|---|---|
+| `runContract.family` | `"run-contract"` | 报告域（与 `error-expression` / `version-identity` 并列，靠 family 分派） |
+| `runContract.rules` | `[{id,severity,title,layer}]` | 规则目录：`R-3` 输入缺失⇒不兼容 / `R-1` 失败置位不清零 / `R-2a` 写失败不得标完整 |
+| `runContract.note` | `string` | 断言接口入口（`docs/RUN-CONTRACT.md`）；真实判定需调用方提供运行记录 |
+
+兼容性：**v3 消费者读 v4 报告**忽略未知键 `runContract` 即可；`ok`/`violations`/退出码语义未变。
+断言接口（`assertFailClosed` / `assertFailureLatched` / `assertWriteOutcome` / `checkRunContract`）
+不改变任何既有报告字段，只是"可以调用"的诊断 API。
 
 ## 何时升版
 
-**不兼容才升**（版本号只增，如 `"2"` → `"3"`）：
+**不兼容才升**（版本号只增，如 `"3"` → `"4"`）：
 
 | 变更 | 升版？ |
 |---|---|
@@ -101,7 +116,8 @@
 
 | 报告域 | 命令 | 版本字段 | 备注 |
 |---|---|---|---|
-| 日志契约（session log contract） | `check --json` | 顶层 `schemaVersion`（当前 `"3"`） | 本文正文主要讲这一域 |
+| 日志契约（session log contract） | `check --json` | 顶层 `schemaVersion`（当前 `"4"`） | 本文正文主要讲这一域 |
+| 运行时契约（run-contract） | 断言接口（`docs/RUN-CONTRACT.md`） | `family: "run-contract"`（`check --json` 的 `runContract` 段只给规则目录） | 与日志契约**互不影响**：断言不改 `ok`/退出码 |
 | 错误表达契约（error-expression） | `error-contract --json` | 顶层 `schemaVersion`（当前 `"1"`）+ `family: "error-expression"` | 与日志契约**互不影响**：任一域升版不牵动另一域 |
 
 - 两个域的 id 集合可能重名（都有 `E1`…），消费者**必须按 `family` 分派**，⛔ 不要按 id 字面合并。
