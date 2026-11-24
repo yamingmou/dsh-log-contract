@@ -124,6 +124,8 @@ outside `ok` / exit codes. It ships three assertion helpers for real run records
 | `R-1` | `assertFailureLatched(history)` | a failure is **latched**: after `failed: true`, no later snapshot (recover / reload / cache clear) may write `failed: false` |
 | `R-2a` | `assertWriteOutcome({ write, artifact })` | a failed or unknown write must never leave the artifact marked `complete` — withdraw it or mark it `partial` / `unavailable` / `withdrawn` |
 | `R-2b` | `assertWithdrawalHasReason({ withdrawals, reasonField?, reasonSupported? })` | a withdrawal response must carry a **consumer-readable reason** field; a reason that only lives in logs/telemetry is red; implementations without such a field report `ok:null` (unverifiable) |
+| `R-2b②` | `assertInitializedNotTreatedAsEmpty({ resources })` | a resource that is **initializing / unavailable** must not be judged as "none": judging from an empty value before `initialized === true` is red; no init signal ⇒ `ok:null` |
+| `R-5` | `assertClosedSetExhaustive({ closedSet, covered })` / `assertOpenSetTolerant({ openSet, observations })` | our **closed** enumerations must be exhaustive (no missing/extra values); **open** sets (upstream event types, error codes, providers) must not be exhausted — unknown values need trace + default-allow + upgradeability |
 | `R-6` | `assertIdempotentSideEffects({ operations, keyField? })` | side effects are grouped by a **stable key**: at most one execution per key, later attempts must be cached or explicitly "duplicate"; records without keys report `ok:null` (precondition: the key is supplied by the runtime) |
 
 `checkRunContract({...})` runs them together (unverifiable results stay `null`) and lists the assertions you did not supply under

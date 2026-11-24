@@ -101,6 +101,8 @@ dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构�
 | `R-1` | `assertFailureLatched(history)` | 失败**置位**：出现 `failed: true` 后，任何后续快照（恢复/重载/清缓存）都不得写回 `failed: false` |
 | `R-2a` | `assertWriteOutcome({ write, artifact })` | 写失败或结果未知时，产物不得标 `complete`——必须撤回或标 `partial` / `unavailable` / `withdrawn` |
 | `R-2b` | `assertWithdrawalHasReason({ withdrawals, reasonField?, reasonSupported? })` | 撤回类响应必须带**消费方可读的原因**字段；原因只在日志/遥测旁路 ⇒ 红；实现侧无该字段 ⇒ `ok:null`（unverifiable） |
+| `R-2b②` | `assertInitializedNotTreatedAsEmpty({ resources })` | 资源**初始化中/取不到**时不得按空值推"没有"：`initialized !== true` 却继续判断 ⇒ 红；无初始化信号 ⇒ `ok:null` |
+| `R-5` | `assertClosedSetExhaustive({ closedSet, covered })` / `assertOpenSetTolerant({ openSet, observations })` | **闭集**（自己的枚举）必须穷尽（不漏值、不外溢）；**开集**（上游事件类型/错误码/provider）不得穷尽——未知值须留痕 + 默认放行 + 可升级 |
 | `R-6` | `assertIdempotentSideEffects({ operations, keyField? })` | 按**稳定幂等键**分组：同键副作用执行 ≤1 次，后续必须缓存或显式"重复"；记录无键 ⇒ `ok:null`（缺前置：键由运行时提供） |
 
 `checkRunContract({...})` 可一起跑（unverifiable 项保持 `null`）；未提供的断言列在 `skipped`；**一条都没跑**时 `ok: null`（unverifiable，⛔ 不冒充通过）。用法、正反例，

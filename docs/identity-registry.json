@@ -28,6 +28,11 @@
       "version": "0.3.42",
       "digest": "sha256:2150c81e91bd4f3674c0a80cf76bd45cb2cc1862d312fa94e07b5fe06d8b5a34",
       "note": "由 scripts/identity-register.mjs 登记（运行身份 = lib/**/*.js + bin/**/*.mjs 清单 hash）"
+    },
+    {
+      "version": "0.3.43",
+      "digest": "sha256:9cfc9029ded62bf31be7ef6c1e4b64a0b1cf1bb04a63ee34a976941f14465317",
+      "note": "由 scripts/identity-register.mjs 登记（运行身份 = lib/**/*.js + bin/**/*.mjs 清单 hash）"
     }
   ]
 }

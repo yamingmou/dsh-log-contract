@@ -22,6 +22,9 @@ import {
   reasonMentions,
   assertWithdrawalHasReason,
   assertIdempotentSideEffects,
+  assertInitializedNotTreatedAsEmpty,
+  assertClosedSetExhaustive,
+  assertOpenSetTolerant,
 } from '../lib/run-contract.js';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -29,7 +32,7 @@ const CLI = path.join(ROOT, 'bin', 'dsh-log-contract.mjs');
 
 describe('规则目录', () => {
   it('三条规则齐全，id/family/layer/severity 稳定', () => {
-    expect(RUN_CONTRACT_RULES.map((r) => r.id)).toEqual(['R-3', 'R-1', 'R-2a', 'R-2b', 'R-6']);
+    expect(RUN_CONTRACT_RULES.map((r) => r.id)).toEqual(['R-3', 'R-1', 'R-2a', 'R-2b', 'R-2b-2', 'R-5', 'R-6']);
     for (const r of RUN_CONTRACT_RULES) {
       expect(r.family).toBe(RUN_CONTRACT_FAMILY);
       expect(r.severity).toBe('error');
@@ -240,20 +243,81 @@ describe('R-6 · 副作用幂等（同键只执行一次）', () => {
   });
 });
 
+describe('R-2b-2 · 初始化中/取不到 不得按空值推"没有"', () => {
+  it('正例：已就绪后才判断 ⇒ 绿', () => {
+    const r = assertInitializedNotTreatedAsEmpty({ resources: [{ name: 'archive-index', initialized: true, judgedFromEmpty: true }] });
+    expect(r.ok).toBe(true);
+    expect(r.checked).toBe(1);
+  });
+
+  it('反例：未就绪却按空值继续判断 ⇒ R-2b-2 红', () => {
+    const r = assertInitializedNotTreatedAsEmpty({ resources: [{ name: 'parent-chain', initialized: false, judgedFromEmpty: true }] });
+    expect(r.ok).toBe(false);
+    expect(r.findings[0].id).toBe('R-2b-2');
+    expect(r.findings[0].message).toContain('不得推"没有"');
+  });
+
+  it('异常诊断：未就绪且未继续判断 ⇒ 绿（但资源名可定位）；无初始化信号 ⇒ ok=null', () => {
+    const held = assertInitializedNotTreatedAsEmpty({ resources: [{ name: 'archive-index', initialized: false, judgedFromEmpty: false }] });
+    expect(held.ok).toBe(true);
+    const noSignal = assertInitializedNotTreatedAsEmpty({ resources: [{ name: 'x', judgedFromEmpty: true }] });
+    expect(noSignal.ok).toBeNull();
+    expect(noSignal.skipped).toBe('no-initialization-signal');
+  });
+});
+
+describe('R-5 · 闭集穷尽 / 开集不穷尽', () => {
+  it('闭集正例：声明与处理一一对应 ⇒ 绿', () => {
+    const r = assertClosedSetExhaustive({ closedSet: ['a', 'b'], covered: ['a', 'b'] });
+    expect(r.ok).toBe(true);
+  });
+
+  it('闭集反例①：声明里有但没处理（漏值）⇒ 红', () => {
+    const r = assertClosedSetExhaustive({ closedSet: ['a', 'b'], covered: ['a'] });
+    expect(r.ok).toBe(false);
+    expect(r.missing).toEqual(['b']);
+  });
+
+  it('闭集反例②：处理分支外溢（不在声明内）⇒ 红', () => {
+    const r = assertClosedSetExhaustive({ closedSet: ['a'], covered: ['a', 'c'] });
+    expect(r.ok).toBe(false);
+    expect(r.extra).toEqual(['c']);
+  });
+
+  it('开集正例：未知值留痕 + 默认放行 + 可升级 ⇒ 绿', () => {
+    const r = assertOpenSetTolerant({ openSet: ['user/message'], observations: [{ value: 'future/event', decision: 'allow', traced: true, upgradeable: true }] });
+    expect(r.ok).toBe(true);
+    expect(r.unknown).toEqual(['future/event']);
+  });
+
+  it('开集反例①：未知值被拒绝 ⇒ 红（外部集合不得穷尽）', () => {
+    const r = assertOpenSetTolerant({ openSet: [], observations: [{ value: 'future/event', decision: 'reject', traced: true, upgradeable: true }] });
+    expect(r.ok).toBe(false);
+    expect(r.findings[0].message).toContain('不得穷尽');
+  });
+
+  it('开集反例②：未知值没留痕 / 不可升级 ⇒ 红', () => {
+    const untraced = assertOpenSetTolerant({ openSet: [], observations: [{ value: 'x', decision: 'allow', traced: false, upgradeable: true }] });
+    expect(untraced.ok).toBe(false);
+    const noUpgrade = assertOpenSetTolerant({ openSet: [], observations: [{ value: 'x', decision: 'allow', traced: true, upgradeable: false }] });
+    expect(noUpgrade.ok).toBe(false);
+  });
+});
+
 describe('checkRunContract · 汇总与"未提供≠通过"', () => {
   it('空输入 ⇒ 一条断言都没跑 ⇒ ok=null（unverifiable，不冒充通过）', () => {
     const rep = checkRunContract({});
     expect(rep.ok).not.toBe(true);
     expect(rep.ok).toBeNull();
     expect(rep.checks).toEqual([]);
-    expect(rep.skipped).toEqual(['R-1', 'R-2a', 'R-3', 'R-2b', 'R-6']);
+    expect(rep.skipped).toEqual(['R-1', 'R-2a', 'R-3', 'R-2b', 'R-2b-2', 'R-5-closed', 'R-5-open', 'R-6']);
   });
 
   it('只提供部分输入 ⇒ skipped 列出未跑断言，ok 只由已跑项决定', () => {
     const rep = checkRunContract({ history: [{ phase: 'run', failed: false }] });
     expect(rep.family).toBe(RUN_CONTRACT_FAMILY);
     expect(rep.checks.map((c) => c.id)).toEqual(['R-1']);
-    expect(rep.skipped).toEqual(['R-2a', 'R-3', 'R-2b', 'R-6']);
+    expect(rep.skipped).toEqual(['R-2a', 'R-3', 'R-2b', 'R-2b-2', 'R-5-closed', 'R-5-open', 'R-6']);
     expect(rep.ok).toBe(true);
   });
 
@@ -278,12 +342,12 @@ describe('集成：check --json 的 runContract 段', () => {
     fs.writeFileSync(file, JSON.stringify({ type: 'session', version: 4, id: 'x', createdAt: 1 }) + '\n');
     const res = spawnSync(process.execPath, [CLI, 'check', file, '--json'], { encoding: 'utf8' });
     const payload = JSON.parse(res.stdout);
-    expect(payload.schemaVersion).toBe('5');
+    expect(payload.schemaVersion).toBe('6');
     for (const k of ['ok', 'assessable', 'assessmentScope', 'host', 'support', 'migration', 'summary', 'violations', 'identity', 'errorContract']) {
       expect(Object.hasOwn(payload, k), `既有键 ${k} 丢了`).toBe(true);
     }
     expect(payload.runContract.family).toBe('run-contract');
-    expect(payload.runContract.rules.map((r) => r.id)).toEqual(['R-3', 'R-1', 'R-2a', 'R-2b', 'R-6']);
+    expect(payload.runContract.rules.map((r) => r.id)).toEqual(['R-3', 'R-1', 'R-2a', 'R-2b', 'R-2b-2', 'R-5', 'R-6']);
     expect(payload.runContract.note).toContain('RUN-CONTRACT');
   });
 });

@@ -1,3 +1,10 @@
+## [0.3.43] — 2026-11-25
+
+- 运行时契约扩到 7 条：**R-2b②** 初始化中/取不到时不得按空值推"没有"（`assertInitializedNotTreatedAsEmpty`；`initialized !== true` 却继续判断 ⇒ 红；无初始化信号 ⇒ `ok:null`）；**R-5** 闭集须穷尽 / 开集不得穷尽（`assertClosedSetExhaustive` / `assertOpenSetTolerant`）
+- 归档读端降级：`archiveVerdict` 支持 `initialized` 信号；读端**暂不可读**时结论 `unverifiable`（`notReady`/`unavailable`），不再并入"内容缺失"；内容级失败（行缺失等）仍判 `unrestorable`
+- `check --json` 的 `schemaVersion` 升至 `"6"`（只增 `runContract.rules` 条目与断言接口；既有键与 `ok`/退出码语义不变）
+- 归档**写入**不在本包范围内（本包归档模块没有写调用），写入方为外部 workspace 归档操作——列为协调项，不做写入断言
+
 ## [0.3.42] — 2026-11-25
 
 - 运行时契约扩到 5 条：**R-2b** 撤回类响应必须带**消费方可读的原因**字段（原因只在日志/遥测旁路 ⇒ 红；实现侧无该字段 ⇒ `ok:null`，不冒充通过）；**R-6** 副作用幂等（按稳定键分组：同键执行 ≤1 次，后续必须缓存或显式"重复"；记录无稳定键 ⇒ `ok:null`）

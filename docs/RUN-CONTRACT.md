@@ -102,6 +102,60 @@ assertWithdrawalHasReason({ withdrawals: [{ withdrawn: true }], reasonSupported:
 
 > 场景②（"初始化中"被当成空值继续判断）属另一条判据（`initialized !== true` 却继续），本包暂未实现。
 
+## R-2b② · 初始化中/取不到 不得按空值推"没有"
+
+**判据**：资源（归档索引 / 读端 / 父链等）处于**初始化中或取不到**时，`initialized !== true`
+却按空值继续判断（把"还没准备好"当成"不存在 / 无父 / 无归档"）⇒ 红。
+无初始化信号 ⇒ `ok: null`（unverifiable，⛔ 不冒充通过）。
+
+```js
+import { assertInitializedNotTreatedAsEmpty } from 'dsh-log-contract';
+
+// ✅ 合规：已就绪后才判断
+assertInitializedNotTreatedAsEmpty({ resources: [{ name: 'archive-index', initialized: true, judgedFromEmpty: true }] }).ok === true;
+
+// ⛔ 违规：父链还没加载就按"无父"继续
+assertInitializedNotTreatedAsEmpty({ resources: [{ name: 'parent-chain', initialized: false, judgedFromEmpty: true }] });
+// ⇒ findings[0].id === 'R-2b-2'
+
+// ⚪ 无初始化信号 ⇒ unverifiable
+assertInitializedNotTreatedAsEmpty({ resources: [{ name: 'x', judgedFromEmpty: true }] }).ok === null;
+```
+
+读端落地（本仓）：
+- `archiveVerdict(events, { archiveRoots, readLines, initialized })`——`initialized === false` ⇒
+  显式 `not-initialized` 降级（`verdict: 'unverifiable'`、`notInitialized: true`，不冒充、不报缺失）；
+- 归档读端（`readArchiveIndex` / `readArchiveLines` 经 `verifyArchivePointers`）**暂不可读**时计入
+  `unavailable` / `notReady`，结论 `unverifiable`，**不再**并入"内容缺失"（`missing`/`lineMissing` 保持 0）；
+  内容级失败（行缺失等）仍判 `unrestorable`。
+- 可忽略白名单解析（`resolveIgnorableWhitelist`）：外部白名单缺失时保持**内置默认集**（安全侧），
+  未知事件仍会以 warning 报出——不会把"白名单没加载"静默当成"全部不忽略"。
+- 父链：本仓**没有**谱系读取实现（父链读取在外部实现），故本仓只提供断言接口与判据，不硬做父链逻辑。
+
+## R-5 · 闭集须穷尽；开集不得穷尽
+
+**判据**：**枚举封闭 ≠ 契约封闭**，两个方向都会出事。
+
+| 集类型 | 例子 | 断言 | 违规 |
+|---|---|---|---|
+| **闭集**（自己定义） | 已知事件类型表、规则 id/severity 集 | `assertClosedSetExhaustive({ closedSet, covered })` | 声明里有但没处理（漏值）；处理分支出现声明外的值（外溢） |
+| **开集**（外部会新增） | 上游事件 `type`、错误码、模型 provider | `assertOpenSetTolerant({ openSet, observations })` | 未知值被拒绝；未知值没留痕；未知值不可升级 |
+
+```js
+import { assertClosedSetExhaustive, assertOpenSetTolerant } from 'dsh-log-contract';
+
+// ✅ 闭集穷尽
+assertClosedSetExhaustive({ closedSet: ['a', 'b'], covered: ['a', 'b'] }).ok === true;
+// ⛔ 闭集漏值 / 外溢
+assertClosedSetExhaustive({ closedSet: ['a', 'b'], covered: ['a'] }).missing; // ['b']
+assertClosedSetExhaustive({ closedSet: ['a'], covered: ['a', 'c'] }).extra;   // ['c']
+
+// ✅ 开集：未知值留痕 + 默认放行 + 可升级
+assertOpenSetTolerant({ openSet: ['user/message'], observations: [{ value: 'future/event', decision: 'allow', traced: true, upgradeable: true }] }).ok === true;
+// ⛔ 开集：未知被拒（外部集合不得穷尽）
+assertOpenSetTolerant({ openSet: [], observations: [{ value: 'future/event', decision: 'reject', traced: true, upgradeable: true }] });
+```
+
 ## R-6 · 副作用必须幂等（同键只执行一次）
 
 **核查结论（先查再判）**：运行记录里**已有天然稳定键**——`tool/call` 的 `data.callId`
@@ -152,8 +206,10 @@ const report = checkRunContract({ history, write, artifact, required, provided, 
 | 候选 | 状态 | 前置项 |
 |---|---|---|
 | **R-2b 场景①** 撤回必须带原因 | **已落断言**（`assertWithdrawalHasReason`） | 记录里出现撤回类响应即可判；实现侧没有原因字段时标 unverifiable（`reasonSupported:false`） |
-| **R-2b 场景②** 初始化中不得按空值继续 | 未实现 | 判据：`initialized !== true` 却按空值/不存在继续判断 ⇒ 红（不需新字段）；需在初始化窗口的判定点接入 |
+| **R-2b 场景②** 初始化中不得按空值继续 | **已落断言 + 读端降级**（`assertInitializedNotTreatedAsEmpty`；`archiveVerdict` 显式 `initialized`） | 父链读取在外部实现：本仓只出断言/判据，不硬做父链逻辑 |
 | **R-6** 副作用必须幂等 | **已落接口级断言**（`assertIdempotentSideEffects`） | 天然键已有（tool call id / turn+step / 消息 id）；**仍缺**："重试复用同键 + 第二次返回缓存/重复"的声明（记录不带键 ⇒ unverifiable） |
+| **R-5** 闭/开集 | **已落断言**（`assertClosedSetExhaustive` / `assertOpenSetTolerant`） | 闭集清单：已知事件类型表、规则 id/severity；开集：上游 `type` 词表/错误码/provider |
+| **dsh-6** 归档列表写入 | **不做写入断言** | 本仓归档模块**没有写调用**（`lib/archive.js` 内 0 处写）；写入方=外部 workspace archive op（协调项） |
 
 `check --json` 的 `runContract` 段只承载**规则目录**（`rules` + `note`）；真实判定由调用方
 把运行记录喂给上面的断言函数（与 `errorContract` 段同一口径）。
