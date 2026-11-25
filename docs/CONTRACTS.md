@@ -13,6 +13,11 @@
 > （`@deepseek-ai/dsh-session`，各条出处见下）。后续规则随官方版本演进追加：
 > T3/T4 = 渲染层白屏事故复盘，T5 = malformed turn/end 事故复盘。
 >
+> **家族索引**：本文件只含**日志契约**（当前 57 条）。另有独立家族（按 `family` 分派、互不影响）：
+> 错误表达 **error-expression**（E1–E6，见 `docs/ERROR-CONTRACT.md`）、
+> 版本同一性 **version-identity**（ID1/ID2，见 `docs/interface-versioning.md`）、
+> 运行时契约 **run-contract**（R-3 / R-1 / R-2a / R-2b / R-2b-2 / R-5 / R-6，见 `docs/RUN-CONTRACT.md`）。
+>
 > **版本支持基线（本规则集验证过的版本；权威常量见 `lib/version-support.js` 的 TESTED_BASELINE）**：
 > 宿主 `@deepseek-ai/dsh-session@0.2.0-rc.2` ｜ 会话格式 **v4**（`SESSION_FORMAT_VERSION = 4`）｜
 > 声明范围 `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1`（可安装 ≠ 逐个验证）｜ 已知格式 0/1/2/3/4

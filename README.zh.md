@@ -2,7 +2,7 @@
 
 # 🔒 dsh-log-contract
 
-**日志契约守护** —— DSH 会话日志的结构契约保险丝：离线体检 + 写前校验。业务层的**医生**。
+**会话日志契约守护** —— DSH 会话日志的结构性保险丝：离线体检 + 写前校验。业务层的**医生**。
 
 [![npm version](https://img.shields.io/npm/v/dsh-log-contract)](https://www.npmjs.com/package/dsh-log-contract)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-log-contract)](https://www.npmjs.com/package/dsh-log-contract)
@@ -14,237 +14,83 @@
 
 </div>
 
-# dsh-log-contract · 日志契约守护
+## 这是什么
 
+原名 `log-contract-validator`，现为 **`dsh-log-contract`**。
 
-> DSH（DeepSeek Harness）会话日志的**结构契约保险丝**：离线体检 + 写前校验。
-> 本包名 **`dsh-log-contract`**；早期工作名 `log-contract-validator`。
+一条会话日志（`*.jsonl` / `*.jsonl.zstd`）有两类读者：人（容忍格式漂移）与程序（漂移就崩）。
+本工具检查日志的**结构**——帧布局、事件信封、`seq` 连续性、surface/replace 规则、wire 消息
+顺序、插件 marker——并用一个退出码回答一个问题：
 
-给 DSH 会话日志（`*.jsonl` / `*.jsonl.zstd`）装一条保险丝：人眼看不出、程序解析会崩的日志格式漂移，在它这里被拦下并告警。它不判断日志**内容**对不对，只守护日志**结构**是否破坏了下游消费者（Harness 读路径、客户端引擎、插件 marker 语义）的预期。
+> **下游读者（Harness 读路径 / 客户端引擎 / 插件语义）会不会在这份文件上崩？崩在哪？**
 
-- **`check <session-log>`** —— 离线体检：官方解码器全量解码 + 契约逐条校验 + foldSurface 终验，产出违规报告，并给出机器可判的**尾部完整性**字段（`tailStatus`）。
-- **`prewrite <edit-file> --log <session-log>`** —— ★ 写前校验：任何写入（追加 / 帧级手术）在落盘之前先过三层契约，违约即拦（含写侧自造 `seq`）。
-- **`contracts`** —— 列出内置契约规则目录（每条附官方源码出处）。
-- **`check --resume`** —— 三档结论（`loadable` / `resumable` / `compactable`，宿主判不了时另有 `not-assessable`）。
-- **`fix` / `extract` / `audit-report`** —— 修复原语 + 只读会话考古。
+它不判断对话内容好坏；也可以在**写入之前**用同一套规则把违约写入拦下（写前校验）。
 
-**能力一览**：会话格式 **v0–v4** · 契约规则 **63 条（日志契约 57 + 错误表达契约 6）** · 退出码契约 `0/1/3/4` · 三档结论 ·
-写前校验 · 每条规则都有负对照用例 + 规则自检 · 读取容错（单文件损坏降级为结构化结果并计数，不抛出）。
+### 30 秒速览
 
----
+- **是什么**：DSH 会话日志的结构检查器；输入是一份 `.jsonl` / `.jsonl.zstd`。
+- **为什么装**：它能抓到人眼看不出、但解析器会崩的格式漂移，并在坏写入落盘前拦住。
+- **最小用法**：三条命令——见[快速开始](#快速开始3-条命令)。
+- **可机械检查**：每条规则都有稳定 id、严重度、出处和正/负对照用例；输出是稳定的 JSON 报告
+  加一份有文档的退出码。
+- **去哪看更多**：[规则目录](docs/CONTRACTS.md) ·
+  [报告家族](#规则家族哪些会判红) · [版本对照](VERSIONS.md) · [更新记录](CHANGELOG.md)。
 
-## 它在业务层里的位置
-> **dsh-log-contract 是 [dsh-retrace](https://github.com/yamingmou/dsh-retrace) 的核心能力组件**（业务层的「医生」模块）：负责会话日志的**体检与修复**——让每一次撤回/编辑/回退都落在合法日志上，写前校验（`prewrite`）会把 error 级违约**拦在落盘之前**。
->
-> **关于 `/compact`（如实表述）**：本工具保证的是**新写入**不再制造 token-meter 配对债——自两段原子成对（marker + 配对段）起，新 marker 天然通过 T1。**历史**（单段）marker 仍属**已知设计债**：写前校验对它的 T1 违规降级为 warning（`lib/prewrite.js` 的 `legacyMarkerKindOf` 白名单，**只适用于历史 marker**），因此这类会话**压缩（`/compact`）前需要先跑一次体检 + 清理**（`check` 定位 → `fix --remove-markers`；插件侧即「医生」），否则 T1 自检会拦住压缩。
+## 业务层定位
 
-| 层 | 是什么 | 组件 |
+> **`dsh-log-contract` 是 [dsh-retrace](https://github.com/yamingmou/dsh-retrace) 的核心
+> 检查-修复组件**，即业务层的"医生"模块：它保证每一次回忆 / 编辑 / 回滚都落在合法的日志上——
+> 写前校验在**任何写入落盘之前**拒绝 error 级违规。
+
+| 层 | 是什么 | 组成 |
 |---|---|---|
-| **Agent 业务层（生产级保证）** | 抽象核心能力：会话卫生 / 可回溯 / 可审计 / 可恢复，与平台无关 | 四模块：治理（governance）/ 回溯（retrospect）/ 考古（archaeology）/ **医生（doctor）** |
-| **dsh-retrace** | 业务层在 DeepSeek Harness 上的实现（生产级业务插件） | 撤回/编辑/版本/回退/看门狗 |
-| **dsh-log-contract** | dsh-retrace 的核心能力组件 = 业务层的**医生**（体检/修复） | check / prewrite / fix / extract / audit-report |
+| **Agent 业务层（生产级）** | 与框架无关的核心：会话卫生 / 可追溯 / 可审计 / 可恢复 | 四个模块：治理 / 回顾 / 考古 / **医生** |
+| **dsh-retrace** | 业务层在 DeepSeek Harness 上的实现 | 回忆 / 编辑 / 版本 / 回滚 / 看门狗 |
+| **dsh-log-contract** | dsh-retrace 的核心组件 = 业务层的**医生**（检查 & 修复） | check / prewrite / fix / extract / audit-report |
 
-**含义**：dsh-log-contract 独立发布（供单独使用或二次开发），但它首先是
-dsh-retrace 的「日志体检与修复」能力——与 dsh-retrace 一起构成
-**Agent 业务层（生产级保证）** 在 DSH 上的落地（详见 [dsh-retrace 仓库](https://github.com/yamingmou/dsh-retrace)）。
+**含义**：本包独立发布（可直接使用或按契约重实现），但它首先是 dsh-retrace 的"检查 & 修复"
+能力——两者共同构成 DSH 上的 **Agent 业务层（生产级保证）**。
 
----
+**关于 `/compact`（如实表述）**：本工具保证的是**新写入**不再制造 token-meter 配对债——
+双段原子载体（marker + 配对段）落地后，新 marker 天然通过 T1。**历史**（单段）marker 仍是
+**已知设计债**：写前校验把它们的 T1 降级为 warning（`lib/prewrite.js` 的
+`legacyMarkerKindOf`，只作用于历史 marker），因此这类会话在压缩前需要**一次检查 + 清理**
+（`check` 定位 → `fix --remove-markers`）。否则 T1 自检会挡住 `/compact`。
 
-## 为什么需要它
-**「one log, two consumers, two verdicts」**：一条日志同时被人类与自动化程序消费，人眼容忍格式微调，程序解析依赖严格契约；格式一旦漂移，人看不出问题，程序直接崩溃或误报。
+## 为什么存在
 
-**这里大多数规则都来自会话日志中实际出现过的损坏形态**——见下方 [⚡ 案例记录](#案例记录--生产级保证不是口号)。由这些案例派生的用例都有回归测试钉住：损坏的日志形态本工具必须报出，修复后的形态必须通过。其余规则来自对官方宿主源码的逐行核对（每条规则都带 `source`）。
+**一条日志、两类读者、两种结论。** 人容忍格式漂移；程序依赖严格契约。格式一漂，人看不出问题，
+程序却崩溃或给出错误结论。
 
----
+**这里的大多数规则都由真实坏会话塑造**——见[事故表](#事故表为什么生产级不是口号)。每个案例
+都有回归用例钉住：坏形状必须判红、修好的形状必须判绿。其余规则来自对官方宿主源码的逐行核对
+（每条规则都带 `source` 出处）。
 
-## 三层契约（判定模型）
-> **63 条规则分两族**：以下各层的**日志契约 57 条**（每条附官方源码出处）+ **错误表达契约 6 条**
-> （E1–E6，见 §1.1）。`contracts` 列出日志契约 57 条；错误表达规则目录由 `check --json` 的
-> `errorContract` 返回，`error-contract` 子命令对源码做第二族扫描。
+## 快速开始（3 条命令）
 
-| 层 | 规则 | 守护什么 |
-|---|---|---|
-| **持久化层** | H/R/E/S（含 **S5**）+ **S9** | seq 连续、type 已知、surfaceOp 合法、`sourceEventSeqs` 完整覆盖被替换节点、文件物理序单调、`foldSurface` 不抛 |
-| **客户端引擎层** | **M1** + **T1 / T2 / I1** | turn-null marker 只能 replace；token-meter 配对；跨 step 源引用；inbox seed 相对重放 |
-| **wire 消息流** | **W1 / W2** | tool 消息跟在带 tool_calls 的 assistant 之后；user 文本不插在 tool_calls 与结果之间 |
-| **插件语义层** | P1/P2 | marker 前缀可识别；marker 自身 seq 不进自身 shadowed 集 |
-| **帧结构层** | Z1–Z6 | zstd 帧形状（header 独占首帧；不得整体重压单帧）、空壳会话、**尾部完整性（`tailStatus`）** |
-| **读取 / 聚合层** | **R4 / R5** | 单文件损坏必须降级为**结构化、可计数**结果（不抛出、不中断枚举/汇总）；聚合 API 逐项隔离失败 |
-
-> 校验哲学：先用与官方同语义的增量重放做**逐事件归因**（定位到 seq/行号），再跑官方 `foldSurface` 做**终验**（不抛才算过）——两套都绿才过。
-
----
-
-## 身份契约（ID1 / ID2）——「跑的东西是不是你以为的那个」
-**独立报告域**（`family: version-identity`）：**不并入** 57 条日志契约计数，也**不进** `ok`/退出码——
-它回答"你跑的产物是不是声明版本承诺的那一份"。
-
-| 规则 | 守护什么 |
-|---|---|
-| `ID1` | **一物一号**：登记表（`docs/identity-registry.json`）里同一版本不得对应两个不同内容摘要 ⇒ 判红（带 `file:line` 证据；重复登记但摘要相同不报，防噪音）。 |
-| `ID2` | **号可验**：摘要必须由**产物**实算——运行身份 = `lib/**/*.js` + `bin/**/*.mjs` 逐文件 sha256 → 按路径排序后再 sha256——并与 `package.json.version` 绑定。未登记版本、摘要不符或**伪造**、"同号改了代码" ⇒ 判红；**只改文档/测试/机制件 ⇒ 摘要不变 ⇒ 绿**（防噪音）。 |
-
-`check --json` 以 `identity` 段输出（`family` / `rules` / `ok` / `version` / `digest` / `runtime` /
-`registry` / `findings[]`（含 `file:line`）/ `summary`）；登记表缺失时 `identity.ok = null`
-（**unverifiable**，不冒充通过——npm 包只含 `docs/**/*.md`）。换版本或改运行时代码后重登记：
-`pnpm identity:register`（仅源码仓；npm 包不含 `scripts/` 目录）。
-
----
-
-## 运行时契约（R-3 / R-1 / R-2a）——「跑起来会不会静默变样」
-**独立报告域**（`family: run-contract`，`check --json` 的 `runContract` 段），同样**不进** `ok`/退出码。
-提供三个断言函数（调用方喂真实运行记录）：
-
-| 规则 | 断言 | 守护什么 |
-|---|---|---|
-| `R-3` | `assertFailClosed({ required, provided, result })` | 任一必需输入（字段/文件/上下文）缺失 ⇒ 判定必须是**不兼容**且原因点名缺项；缺失永不匹配（判成兼容即红） |
-| `R-1` | `assertFailureLatched(history)` | 失败**置位**：出现 `failed: true` 后，任何后续快照（恢复/重载/清缓存）都不得写回 `failed: false` |
-| `R-2a` | `assertWriteOutcome({ write, artifact })` | 写失败或结果未知时，产物不得标 `complete`——必须撤回或标 `partial` / `unavailable` / `withdrawn` |
-| `R-2b` | `assertWithdrawalHasReason({ withdrawals, reasonField?, reasonSupported? })` | 撤回类响应必须带**消费方可读的原因**字段；原因只在日志/遥测旁路 ⇒ 红；实现侧无该字段 ⇒ `ok:null`（unverifiable） |
-| `R-2b②` | `assertInitializedNotTreatedAsEmpty({ resources })` | 资源**初始化中/取不到**时不得按空值推"没有"：`initialized !== true` 却继续判断 ⇒ 红；无初始化信号 ⇒ `ok:null` |
-| `R-5` | `assertClosedSetExhaustive({ closedSet, covered })` / `assertOpenSetTolerant({ openSet, observations })` | **闭集**（自己的枚举）必须穷尽（不漏值、不外溢）；**开集**（上游事件类型/错误码/provider）不得穷尽——未知值须留痕 + 默认放行 + 可升级 |
-| `R-6` | `assertIdempotentSideEffects({ operations, keyField? })` | 按**稳定幂等键**分组：同键副作用执行 ≤1 次，后续必须缓存或显式"重复"；记录无键 ⇒ `ok:null`（缺前置：键由运行时提供） |
-
-`checkRunContract({...})` 可一起跑（unverifiable 项保持 `null`）；未提供的断言列在 `skipped`；**一条都没跑**时 `ok: null`（unverifiable，⛔ 不冒充通过）。用法、正反例，
-以及 R-2b（reason 字段）/ R-6（幂等键）的前置项清单见 [docs/RUN-CONTRACT.md](docs/RUN-CONTRACT.md)。
-
----
-
-## 版本支持（宿主 / 会话格式）
-**测试基线（本规则集验证过的版本）**：
-
-| 项 | 基线 | 说明 |
-|---|---|---|
-| 宿主包 | `@deepseek-ai/dsh-session@0.2.0-rc.2` | 本规则集开发与 CI 验证所用的版本（CI 跑 `pnpm check` + `pnpm test`；`prepublishOnly` 四步在本机该版本上全绿） |
-| 会话格式 | **v4**（`SESSION_FORMAT_VERSION = 4`） | v4 走运行时词表 + 官方 `foldSurface` 终验 |
-| 声明范围 | `peerDependencies: ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1` | 允许安装；**范围内不等于逐个验证过** |
-| 已知格式 | 0 / 1 / 2 / 3 / 4 | 0–2 由本包**自带** vendored 词表 + 本地等价折叠（`legacyFoldSurface`）支持，与宿主版本无关 |
-
-**未验证的版本会发生什么（运行时检测并报告，不闷着按旧规则判）**：
-
-| 情形 | 行为 |
-|---|---|
-| 宿主**比基线新** | 明确**告警**（`⚠️ 宿主 … 比测试基线 … 新 —— 本规则集未在该宿主上验证…`）；结论仍给出，但标注可能不适用 |
-| 宿主比基线旧（仍在 peer 内） | 提示 + 由宿主能力闸决定能否评估该文件格式（`SESSION_FORMAT_VERSION` 不足 ⇒ `not-assessable`，退出码 3） |
-| 被检文件格式**未知**（不在 0/1/2/3/4） | 报「**未验证格式**」并**按只读处理**：`check` 只跑结构层，`prewrite` / `fix` **直接拒绝**（退出码 3） |
-| 格式**无法识别**（无 `header.version` 且事件形状无判别特征） | 同上：报「未验证格式」+ 只读 |
-| 文件版本 > 宿主支持上限 | `not-assessable`（**不是** broken），退出码 3；显式列出跳过/执行的规则 |
-
-检测实现：`lib/version-support.js`（`TESTED_BASELINE` / `detectSupport()`，导出到公开 API）。
-`check` 的人类可读输出与 `--json` 的 `support` 字段都带基线摘要与逐条告警，例如：
-
-```
-版本支持：宿主 @deepseek-ai/dsh-session@0.2.0-rc.2（基线 0.2.0-rc.2,baseline） ｜ 文件格式 v4（header,baseline）
-  测试基线：@deepseek-ai/dsh-session@0.2.0-rc.2 ｜ 会话格式 v4（已知 0/1/2/3/4；peer ^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1）
-```
-
-## 🆕 0.3.28 · 读取容错 / 尾部完整性 / seq 来源
-从近期真实故障中提炼的四条规则（每条都有负对照用例：违规样本必须判红、合规样本必须绿）：
-
-| 规则 | 判据 | 严重度 |
-|---|---|---|
-| `R4` | 读取/解析容错：单文件损坏（截断 zstd 帧、损坏行、坏 chunk 行、空文件）必须降级为**结构化、可计数**结果（null / 逐行 `error` 标记 / `frameInfo` 事实）——**不得抛出**、不得中断枚举/汇总 | error |
-| `R5` | 汇总/枚举类 API **逐项隔离**失败（per-item try/catch + `skipped` 计数）；一项坏不得毁掉整批 | error |
-| `E11` | seq 只能由日志层连续光标分配：写侧拟写事件要么省略 `seq`（自动赋值）、要么恰好等于 `nextSeq`；生产者自造 seq / 删行不重编号的痕迹由 `E2`/`S9` 判红 | error |
-| `Z6` | 尾部完整性必须显式声明：`tailStatus: complete \| interrupted \| truncated \| unknown`（见下方已知边界） | warning |
-
-0.3.28 另含：**规则自检（rules self-test）**——注册表、测试、生成文档三者互检
-（`test/rules-self-test.test.js`）：每条规则必须在测试里有对照或绑定断言引用
-（或显式登记"判定委托"并给出理由；对照的红/绿强度由各规则自己的负对照用例负责）；
-每个报出的违规码都必须已注册。`--json` 新增机器可判字段
-`summary.tailStatus` 与 `summary.unreadableRows`。
-
-**已知边界（如实表述）**：`check` / `check --json` 只保证"**已读到的事件**自洽"，
-**不保证尾部完整**——最后一帧在写入中被切掉的文件仍可能 `ok=true`；尾部状态请读
-`summary.tailStatus`（`--json`）。取值：`complete`（尾部完整）· `interrupted`
-（zstd 尾帧撕裂 = 写入中断/进行中；宿主读取器保留完整记录、丢弃未写完尾帧，可恢复）·
-`truncated`（尾部记录本身被切，数据缺失）· `unknown`（不可判：不可读/空文件）。
-非 `complete` 时 `Z6` 以 warning 报出，且**刻意不翻转** `ok`。
-
-## 🆕 0.3.18 – 0.3.24 · 支持 DSH 0.2.x（会话格式 v4）
-**会话格式 v4**（`@deepseek-ai/dsh-session` 0.2.x）改为**按格式版本分派规则**，而不是放宽格式闸门：
-
-- `tool/result` 按 v4 形状校验（`role: 'tool'`、无 `tool-result` 包裹块）
-- `system/message` 接受 v4 的 `source.kind: 'system-prompt'`
-- **v3 及更早的判据零改动**（多份真实语料 v3 会话前后判定完全一致）
-- 格式闸门仍**拒绝未知的未来版本**（`readOnly`）；v5+ 按设计保持"不可评估"
-
-**规则（0.3.28 起 55 条；0.3.32 起 57 条；0.3.36 起共 63 条 = 57 日志契约 + 6 错误表达契约）**：下表五条是 0.3.18 – 0.3.24 窗口新增
-（0.3.28 新增的四条见上一节）：
-
-| 规则 | 判据 |
-|---|---|
-| `G4` | 未知历史事件可**声明式跳过**（`ignorable: true`；白名单可注入） |
-| `S10` | `sourceEventSeqs` 元素：**解码后**必须为非负整数（存储层允许官方区间对） |
-| `I2` | `seedLength` = **继承事件条数**（非字节）；`parentSession` 存在且缺失/0 属合法 |
-| `P5` | 两段 carrier 配对：第 2 段首元素 = 第 1 段 seq（读侧兼容早期写法） |
-| `A1` | 「在位可还原」**只认结构化字段**（`archiveRef`/`archive`/`externalized.*`），不从自由文本推断 |
-
-**大会话**：读取改为**按行解码**（不再整文件字符串化 ⇒ 约 536MB 以上不再抛 `ERR_STRING_TOO_LONG`）；
-修复采用**流式帧重建** `.jsonl.zstd`（header 帧 + 正文分块多帧，逐帧 checksum + roundtrip 校验）。
-
-**Windows**：`H2` 的 `header.cwd` 绝对路径判断改为**平台感知**（`win32` 与 `posix` 都认）。
-
-**兼容性**：Node ≥ 22；`@deepseek-ai/dsh-session` `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1`；会话格式 v0–v4。
-
-## 案例记录 ——「生产级保证」不是口号
-下面每一条都来自**生产会话中实际出现的日志损坏形态**——正是这些案例促成了本工具。日期与形态真实，会话 id 与文件名省略。
-
-| # | 日期 | 发生了什么 | 产出的规则/修复 |
-| --- | --- | --- | --- |
-| 1 | 2026-08-25 | 一次「恢复被隐藏内容」的修复写了**清空 `sourceEventSeqs`** 的 replace marker → 会话加载被拒（`SessionPersistenceCorruptionError`）；第二次尝试把 marker 改成 **append** → 客户端引擎崩溃。两次都是**违约写入没被拦**。 | **S5**（sourceEventSeqs 必须覆盖被替换节点）、**M1**（turn-null 的 assistant/message 只能 replace）、写前校验 |
-| 2 | 2026-08-27~28 | 中断/暂停的轮次恢复时按**过期内存光标**重放，把旧 seq 追加到文件尾（尾部回归、重复批次）；两个写入者交织 → **文件物理序非单调**（`734056 → 733539 → 735470`）。会话 `seq gap` 加载失败。 | **S9**（物理序单调）、fix `--tail-renumber` |
-| 3 | 2026-08-27~28 | **fork 边界孤儿 spliced**：fork 的「移除父待处理提示词」splice 假设父会话 inbox；子会话 seed 相对重放里 inbox 为空 → `resume failed: invalid persisted inbox splice`。 | **I1**（inbox seed 相对重放）、fix `--neutralize-orphan` |
-| 4 | 2026-08-28 | 超限会话（**1,052,557 tokens** vs 1M 窗口）既无法继续也无法 `/compact`；裁剪预算估算对中文低估 ~3.7×。 | T1（token-meter 配对，保障可压缩）、`fix --trim-budget` 预算指引 |
-| 5 | 2026-08-29 | **W1/W2 wire 违规**：marker 遮蔽了带 tool_calls 的 assistant 但漏盖 tool 结果 → 悬空 tool，严格端点 `INVALID_REQUEST` 拒绝请求流。 | **W1 / W2**（wire 消息流） |
-| 6 | 2026-08-30 | 单个 **turn-null marker** 让 token-meter 监听器在**每条**追加事件上抛错（`consumedEvents` 不前进 → 每事件全前缀重折）→ **30 秒 / 10,008 行日志**、host 事件循环被压垮、全部会话锁定。同会话还有**跨 step sourceEventSeqs**（step 7/8/9 混进一条 assistant 消息）——离线 check 全绿、实机 meter 崩溃。 | **T1**（turn/step 配对）、**T2**（跨 step 源引用）、`fix --neutralize`、`fix --clip-crossstep` |
-| 7 | 2026-08-31 | 日志被压成**单个 zstd 帧**（或 header 未单独成帧）→ 不同读取器对记录边界理解不一致 ⇒ **Z4/Z5** 帧形状规则（首帧必须恰好一行 header；正文分帧） |  |
-| 8 | 2026-08-31 | **尾帧在写入中被撕裂**的日志完全无法加载、且没有诊断 ⇒ **Z1** + 明确报「尾帧撕裂 / 写入中」 |  |
-| 9 | 2026-09-09 | **会话格式 v4** 下 `tool/result` 改用 `role:'tool'`、`system/message` 带 `system-prompt` 来源 → v3 语义的检查在**健康 v4 日志**上产出**数千条误报** ⇒ 版本分派 + **E6/E9** v4 语义 |  |
-| 10 | 2026-09-17 | **Windows** 上 `header.cwd` 用 POSIX 规则判定 → **所有**会话被 **H2** 误报 ⇒ 平台感知的绝对路径判定 |  |
-| 11 | 2026-10-20 | **超过 500MB 的会话**让读取器崩溃（`ERR_STRING_TOO_LONG`），修复时又把全文拼进内存 ⇒ 按行解码 + 流式帧重建 |  |
-| 12 | 2026-10-20 | 两段式载体引用有的把「审计段」写在前面、早期约定从区间起点开始 → 读取侧报出**数百个假孤儿载体** ⇒ **P5** 写侧成对 + 读侧容错 |  |
-| 13 | 2026-10-20 | `seedLength` 被部分消费方当作**字节数**（其语义是「继承事件条数」），且 `parentSession` 配缺失/0 被当成损坏 ⇒ **I2** 语义钉死 |  |
-| 14 | 2026-10-20 | 一种**未知但显式可忽略**的事件类型让整条迁移卡死 ⇒ **G4** 声明式跳过 + 白名单 |  |
-| 15 | 2026-10-26 | 一个**截断 zstd 帧**让会话读头抛 `ERR_OUT_OF_RANGE`，而聚合循环没有逐项隔离 ⇒ 整个枚举/汇总能力失败（33 天内数百次）——**单文件损坏 ⇒ 整表失败** | **R4**（读取容错：降级为结构化、可计数结果）、**R5**（聚合 API 逐项隔离 + 失败计数） |
-| 16 | 2026-10-26 | **最后一帧写入中被切**的文件仍报 `ok=true`——体检只认证已读到的事件 | **Z6**（`tailStatus: complete/interrupted/truncated/unknown`）+ 明示口径边界 |
-| 17 | 2026-10-26 | 生产者**写侧自造 seq**、以及**删行不重编号** | **E11**（seq 由日志层分配；写前拒绝自造 seq）、缺口痕迹钉到 `E2`/`S9` |
-
-
-> **结论**：这些规则不是合成理论——每一条都有回归测试复现它守护的那种损坏形态。这就是这里「生产级」的含义。
-
----
-
-## 安装
-```bash
-pnpm add -D dsh-log-contract   # 或 npm install
-pnpm dlx dsh-log-contract --help
-```
-
-> **你是 dsh-retrace 用户？** 无需单独安装——`dsh-retrace` 已把 `dsh-log-contract`
-> 声明为依赖，装 retrace 时自动带好契约守护（体检/写前校验/修复原语全部随插件生效）。
-> 本包独立发布，供愿意单独使用或二次开发的用户直接引入。
->
-> **从 GitHub 下载了 ZIP？** 解压后 `cd dsh-log-contract && npm install`，
-> 然后 `node bin/dsh-log-contract.mjs check <session-log>` 即可使用（无需构建、无需全局安装）。
-
-依赖：Node ≥ 22（`node:zlib` 内置 zstd）、`@deepseek-ai/dsh-session`（peer，校验/解码复用官方实现，保证与 Harness 读路径同源）。
-
----
-
-## CLI 用法
-### 1. 离线体检
+运行要求：**Node ≥ 22**（内置 zstd）＋ peer 依赖 `@deepseek-ai/dsh-session`
+（解码/折叠语义直接复用宿主实现）。
 
 ```bash
-dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd
-dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json   # 机器可读
+# 1. 安装（也可以不装，直接用 pnpm dlx）
+pnpm add -D dsh-log-contract
+
+# 2. 体检一份会话日志，机器可读输出
+pnpm dlx dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json
+
+# 3. 查看全部日志契约规则（id / 严重度 / 出处）
+pnpm dlx dsh-log-contract contracts
 ```
 
-输出示例：
+> **在用 dsh-retrace？** 不需要单独安装——它把 `dsh-log-contract` 声明为依赖，守卫随插件带入。
+> **下载的是 ZIP？** `cd dsh-log-contract && npm install`，再跑
+> `node bin/dsh-log-contract.mjs check <log>`（无构建步骤、无需全局安装）。
 
-```
-📋 dsh-log-contract check —— backup-session-xxxx.jsonl.zstd
-   事件 204754 ｜ surface 节点 16 ｜ replace 代数 5 ｜ 帧 8620（3439.5KiB → 8191.3KiB）
+## 体检输出与退出码
+
+```text
+📋 dsh-log-contract check —— <file>
+   事件 204754 ｜ surface 节点 16 ｜ replace 代数 5 ｜ 帧 8620
    违规 1（error 1 / warning 0）
 
   [error] S5 @ seq <seq> / line <line> (assistant/message)
@@ -253,233 +99,346 @@ dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json   # 机器可读
 ❌ 未通过：见上方违规明细（error 级 = 会话不可读/不可写）
 ```
 
-**退出码契约**（没有退出码 `2`）：
+### 退出码
 
-| 退出码 | 含义 |
+`check` 使用 `0 / 1 / 3 / 4`——**没有 `2`**。`error-contract` 是另一条命令，有自己的错误码。
+
+| 退出码 | 命令 | 含义 |
+|---|---|---|
+| `0` | `check` | 通过——无 error 级违规，且迁移预检未 blocked |
+| `1` | `check` | 存在 error 级违规（下游读者会失败） |
+| `3` | `check` | 不可在本宿主评估（文件格式新于宿主支持上限）——**不是**"坏了" |
+| `4` | `check` | 迁移预检 blocked（官方升级链会拒绝该文件） |
+| `0 / 1 / 2` | `error-contract` | 无疑点（第三方产物疑点默认只登记） / 有 error 级疑点（T1；T2 需 `--strict`） / 无法判定（输入有误） |
+
+### 三档结论（`check --resume`）
+
+| 档位 | 认证什么 | `--json` |
+|---|---|---|
+| `loadable` | 会话能被读入（结构规则） | `resume.loadable` |
+| `resumable` | ＋ inbox 重放合法 | `resume.resumable` |
+| `compactable` | ＋ token-meter 配对合法 | `resume.compactable` |
+| `broken` | 第一档就不过 | `resume.verdict` |
+| `not-assessable` | 本宿主判不了（退出码 3） | `assessable: false` |
+
+### 哪些"没有判"（不要读成通过）
+
+`ok: null` / `skipped` = **不可判定**，不是成功。所有可选段同一个口径：
+
+| 情形 | 字段 / 值 | 怎么读 |
+|---|---|---|
+| 没有身份登记表（npm 安装包不含 `docs/identity-registry.json`） | `identity.ok: null` | 不可判定——在源码仓/发布流程里做身份校验 |
+| 运行时断言缺输入 | 断言 `ok: null`，列在 `skipped` | 不可判定——补运行记录 |
+| 归档读端未就绪 / 暂不可读 | `archive.verdict: "unverifiable"`（`notReady`、`unavailable`） | **不是**"内容缺失"；读端恢复后重试 |
+| 宿主太旧、判不了文件格式 | `assessable: false`，退出码 3 | 不是健康结论 |
+| 最后一帧写入中被切 | `summary.tailStatus: interrupted / truncated / unknown` | `ok: true` 只认证已读到的事件 |
+
+**尾部边界**：`ok: true` 从不承诺文件完整。`interrupted`（尾帧撕裂）宿主读端可恢复；
+`truncated` 表示记录真的缺；`unknown` 表示尾部不可读。
+
+## 三层契约（模型）
+
+> **四个报告家族、共 72 条**：下表 **57 条日志契约**（每条带官方出处）＋ **6 条错误表达**
+> （E1–E6）＋ **2 条版本同一性**（ID1/ID2）＋ **7 条运行时契约**。`contracts` 只列 57 条
+> 日志契约；其余家族各有独立文档。
+
+| 层 | 规则 | 守护什么 |
+|---|---|---|
+| **持久化** | H/R/E/S（含 **S5**）+ **S9** | `seq` 连续；类型已知；`surfaceOp` 合法；`sourceEventSeqs` 覆盖每个被替换节点；文件物理序 `seq` 单调；`foldSurface` 不抛错 |
+| **客户端引擎** | **M1** + **T1 / T2 / I1** | turn-null marker 只能 replace；token-meter 配对；跨 step 源引用；inbox seed 相对重放 |
+| **wire 消息流** | **W1 / W2** | tool 消息必须跟在带 tool_calls 的 assistant 之后；tool_calls 与结果之间不得插 user 文本 |
+| **插件语义** | **P1 / P2** | marker id 前缀可识别；marker 自身 seq 不得出现在自身 shadowed 集 |
+| **帧结构** | **Z1–Z8** | zstd 帧形状（header 独占首帧；不得压成单帧）、空会话、尾部完整性、帧尺寸/校验和 |
+| **读取 / 聚合** | **R4 / R5** | 单文件损坏必须降级为结构化、可计数结果（不抛错、不中断枚举）；聚合按项隔离失败 |
+
+> 判定哲学：先按官方同语义做增量重放，**逐事件归因**（定位到 `seq` / 行号），再用官方
+> `foldSurface` 做**终验**（不抛错 = 通过）——两者都绿才算过。
+
+## 规则家族（哪些会判红）
+
+每条规则都有稳定 id、严重度、出处，以及**正/负对照用例**（违规样本必须红、合规样本必须绿）。
+四个家族按 `family` 分派，⛔ 不要按 id 字面合并。
+
+| 家族（`family`） | 条数 | 守护什么 | 全量清单 |
+|---|---|---|---|
+| **日志契约 log contract** | **57** | 持久化日志：帧形状（Z）、header（H）、存储行（R）、事件信封/seq（E）、surface 不变量（S）、客户端引擎（T/M/I）、wire 顺序（W）、插件 marker（P）、并发（C）、迁移预检（G）、归档可还原（A） | [docs/CONTRACTS.md](docs/CONTRACTS.md) |
+| **错误表达 error-expression** | **6**（E1–E6） | 把错误处理当契约：一码多成因、message 常量、终态词误用、cause 被吞、无条件成功、声称但无执行点 | [docs/ERROR-CONTRACT.md](docs/ERROR-CONTRACT.md) |
+| **版本同一性 version-identity** | **2**（ID1–ID2） | *跑的是不是声明版本承诺的那一份？* ID1 一物一号（同版本只能对应一个摘要）；ID2 号可验（摘要由产物计算并与版本绑定） | [docs/interface-versioning.md](docs/interface-versioning.md) |
+| **运行时契约 run-contract** | **7** | *跑起来会不会静默变样？* R-1 失败置位不清零；R-2a 写失败不得标完整；R-2b 撤回必须带消费方可读原因；R-2b-2 初始化中 ≠ "没有"；R-3 输入缺失 ⇒ 不兼容；R-5 闭集穷尽 / 开集不穷尽；R-6 同键副作用幂等 | [docs/RUN-CONTRACT.md](docs/RUN-CONTRACT.md) |
+
+合计 **72** 条断言（57 + 6 + 2 + 7）。run-contract 的 id **不是**连续的 1…7——代码里的 id 是
+`R-1 / R-2a / R-2b / R-2b-2 / R-3 / R-5 / R-6`（这就是全部七条）。日志家族的 S9 还额外输出
+病因分类（`old-cursor-replay` / `concurrent-writer` / `format-mix`）与置信度/判定式；
+S9 的判定本身不变。
+
+## 身份契约（ID1 / ID2）——"跑的是不是你以为的那一份？"
+
+**独立报告家族**（`version-identity`）：不计入 57 条日志契约，也**不进 `ok` / 退出码**——
+它回答"运行产物是不是声明版本承诺的那一份"。
+
+| 规则 | 守护什么 |
 |---|---|
-| `0` | 通过——无 error 级违规（且迁移预检未 blocked） |
-| `1` | 存在 error 级违规（本规则集下会话不可读/不可写） |
-| `3` | 不可在本宿主评估（文件格式新于宿主支持上限）——**不是** "broken" |
-| `4` | 迁移预检 blocked（官方升级链会拒绝该文件） |
+| `ID1` | **一物一号**：登记表（`docs/identity-registry.json`）里同一版本不得对应两个不同内容摘要 ⇒ 判红并带 `file:line` 证据（重复登记但摘要相同不报）。 |
+| `ID2` | **号可验**：摘要由**产物**实算——运行身份 = `lib/**/*.js` + `bin/**/*.mjs` 逐文件 sha256 → 排序后再 sha256——并与 `package.json.version` 绑定。未登记、摘要不符/伪造、或**同号改了代码** ⇒ 判红；**只改文档 ⇒ 摘要不变 ⇒ 绿**（不制造噪音）。 |
 
-**三档结论**（`check --resume`，`--json` 里为 `resume` 字段）：
-`loadable`（结构绿）⊂ `resumable`（+ `I1` inbox 重放绿）⊂ `compactable`
-（+ `T1`/`T2` token-meter 配对绿）；第一档就不过的报 `broken`，宿主判不了时是独立的第四态 `not-assessable`。
+`check --json` 以 `identity` 段暴露（`family` / `rules` / `ok` / `version` / `digest` /
+`runtime` / `registry` / `findings[]`（带 `file:line`）/ `summary`）；登记表缺失时
+`identity.ok` 为 `null`（**不可判定**，不冒充通过）——npm 包只带 `docs/**/*.md`。
+换版本或改运行时代码后重登记：`pnpm identity:register`（仅源码仓；npm 包不含 `scripts/`）。
 
-**尾部完整性边界**：`ok=true` 只认证"已读到的事件自洽"——详见 0.3.28 一节的 `tailStatus` 说明。
+## 运行时契约（7 条）——"跑起来会不会静默变样？"
 
-`check` 自 0.2.0 起新增 **W1/W2 wire 级检查**：按 surface 顺序展开模型请求消息流，
-捕获"悬空 tool 消息"（tool 结果没有前置 assistant tool_calls）与"user 文本插在
-tool_calls 与其结果之间"——这类问题 DeepSeek 曾容忍，但 MiMo 等严格端点会直接
-`INVALID_REQUEST`（2026-08-27 实锤）。
+**独立报告家族**（`run-contract`，`check --json` 暴露为 `runContract`），同样不进
+`ok` / 退出码。它为真实运行记录提供断言函数：
 
-### 1.1 错误表达契约检查（`error-contract`）
+| 规则 | 断言 | 守护什么 |
+|---|---|---|
+| `R-1` | `assertFailureLatched(history)` | 失败必须**置位**：出现 `failed: true` 后，恢复/重载/清缓存的任何快照都不得写回 `failed: false` |
+| `R-2a` | `assertWriteOutcome({ write, artifact })` | 写入失败或结果未知时，产物不得标 `complete`——必须撤回或标 `partial` / `unavailable` / `withdrawn` |
+| `R-2b` | `assertWithdrawalHasReason({ withdrawals, reasonField?, reasonSupported? })` | 撤回类响应必须带**消费方可读的原因**；原因只在日志/遥测旁路 ⇒ 红；实现侧无该字段 ⇒ `ok: null` |
+| `R-2b-2` | `assertInitializedNotTreatedAsEmpty({ resources })` | 资源初始化中/取不到时不得按空值推"没有"；无初始化信号 ⇒ `ok: null` |
+| `R-3` | `assertFailClosed({ required, provided, result })` | 任一必需输入（字段/文件/上下文）缺失 ⇒ 判定必须**不兼容**，且原因点名缺项 |
+| `R-5` | `assertClosedSetExhaustive({ closedSet, covered })` / `assertOpenSetTolerant({ openSet, observations })` | 自己的闭集必须穷尽（漏值/外溢 ⇒ 红）；外部开集不得穷尽——未知值须留痕、默认放行、可升级 |
+| `R-6` | `assertIdempotentSideEffects({ operations, keyField? })` | 副作用按稳定键至多执行一次；后续必须缓存或显式"重复"；记录无稳定键 ⇒ `ok: null` |
 
-对「错误是怎么抛的」做静态扫描（源码文本；不做 AST）。这是**错误表达契约 6 条**
-（E1–E6；63 = 日志契约 57 + 本族 6）：
-E1 一个码多成因 / E2 message 是常量 / E3 终态词用于非终态因 / E4 `cause` 未透出 /
-E5 无条件成功（候选）/ E6 声称无执行点（候选）。
+`checkRunContract({...})` 一起跑，并把未提供输入的断言列进 `skipped`；**一条都没跑**时
+`ok` 为 `null`（不可判定，不冒充通过）。用法与正反例见
+[docs/RUN-CONTRACT.md](docs/RUN-CONTRACT.md)。
+
+## 版本支持（宿主 / 会话格式）
+
+**测试基线（本规则集验证过的版本）：**
+
+| 项 | 基线 | 说明 |
+|---|---|---|
+| 宿主包 | `@deepseek-ai/dsh-session@0.2.0-rc.2` | 本规则集开发与 CI 测试所用版本 |
+| 会话格式 | **v4**（`SESSION_FORMAT_VERSION = 4`） | v4 使用运行时词表 + 官方 `foldSurface` 终验 |
+| 声明范围 | `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1` | 可安装——声明范围**不等于**逐版本验证 |
+| 已知格式 | 0 / 1 / 2 / 3 / 4 | 0–2 由本包自带**vendored** 词表 + 本地等价折叠（`legacyFoldSurface`）支持，与宿主版本无关 |
+
+**未验证版本的行为（运行时检测并报告，绝不用旧规则静默硬判）：**
+
+| 情形 | 行为 |
+|---|---|
+| 宿主**新于基线** | 明确**告警**；仍给结论，但标记"可能不适用" |
+| 宿主旧于基线（仍在 peer 范围） | 提示 + 宿主能力检查判断文件格式能否评估（`SESSION_FORMAT_VERSION` 过低 ⇒ `not-assessable`，退出码 3） |
+| **未知**会话格式（不在 0/1/2/3/4） | 报"未验证格式"并**只读**：`check` 只跑结构规则；`prewrite` / `fix` 拒绝（退出码 3） |
+| 格式**无法识别**（无 `header.version`、无判别形状） | 同上："未验证格式" + 只读 |
+| 文件版本高于宿主支持上限 | `not-assessable`（**不是** broken），退出码 3；列出跳过/已执行规则 |
+
+实现：`lib/version-support.js`（`TESTED_BASELINE` / `detectSupport()`，公开 API 导出）；
+`--json` 的 `support` 字段携带同一基线摘要与告警。
+
+## CLI
+
+安装后 `dsh-log-contract` 由包管理器放到 PATH（下面用 `pnpm exec`；不安装可用
+`pnpm dlx dsh-log-contract …`）。
+
+### 1. 离线体检
 
 ```bash
-dsh-log-contract error-contract lib/ bin/ --json                 # T1（我方代码）：命中 ⇒ exit 1
-dsh-log-contract error-contract <pkg>/lib/index.js --target T2    # T2（第三方）：只登记，exit 0
-dsh-log-contract error-contract lib/ --keys thresholdRatio,headroom   # E6① 声明 key 的读取点
-dsh-log-contract error-contract lib/ --config cordis.patch.yml       # E6① 从 YAML config 段派生
+pnpm exec dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd
+pnpm exec dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --json   # 机器可读
+pnpm exec dsh-log-contract check ~/.dsh/sessions/<id>.jsonl.zstd --resume # 三档结论
 ```
 
-⚠️ **输出是可疑清单，不是缺陷认定**：规则是启发式的、必然有假阳性——每条命中带原始
-`evidence` 供人工复核；白名单条目必须带 `expires` 到期日（缺失/非法/过期 ⇒ exit 2，fail-closed）。
-完整判据、假阳性风险与白名单格式：[docs/ERROR-CONTRACT.md](docs/ERROR-CONTRACT.md)。
+`check` 还包含 **W1/W2 wire 级检查**：按 surface 顺序展开模型请求流，抓"悬空 tool 消息"
+（tool 结果没有前置 assistant tool_calls）与"user 文本插在 tool_calls 和结果之间"——
+宽松端点容忍，严格端点直接 `INVALID_REQUEST`。
+
+### 1.1 错误表达扫描（`error-contract`）
+
+对**错误怎么被抛出**做静态扫描（源码文本，无 AST）。这是 **6 条错误表达家族**
+（E1–E6）：一码多成因 · message 常量 · 终态词误用 · cause 未暴露 · 无条件成功（候选）·
+声称但无执行点（候选）。
+
+```bash
+pnpm exec dsh-log-contract error-contract lib/ bin/ --json              # T1（我方代码）：命中 ⇒ 退出码 1
+pnpm exec dsh-log-contract error-contract <pkg>/lib/index.js --target T2 # T2（第三方）：只登记，退出码 0
+pnpm exec dsh-log-contract error-contract lib/ --keys thresholdRatio,headroom
+pnpm exec dsh-log-contract error-contract lib/ --config cordis.patch.yml
+```
+
+⚠️ **输出是可疑清单，不是缺陷认定**：规则是启发式，必然有假阳性——每条都带原始
+`evidence` 供人复核；白名单条目必须带 `expires` 日期（缺失/非法/过期 ⇒ 退出码 2，
+fail-closed）。完整判据见 [docs/ERROR-CONTRACT.md](docs/ERROR-CONTRACT.md)。
 
 ### 2. 修复（`fix`）
 
 ```bash
-# 干跑（只报告）：严格 seq 连续扫描 + 全契约体检（含 W1/W2）+ 可移除 marker 数
-dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers
+# 干跑（只报告）：严格 seq 扫描 + 全量契约检查 + 可移除 marker 计数
+pnpm exec dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers
 
-# 应用：备份后落盘（.zstd 走官方帧格式重建：帧1=header、帧2=其余、checksum、单个结尾换行）
-dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers --apply
+# 落盘：先备份，再写（.zstd 按官方帧格式重建：帧1=header、后续=批次、带 checksum、单个结尾换行）
+pnpm exec dsh-log-contract fix ~/.dsh/sessions/<id>.jsonl.zstd --remove-markers --apply
 ```
 
-- `--remove-markers`：移除 retrace/message-editor marker 并全量重编号
-  （seq/seq0/sourceEventSeqs/surfaceOp 同步）——用于大范围 marker 遮蔽历史、
-  marker 漏盖 tool/result 导致的悬空 tool。
-- `--neutralize`：原地中和 turn-null marker（案例 #6）——type → `retrace/marker` +
-  `ignorable:true`，删 surfaceOp/sourceEventSeqs，seq/行数不变（会话驻留也安全）。
-- `--clip-crossstep`：裁剪跨 step sourceEventSeqs（案例 #6）——只保留同 turn/step 的 chunk 引用。
-- 手术安全协议：改前备份、改后全量复检（strictScan + check + foldSurface）、
-  marker 只能遮蔽其之前的节点、marker 绝不能改成 append（M1 客户端崩溃）。
-- ⚠️ 若会话已被运行中的应用驻留内存，修复文件后需**重启应用**（强杀避免脏状态刷回）。
+- `--remove-markers`：移除 retrace / message-editor marker 并全量重编号（`seq` / `seq0` /
+  `sourceEventSeqs` / `surfaceOp` 同步）——用于大范围 marker 遮蔽历史或 marker 漏盖 tool。
+- `--neutralize`：原地中和 turn-null marker——type → `retrace/marker` + `ignorable: true`，
+  删 `surfaceOp` / `sourceEventSeqs`，`seq` / 行数不变（会话驻留时也安全）。
+- `--clip-crossstep`：裁剪跨 step 的 `sourceEventSeqs`——只保留同 turn/step 的 chunk 引用。
+- 手术安全协议：先备份、改后复核（严格扫描 + check + `foldSurface`）；marker 只能遮蔽更早
+  节点；marker 绝不能变成 append（M1 会让客户端引擎崩溃）。
+- ⚠️ 若会话正被运行中的应用驻留，修复文件后**重启应用**（强杀，避免脏状态刷回）。
 
 ### 3. 写前校验（`prewrite`）
 
-`edit-file` 为 JSON，两种形状：
+`edit-file` 是 JSON，两种形状：
 
 ```jsonc
-// 拟追加一个事件到日志尾部（seq 缺省 = 自动按 nextSeq 赋值）
-{ "append": { "type": "assistant/message", "surfaceOp": { "op": "replace", "start": 121774, "end": 156421 }, "sourceEventSeqs": [121774, 121779, "…"], "data": { "turn": null, "step": null, "message": { "…": "…" }, "editor": { "targetSeq": 156430, "text": "…" } } } }
+// 向日志尾部追加一个事件（省略 seq = 自动赋 nextSeq）
+{ "append": { "type": "assistant/message", "surfaceOp": { "op": "replace", "start": 121774, "end": 156421 }, "sourceEventSeqs": [121774, 121779], "data": { "turn": null, "step": null, "message": {}, "editor": { "targetSeq": 156430, "text": "…" } } } }
 
-// 帧级手术后的完整事件列表（改后确认，与改前基线双绿才允许落盘）
+// 帧级手术：编辑后将存在的完整事件列表
 { "edit": [ "…完整事件列表…" ] }
 ```
 
 ```bash
-dsh-log-contract prewrite marker-write.json --log ~/.dsh/sessions/<id>.jsonl.zstd
+pnpm exec dsh-log-contract prewrite marker-write.json --log ~/.dsh/sessions/<id>.jsonl.zstd
 ```
 
-- 基线本身有 error 级违规时直接拒绝校验（安全修复协议第 2 步：**改前基线必须绿**）。
-- `seq` 必须**省略**（自动赋 `nextSeq`）或恰好等于 `nextSeq`——自造 `seq` 直接拒绝（`E11`）；
-  文件侧的"删行不重编号 / 自造 seq"痕迹由 `E2`/`S9` 判红。
-- 判定通过才允许落盘——**validate first, commit later**（与官方 `SurfaceManager.validateNext` 同思路）。
+- 基线已有 error 级违规 ⇒ 直接拒绝（手术前基线必须绿）。
+- `seq` 必须**省略**（自动赋 `nextSeq`）或恰等于 `nextSeq`——自造 `seq` 被拒（`E11`）；
+  文件侧的"删行不重编号"和"自造 seq"表现为缺口，由 `E2` / `S9` 抓。
+- 只有通过才允许落盘——**先校验、后提交**（与官方 `SurfaceManager.validateNext` 同一思路）。
 
 ### 4. 契约目录
 
 ```bash
-dsh-log-contract contracts
+pnpm exec dsh-log-contract contracts            # 57 条日志契约（含出处）
+pnpm exec dsh-log-contract explain S9 --json   # 单条规则：标题、判据、对照指针
 ```
 
-完整契约清单见 [docs/CONTRACTS.md](docs/CONTRACTS.md)。
+全量目录：[docs/CONTRACTS.md](docs/CONTRACTS.md)。
 
 ### 5. 会话考古（`extract` / `audit-report`）
 
-DSH 会话日志持久化了每次工具调用的完整输入输出——数据资产与审计资产。
-只读考古能力：
+每次工具调用的完整输入/输出都在会话日志里——是数据与审计资产。只读考古：
 
-```sh
+```bash
 # 按命令正则导出工具输出（保留原始文本）
-dsh-log-contract extract <session-log> --pattern "build-report" --min-size 50 --out ./found
+pnpm exec dsh-log-contract extract <session-log> --pattern "build-report" --min-size 50 --out ./found
 
-# 考古审计报告：调用数 / 配对率 / 孤儿数 / 命令分布
-dsh-log-contract audit-report <session-log>
+# 考古审计：调用数 / 配对率 / 孤儿数 / 命令分布
+pnpm exec dsh-log-contract audit-report <session-log>
 ```
 
-契约规则 P3（tool/call↔tool/result 配对完整性）与 P4（输出结构可解析）
-守护"挖得动"：孤儿调用、text 字段异常在 check 中告警。
+契约规则 **P3**（tool/call ↔ tool/result 配对完整性）与 **P4**（输出结构可解析）保证
+提取可用：孤儿调用与异常 `text` 字段会在 `check` 里报出。
 
----
+## 事故表——为什么"生产级"不是口号
 
-## Node API（写前校验嵌入你的脚本）
+每条都是生产会话里**真实的日志损坏形状**——它们塑造了本工具。日期与形状为真实，会话 id
+与文件名省略。
+
+| # | 日期 | 发生了什么 | 产生的规则 / 修复 |
+|---|---|---|---|
+| 1 | 2026-08-25 | 一次"恢复隐藏内容"的修复写入 replace marker 时**清空了 `sourceEventSeqs`** → 会话拒绝加载（`SessionPersistenceCorruptionError`）；第二次改成 **append** → 客户端引擎崩溃。两次都是**没人拦住的违约写入**。 | **S5**（sourceEventSeqs 必须覆盖被遮蔽节点）、**M1**（turn-null assistant/message 只能 replace）、写前校验 |
+| 2 | 2026-08-27~28 | 中断/重启的轮次用**旧内存光标**回放，把旧 seq 重新追加到文件尾（尾部回退、重复批次）；两个写入者交织 → **文件物理序非单调**（`734056 → 733539 → 735470`）。会话加载报 `seq gap`。 | **S9**（物理序单调）、`fix --tail-renumber` |
+| 3 | 2026-08-27~28 | **fork 边界孤儿 splice**：fork 的"移除父待处理提示词"假设父会话 inbox，而子会话 seed 相对重放时 inbox 为空 → `resume failed: invalid persisted inbox splice`。 | **I1**（inbox seed 相对重放）、`fix --neutralize-orphan` |
+| 4 | 2026-08-28 | 超大会话（**1,052,557 tokens**，超出 1M 窗口）既不能继续也不能 `/compact`；裁剪预算估算把 CJK 低估约 3.7×。 | **T1**（token-meter 配对）决定可压缩性、`fix --trim-budget` 指引 |
+| 5 | 2026-08-29 | **W1/W2 wire 违规**：marker 遮蔽了带 tool_calls 的 assistant，却漏盖 tool 结果 → 严格端点（`INVALID_REQUEST`）拒绝请求流。 | **W1 / W2**（wire 消息流） |
+| 6 | 2026-08-30 | 单个 **turn-null marker** 让 token-meter 监听器在**每次**追加事件时抛错（`consumedEvents` 不前进 → 每个事件重折全前缀）→ **30 秒 / 10,008 行日志**，宿主事件循环被压垮，所有会话卡死。同一会话还有**跨 step `sourceEventSeqs`**（step 7/8/9 混进同一条 assistant 消息）——离线检查全绿，实时计量崩溃。 | **T1**（turn/step 配对）、**T2**（跨 step 源引用）、`fix --neutralize`、`fix --clip-crossstep` |
+| 7 | 2026-08-31 | 日志被压成**单个 zstd 帧**（或 header 未独占首帧）→ 不同读者对记录边界判断不一致。 | **Z4 / Z5**（首帧恰好一行 header；正文分帧） |
+| 8 | 2026-08-31 | 日志**尾帧写入中被撕裂**，完全无法加载且没有诊断。 | **Z1** + 明确报告"尾帧撕裂/写入进行中" |
+| 9 | 2026-09-09 | **会话格式 v4** 下 `tool/result` 使用 `role: 'tool'`、`system/message` 带 `system-prompt` source → 按 v3 形状检查对健康 v4 日志产生**数千条假错**。 | 按版本分派 + **E6 / E9** 的 v4 语义 |
+| 10 | 2026-09-17 | **Windows** 上 `header.cwd` 用 POSIX-only 规则判 → **每一个**会话都被 **H2** 误报。 | 平台感知的绝对路径判定 |
+| 11 | 2026-10-20 | **> 500 MB 会话**让读取器崩（`ERR_STRING_TOO_LONG`），修复也在内存里拼全量文本。 | 逐行解码 + 流式帧重建 |
+| 12 | 2026-10-20 | 两段载体引用有的把审计段放首位，早期写法则从区间起点开头 → 读者报出数百个**假孤儿载体**。 | **P5** 写侧配对 + 读侧容错 |
+| 13 | 2026-10-20 | 部分消费方把 `seedLength` 当**字节数**（它其实是继承事件条数），并把 `parentSession` + 缺失/0 当成损坏。 | **I2** 语义钉死 |
+| 14 | 2026-10-20 | 一个**未知但显式可忽略**的事件类型让整条迁移卡死。 | **G4** 声明式跳过 + 白名单 |
+| 15 | 2026-10-26 | **截断的 zstd 帧**让会话头读取器抛 `ERR_OUT_OF_RANGE`；没有逐项隔离，整轮枚举/汇总失败（33 天累计数百次失败）——一个坏文件拖垮整批。 | **R4**（读取容错：结构化、可计数）、**R5**（聚合逐项隔离 + 失败计数） |
+| 16 | 2026-10-26 | 最后一帧写入中被切的文件仍报 `ok=true`——体检只认证它真正读到的事件。 | **Z6**（`tailStatus: complete/interrupted/truncated/unknown`）+ 文档化的尾部边界 |
+| 17 | 2026-10-26 | 生产者在写侧**自造 `seq`**，以及**删行不重编号**。 | **E11**（`seq` 只能由日志层分配；写前拒绝自造 `seq`）、缺口痕迹由 `E2` / `S9` 兜住 |
+
+> **结论**：这些规则不是凭空推演——每条都有回归用例复现它守护的坏形状。这就是这里的
+> "生产级"。
+
+## Node API（在脚本里嵌入写前校验）
+
 ```js
 import { loadSessionLog, validateSessionLog, createPreWriter } from 'dsh-log-contract';
 
-// ① 基线体检（改前基线必须绿）
+// ① 基线检查（手术前基线必须绿）
 const log = loadSessionLog('session.jsonl.zstd');
 const baseline = validateSessionLog(log);
-if (!baseline.ok) throw new Error('基线已坏，先修基线');
+if (!baseline.ok) throw new Error('baseline is broken; repair it first');
 
-// ② 写前校验：拟写入一个 marker replace
+// ② 写前校验：准备写入一次 marker replace
 const prewriter = createPreWriter({ events: log.events.map((e) => e.event) });
 const verdict = prewriter.validateAppend({
   type: 'assistant/message',
   surfaceOp: { op: 'replace', start: 121774, end: 156421 },
-  sourceEventSeqs: [121774, 121779 /* …必须完整覆盖被替换节点… */],
-  data: { turn: null, step: null, message: { /* … */ } },
+  sourceEventSeqs: [121774, 121779], // 必须覆盖全部被遮蔽节点
+  data: { turn: null, step: null, message: {} },
 });
 if (!verdict.ok) {
   for (const v of verdict.violations) console.error(v.id, v.message);
   process.exit(1); // 不落盘
 }
-// ③ 通过后才写
+// ③ 只有通过才写入
 ```
 
----
+## 版本与兼容
+
+三个独立维度：
+
+| 维度 | 在哪里 | 当前 |
+|---|---|---|
+| 包版本 | npm / `package.json` | 见页面顶部徽章 |
+| 会话格式版本 | 日志的 `header.version` | v0–v4 |
+| 报告结构版本 | `check --json` 的 `schemaVersion` | **`"6"`** |
+
+`schemaVersion` 历史（每一步都是只增；旧消费者忽略未知键）：
+
+| 版本 | 新增 | 兼容读法 |
+|---|---|---|
+| `"1"` | 基础 `check` 报告 | 无该字段的旧报告按 `"1"` 读 |
+| `"2"` | S9 诊断字段（`category` / `confidence` / `hint` / `basis` / `diagnosis`） | v1 消费者忽略新增字段 |
+| `"3"` | `identity` 段（版本同一性） | v2 消费者忽略该段 |
+| `"4"` | `runContract` 段（3 条） | v3 消费者忽略该段 |
+| `"5"` | run-contract ＋R-2b / R-6（5 条） | v4 消费者忽略新增规则条目 |
+| `"6"` | run-contract ＋R-2b-2 / R-5（7 条）；归档读端未就绪 ⇒ `unverifiable` | v5 消费者忽略新增规则条目 |
+
+- 包版本、会话格式版本、报告结构版本**不可互换**；纯文档改动不改变规则与 `schemaVersion`。
+- 版本对照：[VERSIONS.md](VERSIONS.md)；逐版说明：[CHANGELOG.md](CHANGELOG.md)。
+- 宿主支持：测试基线 `@deepseek-ai/dsh-session` **0.2.0-rc.2**；声明范围
+  `^0.1.0-rc.7 || ^0.1.5-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1`。文件格式新于宿主支持上限时
+  报"不可评估"（退出码 3、只读），不会用旧规则硬判。
+
+## 常见问题
+
+**`ok: true` 就代表会话"能用"吗？** 只代表"本规则集看过的地方没坏"。它不承诺内容质量；
+当文件需要格式迁移时，评估范围是 `partial`——迁移维度只部分覆盖
+（`--json` → `assessmentScope` / `migration.coverage.uncovered`）。
+
+**尾部被切掉了，为什么还是绿？** 因为体检只认证"读到的事件"。看 `summary.tailStatus`：
+`interrupted`（尾帧撕裂，可恢复）与 `truncated`（记录缺失）是两件事。
+
+**身份摘要（identity）是干什么的？** 防"同一个版本号、两份内容"——消费方静默跑旧构建的那类
+故障。登记表在 `docs/identity-registry.json`；换版本或改运行时代码后用 `pnpm identity:register`
+重登记（仅源码仓）。安装包里没有登记表 ⇒ `identity.ok` 为 `null`（不可判定，不冒充通过）。
+
+**S9 的诊断是什么意思？** 除违规本身，S9 还带病因分类：`old-cursor-replay`（旧内存态回放）/
+`concurrent-writer`（并发写者）/ `format-mix`（格式代混写），并在 `--json` 里给出置信度与
+判定式（`category` / `confidence` / `hint` / `basis`）；判定本身不变。
+
+**规则怎么验证？** 每条规则都有正/负对照用例；另有一套规则自检（注册表完整性、id 绑定、
+逐规则覆盖、"报出的违规码都已注册"）。见下方[测试](#测试)。
 
 ## 测试
-```bash
-pnpm check && pnpm test    # 语法检查 + 契约文档漂移闸 + 全部单测（含案例回归用例）
-```
-
-- **合成夹具**（入库）：合法会话 / seq 缺口 / 空 sourceEventSeqs / turn=null append / 未知 type / 坏 chunk 行 / 撕裂尾帧 / 未知 marker 前缀 / 自指 shadowed 等。
-- **负对照是硬要求**：每条规则都必须有"违规样本判红 + 合规样本绿"的对照用例（上面的案例回归夹具同时充当这些对照）。
-- **规则自检**（`test/rules-self-test.test.js`）：注册表完整性、`violation(id)` 绑定、
-  每条规则的测试对照覆盖（或显式登记的判定委托）、以及"每个报出的违规码都已注册"——
-  规则不可能没有对照而存在，对照也不可能引用未注册的规则。
-
-> **发布包范围**：只含运行时代码与文档。维护者本地工具不在公开仓内，
-> 因此 `pnpm check` / `pnpm test` 在干净的克隆里即可通过。
-
-## 本地 Git 钩子（可选，需手动安装）
-仓库提供 `.githooks/pre-push`（推送前跑 `pnpm check`），但它**不会因为 clone 自动生效**——必须显式指向：
 
 ```bash
-git config core.hooksPath .githooks   # 启用
-git config --get core.hooksPath       # 验证：应输出 .githooks
+pnpm check && pnpm test   # 文档一致性检查 + 全量测试（正/负对照 + 规则自检）
 ```
 
-跳过仅限紧急情况：`git push --no-verify`。卸载：`git config --unset core.hooksPath`。
-
-> 钩子是本地便利，不是信任边界：CI（`.github/workflows/ci.yml`）会跑 `pnpm check` /
-> `pnpm check:strict` / `pnpm test`，未安装钩子的克隆同样受门禁约束。
-
-按**日志形态**给出的判定——本工具对每类缺陷该说什么，而不是对某个具体文件：
-
-| 日志形态 | 判定 | 触发的规则 |
-|---|---|---|
-| seq 缺口，或文件物理序非单调 | FAIL | S8 / C1 / T1 / E2（seq 倒退时另加 S9） |
-| 重写引入缺口 | FAIL | S8 / C1 / T1 / E2 / I1 |
-| inbox splice 无效 + turn-null marker | FAIL | T1 / I1 |
-| 修复前形态：遗留 turn-null marker | FAIL | T1 |
-| 完整覆盖的数千跨度 replace marker | PASS | error 0——数据合规，官方 `foldSurface` 重放通过 |
-
-> 规则演进会移动表中行：0.3.5 新增 I1 后，「inbox splice 无效」这一形态从 PASS 变 FAIL。
-> 而「修复后会话通过」只对被修复后的产物成立——同一会话修复前的形态通常仍是 FAIL。
-
----
-
-## ⚠️ 升级说明（0.3.12 → 0.3.28）
-
-### 0.3.24 → 0.3.28 一段话说清
-
-新增四条规则（`R4`/`R5` 读取容错与聚合隔离、`E11` 写侧 seq 来源、`Z6` 尾部完整性），
-`--json` 新增三个机器可判字段（`summary.tailStatus`、`summary.tailStatusReason`、`summary.unreadableRows`）。
-行为变更很窄：尾部非 `complete` 时 `check` 会多报一条 `Z6` **warning**（判定结论与退出码
-不变——撕裂尾帧在宿主读取器语义下可恢复）；`prewrite` 拒绝携带自造 `seq` 的拟写事件
-（`E11`，error）。规则数 51 → 55。
-
-### 0.3.18 → 0.3.24 一段话说清
-
-**会话格式 v4**（宿主 `dsh-session` 0.2.x）改为按版本分派判定（`tool/result` 的 role、`system/message` 的来源）；
-新增五条规则（`G4` 未知但可忽略事件、`S10` 引用元素类型、`I2` `seedLength` 语义、`P5` 载体配对、`A1` 只认结构化字段的在位可还原）；
-大会话（>500MB）按行读取 + 流式帧重建；Windows 的 `header.cwd` 判定改为平台感知。
-> **0.3.17 不含行为变更。** 它只调整了注释、测试标题、少量诊断文案与 README 的措辞。
-> 所有判定结果、退出码与 `--json` 字段与 0.3.15 完全一致，
-> 因此从 0.3.12 升到 0.3.17 时，下面各条与原来完全一致。
->
-> 0.3.15 同样只是文档层面的发布。
-
-**1. 新增退出码 `3` / `4`：本质是缺陷修复，形式上也是破坏性变更。**
-- `3` = **不可在本宿主评估**：被检文件的 `header.version` 高于当前宿主支持的上限
-  （例如在 `@deepseek-ai/dsh-session@0.1.0-rc.7` 上检查 v3 日志）。此时**不再误报 `broken`**，
-  而是明确说明宿主能力不足；`fix --apply` 会**拒绝**该文件（不落盘、不写备份）。
-- `4` = **迁移预检 blocked**：本工具判断该文件会被官方升级链拒绝。
-- ⚠️ **把 `exit 0` 当"过"的流水线会由过转挂。** 旧行为在**工具自己就报告"官方会拒"**的文件上仍返回 `0`
-  —— 退出码与结论矛盾的假阴性。`--fail-on-migration` 是**默认已生效行为的显式别名**；
-  **真正的 opt-out 是 `--no-fail-on-migration`**，它恢复 0.3.11 的行为（结构绿即 `exit 0`）。
-  两者同时给时 **opt-out 优先**。也可改读 `--json` 的 `assessmentScope` / `migration.ready` 自定门槛。
-
-**2. `--json` 新增 `assessmentScope`（三值）。**
-
-| 值 | 含义 |
-|---|---|
-| `full` | 被检文件已是当前宿主的目标格式（**无需迁移**），覆盖完整 |
-| `partial` | 需要迁移 ⇒ 迁移预检**只覆盖 2 条规则，另有 6 类未覆盖**（≠ 通过；见 `coverage.uncovered`） |
-| `none` | **不可在本宿主评估**（宿主能力不足），不认证任何"可用/可升级"结论 |
-
-`partial` 时 CLI 不再给无条件绿：迁移行与末行都会写明"迁移维度仅部分覆盖"。
-
-**3.「体检通过」到哪一步为止。**
-本工具的规则集**不等于**官方升级链的接受条件。`assessmentScope=partial` 只表示"本工具看过的那部分没问题"，
-**不构成**"官方升级会接受"。已知未覆盖的 6 类见 `coverage.uncovered`。
-
-## Roadmap
-- [x] **Phase 1（0.1.0）**：CLI 离线体检 + 写前校验 + 契约目录
-- [x] **Phase 1.5（0.2.0）**：`fix` 子命令（严格 seq 扫描 + W1/W2 wire 检查 + 移除 marker 重编号 + 官方帧格式重建）；CI 集成（`dsh-log-contract check` 作为 Harness 会话目录的定时守护）
-- [x] **0.3.x（2026-08-30 案例固化）**：T1 token-meter 配对 → 0.3.1 W1/W2 折叠位置修复 → 0.3.2 `tailSeq` → 0.3.3 `fix --neutralize`（turn-null marker 原地中和）→ 0.3.4 `fix --clip-crossstep`（跨 step 引用裁剪）→ 0.3.5 **T2/S9/I1 规则**（跨 step 源引用 / 物理序单调 / inbox 重放）
-- [x] **0.3.6 → 0.3.15**：按被检文件版本择路的 v0–v3 规则（T3/T4/T5、L3–L5、E8/E9/E10）、宿主能力与迁移预检的退出码 `3`/`4`，以及如实报告"哪些版本**未**验证"的版本支持说明（详见 [CHANGELOG.md](CHANGELOG.md)）
-- [ ] Phase 2：运行时守护（订阅 session append 事件流实时校验，断裂即标记 `dsh/contract-violation` 事件，策略可配 告警/拦截）——DSH 插件形态
-- [ ] Phase 3：与 dsh-turn-guard / dsh-retrace 时间线联动
+- **仓内合成夹具**：合法会话 / seq 缺口 / 空 `sourceEventSeqs` / turn-null append /
+  未知类型 / 坏 chunk 行 / 撕裂尾帧 / 未知 marker 前缀 / 自遮蔽。
+- **负对照是硬要求**：每条规则都必须有"违规样本判红、合规样本判绿"的用例。
+- **规则自检**：注册表完整性、`violation(id)` 绑定、逐规则覆盖（或显式登记的判定委托）、
+  "每个报出的违规码都已注册"。
 
 ## 许可
-MIT © OfferKuai Team
 
----
+MIT © OfferKuai Team
